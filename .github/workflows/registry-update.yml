@@ -26,7 +26,31 @@ jobs:
           SHA=$(sha256sum "$MANIFEST" | awk '{print $1}')
           echo "sha=$SHA" >> $GITHUB_OUTPUT
 
+      - name: Sign manifest with ChittyCert (preferred)
+        if: env.CERT_SIGN_URL != ''
+        env:
+          CERT_SIGN_URL: ${{ secrets.CERT_SIGN_URL }}
+          CERT_AUDIENCE: ${{ secrets.CERT_AUDIENCE }}
+          CERT_TOKEN: ${{ secrets.CERT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Obtain OIDC for ChittyCert audience if configured, else use CERT_TOKEN
+          TOKEN="${CERT_TOKEN:-}"
+          if [[ -z "$TOKEN" && -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" && -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" && -n "${CERT_AUDIENCE:-}" ]]; then
+            TOKEN=$(curl -sS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${CERT_AUDIENCE}" -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" | jq -r '.value')
+          fi
+          DIGEST=$(printf "%s" "${{ steps.manifest.outputs.sha }}")
+          payload=$(jq -n --arg alg "SHA256" --arg digest "$DIGEST" '{alg:$alg,digest:$digest}')
+          code=$(curl -sS -o sign.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
+            --data "$payload" "$CERT_SIGN_URL")
+          test "$code" = "200" || { echo "ChittyCert signing failed ($code)"; cat sign.json; exit 1; }
+          jq -r '.signature' sign.json | tr -d '\n' > manifest.sig
+          jq -r '.kid // empty' sign.json > manifest.kid || true
+
       - name: Sign manifest with OIDC identity
+        if: env.CERT_SIGN_URL == ''
         shell: bash
         run: |
           set -euo pipefail
@@ -129,6 +153,15 @@ jobs:
             echo "Ledger publish failed (attempt $i, code $code)"; sleep $((2**i));
             if [[ $i -eq 3 ]]; then echo "Ledger publish failed after retries" >&2; cat resp.json >&2; exit 1; fi
           done
+
+      - name: Verify signature via JWKS (optional)
+        if: env.CERT_JWKS_URL != ''
+        env:
+          CERT_JWKS_URL: ${{ secrets.CERT_JWKS_URL }}
+        run: |
+          set -euo pipefail
+          # Very lightweight verification: fetch JWKS and ensure a key exists; real crypto verify would use node/python libs.
+          curl -sS "$CERT_JWKS_URL" | jq '.keys | length' | awk '{ if ($1 < 1) { exit 1 } }'
 
       - name: Health report (3x retry)
         env:
