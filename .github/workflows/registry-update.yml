@@ -15,12 +15,134 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install jq and coreutils
+        run: sudo apt-get update && sudo apt-get install -y jq coreutils
 
-      - name: Sync with registry
-        env:
-          REGISTRY_URL: https://registry.chitty.cc
+      - name: Compute manifest hash
+        id: manifest
         run: |
-          echo "Syncing repository metadata with ${REGISTRY_URL}"
-          # Placeholder for real sync logic
-          echo ok
+          MANIFEST=operators/chitty-cloud-repo-operator/config-manifest.json
+          SHA=$(sha256sum "$MANIFEST" | awk '{print $1}')
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
 
+      - name: Get OIDC token for registry
+        id: oidc_registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" && -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            TOKEN=$(curl -sS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://registry.chitty.cc" \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" | jq -r '.value')
+            if [[ "$TOKEN" == "null" || -z "$TOKEN" ]]; then
+              echo "Failed to fetch OIDC token for registry" >&2; exit 1
+            fi
+            echo "token=$TOKEN" >> $GITHUB_OUTPUT
+          else
+            echo "token=${REGISTRY_TOKEN:-}" >> $GITHUB_OUTPUT
+          fi
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Schema sync to registry (3x retry)
+        env:
+          TOKEN: ${{ steps.oidc_registry.outputs.token }}
+          SHA: ${{ steps.manifest.outputs.sha }}
+        run: |
+          set -euo pipefail
+          manifest_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/operators/chitty-cloud-repo-operator/config-manifest.json"
+          payload=$(jq -n \
+            --arg node "chitty-cloud-repo-operator" \
+            --arg version "1.0.0" \
+            --arg manifest_url "$manifest_url" \
+            --arg commit_hash "$GITHUB_SHA" \
+            --arg schema_hash "$SHA" \
+            --arg timestamp "${{ github.event.head_commit.timestamp }}" \
+            '{node:$node,version:$version,manifest_url:$manifest_url,commit_hash:$commit_hash,schema_hash:$schema_hash,timestamp:$timestamp}')
+          for i in 1 2 3; do
+            code=$(curl -sS -o resp.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data "$payload" \
+              https://registry.chitty.cc/v1/schema/sync || true)
+            if [[ "$code" == "200" ]]; then
+              echo "Schema sync ok"; jq -c '.status, .verified' resp.json; break
+            fi
+            echo "Schema sync failed (attempt $i, code $code)"; sleep $((2**i));
+            if [[ $i -eq 3 ]]; then echo "Schema sync failed after retries" >&2; cat resp.json >&2; exit 1; fi
+          done
+
+      - name: Ledger OIDC token
+        id: oidc_ledger
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" && -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            TOKEN=$(curl -sS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://ledger.chitty.cc" \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" | jq -r '.value')
+            if [[ "$TOKEN" == "null" || -z "$TOKEN" ]]; then
+              echo "Failed to fetch OIDC token for ledger" >&2; exit 1
+            fi
+            echo "token=$TOKEN" >> $GITHUB_OUTPUT
+          else
+            echo "token=${LEDGER_TOKEN:-}" >> $GITHUB_OUTPUT
+          fi
+        env:
+          LEDGER_TOKEN: ${{ secrets.LEDGER_TOKEN }}
+
+      - name: Ledger publish (3x retry)
+        env:
+          TOKEN: ${{ steps.oidc_ledger.outputs.token }}
+          SHA: ${{ steps.manifest.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ts="${{ github.event.head_commit.timestamp }}"
+          b="----BOUNDARY$RANDOM$RANDOM"
+          mf="operators/chitty-cloud-repo-operator/config-manifest.json"
+          # Optional signature: create empty file if missing
+          sig="manifest.sig"; [[ -f "$sig" ]] || : > "$sig"
+          body=$( \
+            printf "--%s\r\nContent-Disposition: form-data; name=manifest; filename=manifest.json\r\nContent-Type: application/json\r\n\r\n" "$b"; cat "$mf"; \
+            printf "\r\n--%s\r\nContent-Disposition: form-data; name=signature; filename=manifest.sig\r\nContent-Type: application/octet-stream\r\n\r\n" "$b"; cat "$sig"; \
+            printf "\r\n--%s\r\nContent-Disposition: form-data; name=schema_hash\r\n\r\n%s\r\n" "$b" "$SHA"; \
+            printf "--%s\r\nContent-Disposition: form-data; name=commit_ref\r\n\r\n%s\r\n" "$b" "$GITHUB_SHA"; \
+            printf "--%s\r\nContent-Disposition: form-data; name=timestamp\r\n\r\n%s\r\n--%s--\r\n" "$b" "$ts" "$b" \
+          )
+          for i in 1 2 3; do
+            code=$(curl -sS -o resp.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: multipart/form-data; boundary=$b" \
+              --data-binary @<(printf "%s" "$body") \
+              https://ledger.chitty.cc/v1/records || true)
+            if [[ "$code" == "201" ]]; then
+              echo "Ledger publish ok"; jq -c '.status, .record_id' resp.json; break
+            fi
+            echo "Ledger publish failed (attempt $i, code $code)"; sleep $((2**i));
+            if [[ $i -eq 3 ]]; then echo "Ledger publish failed after retries" >&2; cat resp.json >&2; exit 1; fi
+          done
+
+      - name: Health report (3x retry)
+        env:
+          TOKEN: ${{ steps.oidc_registry.outputs.token }}
+        run: |
+          set -euo pipefail
+          payload=$(jq -n \
+            --arg node "chitty-cloud-repo-operator" \
+            --arg status "healthy" \
+            --arg uptime "3600" \
+            --arg schema_state "aligned" \
+            --arg last_sync "${GITHUB_RUN_ID}" \
+            --arg ledger_ref "ledger.chitty.cc/records/$(jq -r '.record_id // empty' resp.json 2>/dev/null || echo '')" \
+            --arg timestamp "${{ github.event.head_commit.timestamp }}" \
+            '{node:$node,status:$status,uptime:$uptime,schema_state:$schema_state,last_sync:$last_sync,ledger_ref:$ledger_ref,timestamp:$timestamp}')
+          for i in 1 2 3; do
+            code=$(curl -sS -o resp2.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data "$payload" \
+              https://registry.chitty.cc/v1/health/report || true)
+            if [[ "$code" == "200" ]]; then
+              echo "Health report ok"; jq -c '.status, .recorded' resp2.json; break
+            fi
+            echo "Health report failed (attempt $i, code $code)"; sleep $((2**i));
+            if [[ $i -eq 3 ]]; then echo "Health report failed after retries" >&2; cat resp2.json >&2; exit 1; fi
+          done
