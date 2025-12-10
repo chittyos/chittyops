@@ -160,8 +160,84 @@ jobs:
           CERT_JWKS_URL: ${{ secrets.CERT_JWKS_URL }}
         run: |
           set -euo pipefail
-          # Very lightweight verification: fetch JWKS and ensure a key exists; real crypto verify would use node/python libs.
-          curl -sS "$CERT_JWKS_URL" | jq '.keys | length' | awk '{ if ($1 < 1) { exit 1 } }'
+          # Full verification using Node.js WebCrypto.
+          # Requires: manifest (json), manifest.sig (base64), JWKS at CERT_JWKS_URL, optional manifest.kid
+          node << 'EOF'
+          const fs = require('fs');
+          const https = require('https');
+          const { subtle } = require('crypto').webcrypto;
+
+          function fetch(url){
+            return new Promise((resolve,reject)=>{
+              https.get(url,(res)=>{
+                let data='';
+                res.on('data',d=>data+=d);
+                res.on('end',()=>{
+                  if(res.statusCode>=200 && res.statusCode<300){ resolve({status:res.statusCode, body:data}); }
+                  else reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+                });
+              }).on('error',reject);
+            });
+          }
+
+          (async () => {
+            const manifest = fs.readFileSync('operators/chitty-cloud-repo-operator/config-manifest.json');
+            const sigB64 = fs.readFileSync('manifest.sig','utf8').trim();
+            const kid = fs.existsSync('manifest.kid') ? fs.readFileSync('manifest.kid','utf8').trim() : null;
+            const jwksUrl = process.env.CERT_JWKS_URL;
+            const jwks = JSON.parse((await fetch(jwksUrl)).body);
+            if(!Array.isArray(jwks.keys) || jwks.keys.length===0) throw new Error('No keys in JWKS');
+            const keys = kid ? jwks.keys.filter(k=>k.kid===kid) : jwks.keys;
+            if(keys.length===0) throw new Error(`No JWKS key matches kid=${kid}`);
+
+            const sig = Buffer.from(sigB64,'base64');
+            let verified = false;
+            let usedKid = null;
+            for(const k of keys){
+              try{
+                let algo, keyData;
+                if(k.kty === 'RSA'){
+                  // Build SPKI from n,e
+                  const n = Buffer.from(k.n, 'base64url');
+                  const e = Buffer.from(k.e, 'base64url');
+                  // Minimal ASN.1 builder for RSAPublicKey -> SPKI
+                  function derLen(len){ if(len<128) return Buffer.from([len]);
+                    const bytes=[]; let n=len; while(n>0){ bytes.unshift(n & 0xff); n >>=8; }
+                    return Buffer.from([0x80|bytes.length, ...bytes]); }
+                  function derInt(buf){ if(buf[0] & 0x80) buf = Buffer.concat([Buffer.from([0x00]), buf]);
+                    return Buffer.concat([Buffer.from([0x02]), derLen(buf.length), buf]); }
+                  const seq = (items) => { const body = Buffer.concat(items); return Buffer.concat([Buffer.from([0x30]), derLen(body.length), body]); };
+                  const rsaPub = seq([ derInt(n), derInt(e) ]);
+                  // SubjectPublicKeyInfo = SEQ( AlgorithmID rsaEncryption, BIT STRING RSAPublicKey )
+                  const algId = Buffer.from('300d06092a864886f70d0101010500','hex');
+                  const bitString = Buffer.concat([Buffer.from([0x03]), derLen(rsaPub.length+1), Buffer.from([0x00]), rsaPub]);
+                  const spki = seq([ algId, bitString ]);
+                  keyData = spki;
+                  algo = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
+                } else if(k.kty === 'EC'){
+                  // P-256 assumed; build SPKI from x,y
+                  const x = Buffer.from(k.x, 'base64url');
+                  const y = Buffer.from(k.y, 'base64url');
+                  const pub = Buffer.concat([Buffer.from([0x04]), x, y]);
+                  const algId = Buffer.from('301306072a8648ce3d020106082a8648ce3d030107','hex'); // id-ecPublicKey + prime256v1
+                  function derLen(len){ if(len<128) return Buffer.from([len]); const bytes=[]; let n=len; while(n>0){ bytes.unshift(n&0xff); n>>=8;} return Buffer.from([0x80|bytes.length, ...bytes]); }
+                  const seq=(items)=>{ const body=Buffer.concat(items); return Buffer.concat([Buffer.from([0x30]), derLen(body.length), body]); };
+                  const bitString = Buffer.concat([Buffer.from([0x03]), derLen(pub.length+1), Buffer.from([0x00]), pub]);
+                  const spki = seq([ algId, bitString ]);
+                  keyData = spki;
+                  algo = { name: 'ECDSA', hash: 'SHA-256' };
+                } else {
+                  continue;
+                }
+                const key = await subtle.importKey('spki', keyData, algo, false, ['verify']);
+                const ok = await subtle.verify(algo, key, sig, manifest);
+                if(ok){ verified = true; usedKid = k.kid || null; break; }
+              }catch(e){ /* try next key */ }
+            }
+            if(!verified) throw new Error('Signature verification failed against provided JWKS');
+            console.log('Signature verified', usedKid ? `(kid=${usedKid})` : '');
+          })().catch((e)=>{ console.error(e.message||e); process.exit(1); });
+          EOF
 
       - name: Health report (3x retry)
         env:
