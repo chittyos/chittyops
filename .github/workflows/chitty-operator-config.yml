@@ -1,0 +1,44 @@
+name: Chitty Operator Config
+
+on:
+  push:
+    branches:
+      - chitty/config/chitty-cloud-repo-operator
+    paths:
+      - 'operators/chitty-cloud-repo-operator/**'
+      - '.github/workflows/chitty-operator-config.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'operators/chitty-cloud-repo-operator/**'
+      - '.github/workflows/chitty-operator-config.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  validate-and-register:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate manifest
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: |
+          node -e "const fs=require('fs');const m=JSON.parse(fs.readFileSync('operators/chitty-cloud-repo-operator/config-manifest.json','utf8')); if(!m.operator||!m.registry){process.exit(1)}"
+
+      - name: Register operator
+        if: github.event_name == 'push'
+        env:
+          CONNECT_URL: https://connect.chitty.cc
+          LEDGER_URL: https://ledger.chitty.cc
+        run: |
+          echo "Registering ${{ github.repository }} with ${CONNECT_URL} and ${LEDGER_URL}"
+          # Placeholder for real registration step
+          echo ok
+

@@ -1,0 +1,26 @@
+name: Registry Sync
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  sync-registry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync with registry
+        env:
+          REGISTRY_URL: https://registry.chitty.cc
+        run: |
+          echo "Syncing repository metadata with ${REGISTRY_URL}"
+          # Placeholder for real sync logic
+          echo ok
+
