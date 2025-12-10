@@ -3,6 +3,7 @@ name: Registry Sync
 on:
   schedule:
     - cron: '17 * * * *'
+    - cron: '*/20 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -16,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install jq and coreutils
-        run: sudo apt-get update && sudo apt-get install -y jq coreutils
+        run: sudo apt-get update && sudo apt-get install -y jq coreutils openssl
 
       - name: Compute manifest hash
         id: manifest
@@ -24,6 +25,15 @@ jobs:
           MANIFEST=operators/chitty-cloud-repo-operator/config-manifest.json
           SHA=$(sha256sum "$MANIFEST" | awk '{print $1}')
           echo "sha=$SHA" >> $GITHUB_OUTPUT
+
+      - name: Sign manifest with OIDC identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Create a detached signature using the OIDC request token as ephemeral keying material.
+          # This is a lightweight binding for audit; replace with a proper KMS/HSM if desired.
+          openssl dgst -sha256 -sign <(printf "%s" "${ACTIONS_ID_TOKEN_REQUEST_TOKEN}") \
+            operators/chitty-cloud-repo-operator/config-manifest.json | base64 -w0 > manifest.sig
 
       - name: Get OIDC token for registry
         id: oidc_registry
@@ -98,8 +108,8 @@ jobs:
           ts="${{ github.event.head_commit.timestamp }}"
           b="----BOUNDARY$RANDOM$RANDOM"
           mf="operators/chitty-cloud-repo-operator/config-manifest.json"
-          # Optional signature: create empty file if missing
-          sig="manifest.sig"; [[ -f "$sig" ]] || : > "$sig"
+          # Signature produced in prior step; ensure exists
+          sig="manifest.sig"; [[ -f "$sig" ]] || { echo "missing manifest.sig" >&2; exit 1; }
           body=$( \
             printf "--%s\r\nContent-Disposition: form-data; name=manifest; filename=manifest.json\r\nContent-Type: application/json\r\n\r\n" "$b"; cat "$mf"; \
             printf "\r\n--%s\r\nContent-Disposition: form-data; name=signature; filename=manifest.sig\r\nContent-Type: application/octet-stream\r\n\r\n" "$b"; cat "$sig"; \
@@ -146,3 +156,19 @@ jobs:
             echo "Health report failed (attempt $i, code $code)"; sleep $((2**i));
             if [[ $i -eq 3 ]]; then echo "Health report failed after retries" >&2; cat resp2.json >&2; exit 1; fi
           done
+
+      - name: Report sync failure to PR
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (!context.issue?.number) {
+              core.info('No PR context; skipping comment');
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `❌ Registry/Ledger sync failed in workflow run ${context.runId}. Check logs for details.`
+              })
+            }
