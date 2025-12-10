@@ -134,12 +134,17 @@ jobs:
           mf="operators/chitty-cloud-repo-operator/config-manifest.json"
           # Signature produced in prior step; ensure exists
           sig="manifest.sig"; [[ -f "$sig" ]] || { echo "missing manifest.sig" >&2; exit 1; }
+          kid=""; [[ -f manifest.kid ]] && kid=$(cat manifest.kid | tr -d '\n') || true
+          jwks_url="${CERT_JWKS_URL:-}"
           body=$( \
             printf "--%s\r\nContent-Disposition: form-data; name=manifest; filename=manifest.json\r\nContent-Type: application/json\r\n\r\n" "$b"; cat "$mf"; \
             printf "\r\n--%s\r\nContent-Disposition: form-data; name=signature; filename=manifest.sig\r\nContent-Type: application/octet-stream\r\n\r\n" "$b"; cat "$sig"; \
             printf "\r\n--%s\r\nContent-Disposition: form-data; name=schema_hash\r\n\r\n%s\r\n" "$b" "$SHA"; \
             printf "--%s\r\nContent-Disposition: form-data; name=commit_ref\r\n\r\n%s\r\n" "$b" "$GITHUB_SHA"; \
-            printf "--%s\r\nContent-Disposition: form-data; name=timestamp\r\n\r\n%s\r\n--%s--\r\n" "$b" "$ts" "$b" \
+            printf "--%s\r\nContent-Disposition: form-data; name=timestamp\r\n\r\n%s\r\n" "$b" "$ts"; \
+            if [ -n "$kid" ]; then printf "--%s\r\nContent-Disposition: form-data; name=kid\r\n\r\n%s\r\n" "$b" "$kid"; fi; \
+            if [ -n "$jwks_url" ]; then printf "--%s\r\nContent-Disposition: form-data; name=jwks_url\r\n\r\n%s\r\n" "$b" "$jwks_url"; fi; \
+            printf "--%s--\r\n" "$b" \
           )
           for i in 1 2 3; do
             code=$(curl -sS -o resp.json -w '%{http_code}' -X POST \
@@ -252,7 +257,20 @@ jobs:
             --arg last_sync "${GITHUB_RUN_ID}" \
             --arg ledger_ref "ledger.chitty.cc/records/$(jq -r '.record_id // empty' resp.json 2>/dev/null || echo '')" \
             --arg timestamp "${{ github.event.head_commit.timestamp }}" \
-            '{node:$node,status:$status,uptime:$uptime,schema_state:$schema_state,last_sync:$last_sync,ledger_ref:$ledger_ref,timestamp:$timestamp}')
+            --arg kid "$(test -f manifest.kid && cat manifest.kid || echo '')" \
+            --arg jwks_url "${CERT_JWKS_URL:-}" \
+            '{node:$node,status:$status,uptime:$uptime,schema_state:$schema_state,last_sync:$last_sync,ledger_ref:$ledger_ref,timestamp:$timestamp,kid:$kid,jwks_url:$jwks_url}')
+
+      - name: Emit summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: registry-ledger-summary
+          path: |
+            resp.json
+            resp2.json
+            manifest.sig
+            operators/chitty-cloud-repo-operator/config-manifest.json
           for i in 1 2 3; do
             code=$(curl -sS -o resp2.json -w '%{http_code}' -X POST \
               -H "Authorization: Bearer ${TOKEN}" \
