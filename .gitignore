@@ -1,0 +1,16 @@
+# OS-specific
+.DS_Store
+
+# Node/Yarn/PNPM (if present)
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Python (harmless if unused)
+__pycache__/
+*.pyc
+
+# macOS metadata in nested folders
+*/.DS_Store
+**/.DS_Store
