@@ -1,0 +1,21 @@
+name = "chittyos-marketplace-skill"
+main = "src/index.ts"
+compatibility_date = "2024-11-09"
+node_compat = true
+
+[env.staging]
+name = "chittyos-marketplace-skill-staging"
+route = "marketplace-staging.chitty.cc/*"
+
+[env.production]
+name = "chittyos-marketplace-skill-production"
+route = "marketplace.chitty.cc/*"
+
+[[kv_namespaces]]
+binding = "SUBSCRIPTION_CACHE"
+id = "marketplace_subscription_cache"
+preview_id = "marketplace_subscription_cache_preview"
+
+[vars]
+ENVIRONMENT = "development"
+SKILL_VERSION = "1.0.0"

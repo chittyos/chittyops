@@ -1,0 +1,114 @@
+{
+  "name": "ChittyOS Legal Intelligence",
+  "version": "1.0.0",
+  "description": "Professional legal case management with evidence verification, trust scoring, and court-admissible documentation",
+  "author": "ChittyOS",
+  "category": "Legal & Compliance",
+  "tags": [
+    "legal",
+    "evidence",
+    "court",
+    "compliance",
+    "trust-scoring",
+    "case-management",
+    "chain-of-custody"
+  ],
+  "capabilities": {
+    "evidence_verification": {
+      "name": "Evidence Verification",
+      "description": "Verify authenticity and maintain chain of custody for court-admissible evidence",
+      "features": [
+        "SHA-256 content hashing",
+        "Timestamp verification",
+        "Chain of custody tracking",
+        "Contradiction detection",
+        "Court compliance reports"
+      ]
+    },
+    "trust_analysis": {
+      "name": "6D Trust Analysis",
+      "description": "Calculate behavioral trust scores across six dimensions",
+      "features": [
+        "Source credibility",
+        "Temporal consistency",
+        "Channel reliability",
+        "Outcome prediction",
+        "Network effects",
+        "Justice alignment"
+      ]
+    },
+    "case_intelligence": {
+      "name": "Case Intelligence",
+      "description": "AI-powered case analysis and document processing",
+      "features": [
+        "Document classification",
+        "Deadline tracking",
+        "Party identification",
+        "Element mapping",
+        "Filing preparation"
+      ]
+    },
+    "identity_management": {
+      "name": "ChittyID Management",
+      "description": "Cryptographic identity creation and verification",
+      "features": [
+        "DID-compliant identifiers",
+        "Entity classification",
+        "Credential issuance",
+        "Identity verification",
+        "Audit trail"
+      ]
+    }
+  },
+  "pricing": {
+    "model": "freemium",
+    "tiers": [
+      {
+        "name": "Basic",
+        "price": 0,
+        "limits": {
+          "cases_per_month": 5,
+          "evidence_items": 50,
+          "trust_scores": 10
+        }
+      },
+      {
+        "name": "Professional",
+        "price": 49,
+        "limits": {
+          "cases_per_month": 50,
+          "evidence_items": 1000,
+          "trust_scores": 100,
+          "features": ["advanced_contradictions", "bulk_verification"]
+        }
+      },
+      {
+        "name": "Enterprise",
+        "price": "custom",
+        "limits": {
+          "cases_per_month": "unlimited",
+          "evidence_items": "unlimited",
+          "trust_scores": "unlimited",
+          "features": ["api_access", "custom_workflows", "dedicated_support"]
+        }
+      }
+    ]
+  },
+  "requirements": {
+    "claude_version": ">=3.5",
+    "permissions": [
+      "network_access",
+      "file_access",
+      "credential_storage"
+    ]
+  },
+  "endpoints": {
+    "production": "https://connect.chitty.cc/marketplace",
+    "staging": "https://staging.connect.chitty.cc/marketplace"
+  },
+  "support": {
+    "documentation": "https://docs.chitty.cc/marketplace",
+    "email": "marketplace@chitty.cc",
+    "discord": "https://discord.gg/chittyos"
+  }
+}
