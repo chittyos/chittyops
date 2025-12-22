@@ -1,0 +1,297 @@
+# ChittyOS Evidence Upload Worker - Wrangler Configuration
+# PATTERN: Write-Protected Worker (Queue-Only Writes)
+#
+# This configuration demonstrates the CORRECT binding pattern for evidence
+# upload workers that CANNOT write directly to R2 or Vectorize.
+#
+# ARCHITECTURAL INVARIANTS ENFORCED:
+# 1. NO R2 bindings (cannot write to evidence storage)
+# 2. NO Vectorize bindings (cannot write to indexes)
+# 3. ONLY Queue binding (pipeline-only ingestion path)
+# 4. KV for rate limiting only (ephemeral state)
+#
+# @version 1.0.0
+# @authority ChittyOS Core Team
+
+name = "chittyevidence-upload"
+main = "workers/evidence-upload.ts"
+compatibility_date = "2025-01-01"
+node_compat = true
+
+# =============================================================================
+# WORKERS CONFIGURATION
+# =============================================================================
+
+workers_dev = true
+route = "upload.chitty.cc/*"
+
+# Account configuration
+account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"
+
+# =============================================================================
+# QUEUE BINDINGS (ONLY ALLOWED WRITE OPERATION)
+# =============================================================================
+#
+# CRITICAL: Upload workers can ONLY write to queues.
+# Evidence flows: Upload Worker → Queue → Pipeline → R2
+#
+
+[[queues.producers]]
+binding = "UPLOAD_QUEUE"
+queue = "evidence-upload-queue"
+delivery_delay = 0
+
+# QUEUE-ONLY WRITE PATTERN:
+# ✅ env.UPLOAD_QUEUE.send(message)  - Allowed (ONLY write operation)
+# ❌ NO R2 binding                   - Evidence written by pipeline only
+# ❌ NO Vectorize binding            - Vectors written by pipeline only
+
+# =============================================================================
+# KV BINDINGS (Rate Limiting Only)
+# =============================================================================
+#
+# KV namespace for rate limiting upload requests.
+# CRITICAL: This KV namespace is ONLY for ephemeral rate limit state.
+# Evidence CANNOT be stored in KV.
+#
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "evidence_upload_rate_limit_namespace_id"
+preview_id = "evidence_upload_rate_limit_preview_id"
+
+# RATE LIMITING PATTERN:
+# ✅ env.RATE_LIMIT.put(`upload_rate:${user_id}`, count, {expirationTtl: 3600})
+# ✅ env.RATE_LIMIT.get(`upload_rate:${user_id}`)
+#
+# FORBIDDEN:
+# ❌ env.RATE_LIMIT.put(`evidence:${id}`, evidenceContent)  - Evidence MUST be in R2
+
+# =============================================================================
+# D1 DATABASE (Case Permissions & Validation)
+# =============================================================================
+#
+# Read-only access to validate case permissions before upload.
+#
+
+[[d1_databases]]
+binding = "DB"
+database_name = "chittyevidence-registry"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# READ-ONLY QUERY PATTERN:
+# ✅ env.DB.prepare("SELECT 1 FROM case_permissions WHERE ...").first()
+#
+# Upload workers do NOT write to database (pipeline does)
+
+# =============================================================================
+# ANALYTICS ENGINE (Upload Logging)
+# =============================================================================
+#
+# Log all upload attempts (success and failure) for audit trail.
+#
+
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "EVIDENCE_UPLOAD"
+
+# USAGE:
+# env.ANALYTICS.writeDataPoint({
+#   indexes: ['evidence_upload'],
+#   blobs: [user_id, case_id, filename, 'SUCCESS'],
+#   doubles: [1]
+# });
+
+# =============================================================================
+# WORKERS AI BINDING (Virus Scanning)
+# =============================================================================
+
+[ai]
+binding = "AI"
+
+# USAGE:
+# const scanResult = await env.AI.run('@cf/security/malware-detector', {
+#   file_data: base64
+# });
+
+# =============================================================================
+# SECRETS
+# =============================================================================
+#
+# Set secrets using: wrangler secret put SECRET_NAME
+#
+
+# JWT verification secret
+# wrangler secret put JWT_SECRET
+
+# Neon database connection (for audit logging)
+# wrangler secret put NEON_DATABASE_URL
+
+# =============================================================================
+# OBSERVABILITY
+# =============================================================================
+
+[observability]
+enabled = true
+head_sampling_rate = 1.0  # Sample 100% of uploads (audit requirement)
+
+[logpush]
+enabled = true
+dataset = "workers_trace_events"
+frequency = "high"
+
+# =============================================================================
+# DEPLOYMENT CONFIGURATION
+# =============================================================================
+
+[env.production]
+name = "chittyevidence-upload-production"
+route = "upload.chitty.cc/*"
+workers_dev = false
+
+[env.staging]
+name = "chittyevidence-upload-staging"
+route = "upload-staging.chitty.cc/*"
+workers_dev = false
+
+# =============================================================================
+# BUILD CONFIGURATION
+# =============================================================================
+
+[build]
+command = "npm run build"
+watch_dirs = ["workers", "middleware"]
+
+[build.upload]
+format = "modules"
+main = "./dist/evidence-upload.js"
+
+# =============================================================================
+# LIMITS & QUOTAS
+# =============================================================================
+
+# Upload processing can be CPU-intensive (hashing, scanning)
+cpu_ms = 200
+
+# Large file uploads require more memory
+usage_model = "unbound"
+
+# Max upload size (100MB)
+# Note: Enforced in worker code, not wrangler.toml
+# See: workers/evidence-upload.ts (fileData.byteLength check)
+
+# =============================================================================
+# FORBIDDEN BINDINGS FOR UPLOAD WORKERS
+# =============================================================================
+#
+# The following bindings are EXPLICITLY FORBIDDEN for upload workers:
+#
+# ❌ NO R2 BINDINGS (Evidence written by pipeline only)
+#
+# [[r2_buckets]]
+# binding = "EVIDENCE_BUCKET"
+# bucket_name = "chittyevidence-originals"
+#
+# Reason: Workers CANNOT write directly to R2. Evidence flows through pipeline.
+# Violation: If R2 binding present, deployment MUST be rejected.
+#
+# ❌ NO VECTORIZE BINDINGS (Indexes written by pipeline only)
+#
+# [[vectorize]]
+# binding = "VECTORIZE"
+# index_name = "intel-embeddings"
+#
+# Reason: Workers CANNOT write to Vectorize. Vectorization is pipeline-only.
+# Violation: If Vectorize binding present, deployment MUST be rejected.
+#
+# ❌ NO EVIDENCE KV NAMESPACES (Evidence MUST be in R2)
+#
+# [[kv_namespaces]]
+# binding = "EVIDENCE_STORE"
+# id = "..."
+#
+# Reason: Evidence cannot be in KV (architectural violation).
+# Only allowed KV: RATE_LIMIT (ephemeral state)
+#
+# =============================================================================
+
+# =============================================================================
+# CLOUDFLARE IAM POLICY (Companion Configuration)
+# =============================================================================
+#
+# In addition to this wrangler.toml, apply IAM policies to enforce queue-only:
+#
+# {
+#   "effect": "allow",
+#   "action": ["queues:SendMessage"],
+#   "resources": ["queues:evidence-upload-queue"]
+# },
+# {
+#   "effect": "deny",
+#   "action": [
+#     "r2:PutObject",
+#     "r2:DeleteObject",
+#     "r2:GetObject",
+#     "vectorize:*"
+#   ],
+#   "resources": ["workers:chittyevidence-upload-*"]
+# }
+#
+# See: iam-policies/cloudflare-iam.json
+#
+# =============================================================================
+
+# =============================================================================
+# MULTIPART UPLOAD CONFIGURATION
+# =============================================================================
+
+# Enable multipart form data parsing
+compatibility_flags = ["nodejs_compat"]
+
+# FormData API available for file uploads
+# See: workers/evidence-upload.ts (request.formData())
+
+# =============================================================================
+# USAGE NOTES
+# =============================================================================
+#
+# Deploy:
+#   wrangler deploy --env production
+#
+# Set secrets:
+#   wrangler secret put JWT_SECRET --env production
+#   wrangler secret put NEON_DATABASE_URL --env production
+#
+# Test upload locally:
+#   npm run dev
+#   curl -X POST http://localhost:8787/upload \
+#     -H "Authorization: Bearer <token>" \
+#     -F "file=@evidence.pdf" \
+#     -F "case_id=01-C-CAS-1234-..."
+#
+# View logs:
+#   wrangler tail --env production
+#
+# Monitor queue:
+#   wrangler queues list
+#   wrangler queues consumer http evidence-upload-queue
+#
+# =============================================================================
+
+# =============================================================================
+# ARCHITECTURAL ENFORCEMENT SUMMARY
+# =============================================================================
+#
+# This worker configuration enforces the architectural invariant:
+# "All evidence MUST flow through pipelines. Workers CANNOT write directly to R2."
+#
+# Enforcement layers:
+# 1. Configuration: NO R2/Vectorize bindings in wrangler.toml
+# 2. Type system: TypeScript types prevent R2/Vectorize access
+# 3. IAM policies: Cloudflare denies R2/Vectorize operations
+# 4. Runtime: StorageGuard middleware validates operations
+# 5. Audit: All operations logged to Analytics + Neon
+#
+# If R2 or Vectorize bindings are added, deployment MUST fail CI/CD checks.
+#
+# =============================================================================

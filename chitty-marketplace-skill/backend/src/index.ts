@@ -13,6 +13,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { neon } from '@neondatabase/serverless';
 import jwt from 'jsonwebtoken';
+import { ChittyConnectClient, createChittyConnectFromEnv } from './chittyconnect';
 
 type Bindings = {
   NEON_DATABASE_URL: string;
@@ -21,6 +22,8 @@ type Bindings = {
   STRIPE_WEBHOOK_SECRET: string;
   CHITTY_ID_SERVICE_TOKEN: string;
   SUBSCRIPTION_CACHE: KVNamespace;
+  CHITTYCONNECT_URL?: string;
+  CHITTYCONNECT_API_TOKEN: string;
 };
 
 type SubscriptionTier = 'basic' | 'professional' | 'enterprise';
@@ -111,11 +114,24 @@ app.post('/webhooks/install', async (c) => {
     `;
 
     // Cache subscription for fast lookup
-    await c.env.SUBSCRIPTION_CACHE.put(
+  await c.env.SUBSCRIPTION_CACHE.put(
       `sub:${claude_user_id}`,
       JSON.stringify({ chittyId, tier, status: 'active' }),
       { expirationTtl: 3600 } // 1 hour cache
     );
+    // Best-effort: notify ChittyConnect about installation
+    try {
+      const connect = createChittyConnectFromEnv(c.env);
+      await connect.post('/api/marketplace/installations', {
+        user_id: chittyId,
+        claude_user_id,
+        tier,
+        installed_at: now,
+        service: 'chittyos-marketplace-skill',
+      });
+    } catch (e) {
+      console.log('ChittyConnect installation notify failed (ignored):', e);
+    }
 
     return c.json({
       success: true,
@@ -162,8 +178,20 @@ app.post('/webhooks/subscription/change', async (c) => {
       WHERE claude_user_id = ${claude_user_id}
     `;
 
-    // Invalidate cache
-    await c.env.SUBSCRIPTION_CACHE.delete(`sub:${claude_user_id}`);
+  // Invalidate cache
+  await c.env.SUBSCRIPTION_CACHE.delete(`sub:${claude_user_id}`);
+
+    // Best-effort: notify ChittyConnect about subscription change
+    try {
+      const connect = createChittyConnectFromEnv(c.env);
+      await connect.post('/api/marketplace/subscriptions/change', {
+        claude_user_id,
+        new_tier,
+        changed_at: now,
+      });
+    } catch (e) {
+      console.log('ChittyConnect subscription change notify failed (ignored):', e);
+    }
 
     return c.json({
       success: true,
@@ -208,8 +236,19 @@ app.post('/webhooks/subscription/cancel', async (c) => {
       WHERE claude_user_id = ${claude_user_id}
     `;
 
-    // Invalidate cache
-    await c.env.SUBSCRIPTION_CACHE.delete(`sub:${claude_user_id}`);
+  // Invalidate cache
+  await c.env.SUBSCRIPTION_CACHE.delete(`sub:${claude_user_id}`);
+
+    // Best-effort: notify ChittyConnect about cancellation
+    try {
+      const connect = createChittyConnectFromEnv(c.env);
+      await connect.post('/api/marketplace/subscriptions/cancel', {
+        claude_user_id,
+        cancelled_at: now,
+      });
+    } catch (e) {
+      console.log('ChittyConnect cancellation notify failed (ignored):', e);
+    }
 
     return c.json({
       success: true,
@@ -386,15 +425,25 @@ app.get('/api/subscription/:claude_user_id', async (c) => {
  */
 app.post('/webhooks/stripe', async (c) => {
   try {
-    const signature = c.req.header('stripe-signature');
+    // Stripe sends 'Stripe-Signature' header; be tolerant to casing
+    const signature = c.req.header('Stripe-Signature') || c.req.header('stripe-signature');
     if (!signature) {
       return c.json({ error: 'Missing signature' }, 400);
     }
 
     const body = await c.req.text();
 
-    // TODO: Implement Stripe webhook signature verification
-    // const event = stripe.webhooks.constructEvent(body, signature, c.env.STRIPE_WEBHOOK_SECRET);
+    // Verify Stripe webhook signature (tolerates 5 minutes clock skew)
+    const valid = await verifyStripeSignature(
+      body,
+      signature,
+      c.env.STRIPE_WEBHOOK_SECRET,
+      300
+    );
+
+    if (!valid) {
+      return c.json({ error: 'Invalid signature' }, 400);
+    }
 
     const event = JSON.parse(body);
 
@@ -402,15 +451,59 @@ app.post('/webhooks/stripe', async (c) => {
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
         // Handle subscription changes
+        try {
+          const connect = createChittyConnectFromEnv(c.env);
+          await connect.post('/api/marketplace/stripe/events', {
+            type: event.type,
+            id: event.id,
+            created: event.created,
+            data: { object: event.data?.object?.id, status: event.data?.object?.status },
+          });
+        } catch (e) {
+          console.log('ChittyConnect stripe notify failed (ignored):', e);
+        }
         break;
       case 'customer.subscription.deleted':
         // Handle cancellations
+        try {
+          const connect = createChittyConnectFromEnv(c.env);
+          await connect.post('/api/marketplace/stripe/events', {
+            type: event.type,
+            id: event.id,
+            created: event.created,
+            data: { object: event.data?.object?.id, status: 'deleted' },
+          });
+        } catch (e) {
+          console.log('ChittyConnect stripe notify failed (ignored):', e);
+        }
         break;
       case 'invoice.payment_succeeded':
         // Handle successful payments
+        try {
+          const connect = createChittyConnectFromEnv(c.env);
+          await connect.post('/api/marketplace/stripe/events', {
+            type: event.type,
+            id: event.id,
+            created: event.created,
+            data: { invoice: event.data?.object?.id, paid: true },
+          });
+        } catch (e) {
+          console.log('ChittyConnect stripe notify failed (ignored):', e);
+        }
         break;
       case 'invoice.payment_failed':
         // Handle failed payments - suspend subscription
+        try {
+          const connect = createChittyConnectFromEnv(c.env);
+          await connect.post('/api/marketplace/stripe/events', {
+            type: event.type,
+            id: event.id,
+            created: event.created,
+            data: { invoice: event.data?.object?.id, paid: false },
+          });
+        } catch (e) {
+          console.log('ChittyConnect stripe notify failed (ignored):', e);
+        }
         break;
       default:
         console.log(`Unhandled event type: ${event.type}`);
@@ -449,3 +542,79 @@ function getTierLimits(tier: SubscriptionTier) {
 }
 
 export default app;
+
+/**
+ * Verify Stripe webhook signature without stripe-node (Cloudflare Workers compatible)
+ * Spec: https://stripe.com/docs/webhooks/signatures
+ */
+async function verifyStripeSignature(
+  payload: string,
+  signatureHeader: string,
+  secret: string,
+  toleranceSeconds: number = 300
+): Promise<boolean> {
+  try {
+    // Parse header: e.g. "t=1492774577, v1=5257..., v0=..."
+    const parts = signatureHeader.split(',').map((p) => p.trim());
+    const sig: Record<string, string[]> = {};
+    for (const p of parts) {
+      const [k, v] = p.split('=');
+      if (!k || !v) continue;
+      if (!sig[k]) sig[k] = [];
+      sig[k].push(v);
+    }
+
+    const timestamps = sig['t'];
+    const v1s = sig['v1'];
+    if (!timestamps || !v1s) return false;
+
+    const timestamp = parseInt(timestamps[0], 10);
+    if (!Number.isFinite(timestamp)) return false;
+
+    // Timestamp tolerance check
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (Math.abs(nowSeconds - timestamp) > toleranceSeconds) return false;
+
+    const signedPayload = `${timestamp}.${payload}`;
+    const expected = await hmacSHA256Hex(secret, signedPayload);
+
+    // Any v1 value that matches is accepted
+    for (const candidate of v1s) {
+      if (constantTimeEqual(candidate, expected)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function hmacSHA256Hex(secret: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  return bufferToHex(new Uint8Array(sig));
+}
+
+function bufferToHex(buf: Uint8Array): string {
+  const hex: string[] = [];
+  for (let i = 0; i < buf.length; i++) {
+    const h = buf[i].toString(16).padStart(2, '0');
+    hex.push(h);
+  }
+  return hex.join('');
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}

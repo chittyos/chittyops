@@ -7,6 +7,7 @@
 
 import { ClaudeSkill, SkillContext, UIComponent, Workflow } from '@anthropic-ai/claude-skills-sdk';
 import { z } from 'zod';
+import { ChittyConnectClient } from './chittyconnect';
 
 /**
  * Evidence Verification UI Component
@@ -421,25 +422,19 @@ class CaseWorkflow implements Workflow {
   }
 
   private async createCase(inputs: any, context: SkillContext): Promise<any> {
-    const response = await fetch('https://connect.chitty.cc/api/cases', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${context.auth.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        title: inputs.title,
-        type: inputs.type,
-        jurisdiction: inputs.jurisdiction,
-        parties: inputs.parties,
-        createdBy: context.user.id,
-        status: 'active'
-      })
+    const connect = new ChittyConnectClient({ apiToken: context.auth.token });
+    const result = await connect.createCase({
+      title: inputs.title,
+      type: inputs.type,
+      jurisdiction: inputs.jurisdiction,
+      parties: inputs.parties,
+      createdBy: context.user.id,
+      status: 'active'
     });
 
-    const result = await response.json();
-    await context.storeData('currentCaseId', result.data.caseId);
-    return result.data;
+    // Assume API shape { data: { caseId, ... } }
+    await context.storeData('currentCaseId', result?.data?.caseId ?? result?.caseId);
+    return result?.data ?? result;
   }
 
   private async verifyParties(parties: string[], context: SkillContext): Promise<any> {
@@ -481,21 +476,12 @@ class CaseWorkflow implements Workflow {
   }
 
   private async generateReports(caseId: string, context: SkillContext): Promise<any> {
-    // Generate comprehensive case reports
-    const reports = await fetch(`https://connect.chitty.cc/api/cases/${caseId}/reports`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${context.auth.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        types: ['summary', 'evidence', 'chain_custody'],
-        format: 'pdf'
-      })
+    const connect = new ChittyConnectClient({ apiToken: context.auth.token });
+    const result = await connect.createCaseReports(caseId, {
+      types: ['summary', 'evidence', 'chain_custody'],
+      format: 'pdf'
     });
-
-    const result = await reports.json();
-    return result.data.reports;
+    return result?.data?.reports ?? result?.reports ?? result;
   }
 }
 

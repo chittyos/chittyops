@@ -1,0 +1,336 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "ChittyOS Vector Index Registry",
+  "description": "Authoritative registry of all Vectorize indexes with R2 source references for rebuildability",
+  "version": "1.0.0",
+  "last_updated": "2025-12-16T00:00:00Z",
+  "authority": "chittyschema",
+
+  "indexes": [
+    {
+      "index_name": "agent-memory-index",
+      "vectorize_index_id": "agent-memory-index",
+      "dimension": 768,
+      "metric": "cosine",
+      "purpose": "Agent conversation memory and context persistence",
+
+      "r2_source": {
+        "bucket": "chittyagent-transcripts",
+        "prefix": "transcripts/",
+        "object_pattern": "transcripts/{agent_id}/{session_id}/{timestamp}.json"
+      },
+
+      "ingestion_pipeline": {
+        "pipeline_name": "agent-memory-ingestion",
+        "pipeline_status": "TO_BE_CREATED",
+        "trigger": "r2_event:object.create",
+        "embedding_model": "@cf/baai/bge-base-en-v1.5",
+        "model_version": "v1.5"
+      },
+
+      "metadata_schema": {
+        "required_fields": [
+          "r2_bucket",
+          "r2_key",
+          "r2_hash",
+          "agent_id",
+          "session_id",
+          "ingestion_pipeline",
+          "ingestion_timestamp"
+        ],
+        "optional_fields": [
+          "user_id",
+          "project_id",
+          "platform"
+        ]
+      },
+
+      "rebuild_procedure": {
+        "type": "r2_scan_rebuild",
+        "source_bucket": "chittyagent-transcripts",
+        "source_prefix": "transcripts/",
+        "rebuild_script": "scripts/rebuild-vector-index.ts",
+        "estimated_duration": "4-6 hours",
+        "estimated_cost": "$50-100 (Workers AI embeddings)"
+      },
+
+      "current_status": {
+        "index_exists": true,
+        "document_count": "UNKNOWN",
+        "last_rebuild": null,
+        "r2_references_complete": false,
+        "notes": "Existing index - needs metadata audit to ensure R2 references present"
+      }
+    },
+
+    {
+      "index_name": "context-embeddings",
+      "vectorize_index_id": "context-embeddings",
+      "dimension": 1536,
+      "metric": "cosine",
+      "purpose": "ContextConsciousness session context and state embeddings",
+
+      "r2_source": {
+        "bucket": "chittycontext-sessions",
+        "prefix": "sessions/",
+        "object_pattern": "sessions/{session_id}/context.json"
+      },
+
+      "ingestion_pipeline": {
+        "pipeline_name": "context-ingestion",
+        "pipeline_status": "TO_BE_CREATED",
+        "trigger": "r2_event:object.create",
+        "embedding_model": "@cf/openai/text-embedding-ada-002",
+        "model_version": "ada-002"
+      },
+
+      "metadata_schema": {
+        "required_fields": [
+          "r2_bucket",
+          "r2_key",
+          "r2_hash",
+          "session_id",
+          "platform",
+          "ingestion_pipeline",
+          "ingestion_timestamp"
+        ],
+        "optional_fields": [
+          "user_id",
+          "github_repo",
+          "project_id"
+        ]
+      },
+
+      "rebuild_procedure": {
+        "type": "r2_scan_rebuild",
+        "source_bucket": "chittycontext-sessions",
+        "source_prefix": "sessions/",
+        "rebuild_script": "scripts/rebuild-vector-index.ts",
+        "estimated_duration": "2-4 hours",
+        "estimated_cost": "$30-60"
+      },
+
+      "current_status": {
+        "index_exists": true,
+        "document_count": "UNKNOWN",
+        "last_rebuild": null,
+        "r2_references_complete": false,
+        "notes": "Existing index - 1536 dimensions suggests OpenAI embeddings"
+      }
+    },
+
+    {
+      "index_name": "intel-embeddings",
+      "vectorize_index_id": "intel-embeddings",
+      "dimension": 1536,
+      "metric": "cosine",
+      "purpose": "Legal intelligence, case research, and evidence semantic search",
+
+      "r2_source": {
+        "bucket": "chittyevidence-originals",
+        "prefix": "evidence/",
+        "object_pattern": "evidence/{case_id}/{evidence_id}/{hash}/{filename}"
+      },
+
+      "ingestion_pipeline": {
+        "pipeline_name": "chittyevidence-vectorization-production",
+        "pipeline_status": "TEMPLATE_CREATED",
+        "pipeline_file": "pipelines/vectorization.yaml",
+        "trigger": "queue:evidence-vectorization-queue",
+        "embedding_model": "@cf/baai/bge-base-en-v1.5",
+        "model_version": "v1.5"
+      },
+
+      "metadata_schema": {
+        "required_fields": [
+          "r2_bucket",
+          "r2_key",
+          "r2_hash",
+          "evidence_id",
+          "case_id",
+          "evidence_tier",
+          "chunk_index",
+          "ingestion_pipeline",
+          "ingestion_timestamp",
+          "embedding_model",
+          "embedding_model_version",
+          "authority"
+        ],
+        "optional_fields": [
+          "document_type",
+          "page_count",
+          "source_platform"
+        ]
+      },
+
+      "rebuild_procedure": {
+        "type": "pipeline_rebuild",
+        "source_bucket": "chittyevidence-originals",
+        "source_prefix": "evidence/",
+        "rebuild_pipeline": "chittyevidence-vectorization-production",
+        "rebuild_trigger": "manual",
+        "rebuild_script": "scripts/rebuild-intel-index.ts",
+        "estimated_duration": "8-12 hours",
+        "estimated_cost": "$200-400 (legal evidence volume)"
+      },
+
+      "current_status": {
+        "index_exists": true,
+        "document_count": "UNKNOWN",
+        "last_rebuild": null,
+        "r2_references_complete": false,
+        "notes": "CRITICAL: Legal evidence index - MUST ensure R2 references for chain of custody"
+      }
+    },
+
+    {
+      "index_name": "media-embeddings",
+      "vectorize_index_id": "media-embeddings",
+      "dimension": 768,
+      "metric": "cosine",
+      "purpose": "Media library semantic search (images, videos, audio transcripts)",
+
+      "r2_source": {
+        "bucket": "chittymedia-library",
+        "prefix": "media/",
+        "object_pattern": "media/{media_type}/{hash}/{filename}"
+      },
+
+      "ingestion_pipeline": {
+        "pipeline_name": "media-ingestion",
+        "pipeline_status": "TO_BE_CREATED",
+        "trigger": "r2_event:object.create",
+        "embedding_model": "@cf/baai/bge-base-en-v1.5",
+        "model_version": "v1.5",
+        "notes": "OCR/transcription required before embedding"
+      },
+
+      "metadata_schema": {
+        "required_fields": [
+          "r2_bucket",
+          "r2_key",
+          "r2_hash",
+          "media_type",
+          "media_id",
+          "ingestion_pipeline",
+          "ingestion_timestamp"
+        ],
+        "optional_fields": [
+          "transcript_text",
+          "ocr_text",
+          "image_caption",
+          "duration_seconds"
+        ]
+      },
+
+      "rebuild_procedure": {
+        "type": "r2_scan_rebuild",
+        "source_bucket": "chittymedia-library",
+        "source_prefix": "media/",
+        "rebuild_script": "scripts/rebuild-vector-index.ts",
+        "estimated_duration": "6-10 hours",
+        "estimated_cost": "$100-200"
+      },
+
+      "current_status": {
+        "index_exists": true,
+        "document_count": "UNKNOWN",
+        "last_rebuild": null,
+        "r2_references_complete": false,
+        "notes": "Media index - may require OCR/transcription preprocessing"
+      }
+    },
+
+    {
+      "index_name": "memory-cloude",
+      "vectorize_index_id": "memory-cloude",
+      "dimension": 1536,
+      "metric": "cosine",
+      "purpose": "MemoryCloude persistent memory system for ChittyConnect sessions",
+
+      "r2_source": {
+        "bucket": "chittymemory-persistent",
+        "prefix": "memory/",
+        "object_pattern": "memory/{user_id}/{session_id}/memory.json"
+      },
+
+      "ingestion_pipeline": {
+        "pipeline_name": "memory-cloude-ingestion",
+        "pipeline_status": "TO_BE_CREATED",
+        "trigger": "r2_event:object.create",
+        "embedding_model": "@cf/openai/text-embedding-ada-002",
+        "model_version": "ada-002"
+      },
+
+      "metadata_schema": {
+        "required_fields": [
+          "r2_bucket",
+          "r2_key",
+          "r2_hash",
+          "user_id",
+          "session_id",
+          "memory_type",
+          "ingestion_pipeline",
+          "ingestion_timestamp"
+        ],
+        "optional_fields": [
+          "github_repo",
+          "project_id",
+          "platform"
+        ]
+      },
+
+      "rebuild_procedure": {
+        "type": "r2_scan_rebuild",
+        "source_bucket": "chittymemory-persistent",
+        "source_prefix": "memory/",
+        "rebuild_script": "scripts/rebuild-vector-index.ts",
+        "estimated_duration": "3-5 hours",
+        "estimated_cost": "$40-80"
+      },
+
+      "current_status": {
+        "index_exists": true,
+        "document_count": "UNKNOWN",
+        "last_rebuild": null,
+        "r2_references_complete": false,
+        "notes": "ChittyConnect MemoryCloude integration - 1536 dims = OpenAI embeddings"
+      }
+    }
+  ],
+
+  "governance": {
+    "schema_authority": "chittyschema",
+    "required_approvals": [
+      "vectorize_admin",
+      "schema_owner"
+    ],
+    "modification_policy": "All changes to vector indexes MUST update this registry",
+    "audit_requirement": "Quarterly audit to verify R2 references complete"
+  },
+
+  "action_items": {
+    "P0_URGENT": [
+      "Audit intel-embeddings for R2 references (legal evidence)",
+      "Verify all vector metadata includes r2_bucket + r2_key + r2_hash"
+    ],
+    "P1_HIGH": [
+      "Create missing ingestion pipelines for 4/5 indexes",
+      "Document actual document counts for all indexes",
+      "Test rebuild procedures for each index"
+    ],
+    "P2_MEDIUM": [
+      "Implement automated R2 reference validation",
+      "Set up monitoring for vector index health",
+      "Create backup/restore procedures"
+    ]
+  },
+
+  "notes": [
+    "This registry documents 5 existing Vectorize indexes discovered during infrastructure audit",
+    "All indexes currently exist but may lack complete R2 source references",
+    "Pipelines need to be created to enforce R2 reference metadata requirement",
+    "intel-embeddings is CRITICAL for legal evidence - prioritize R2 reference audit",
+    "Dimension mismatch: Some indexes use 768 (bge-base), others use 1536 (OpenAI ada-002)"
+  ]
+}

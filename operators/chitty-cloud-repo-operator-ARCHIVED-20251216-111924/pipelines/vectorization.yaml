@@ -1,0 +1,582 @@
+# ChittyOS Vectorization Pipeline
+# Cloudflare Pipelines Configuration
+# Version: 1.0.0
+# Authority: Canonical
+
+# Pipeline Metadata
+name: chittyevidence-vectorization-production
+description: "R2 evidence to Vectorize semantic indexing with rebuildability"
+version: "1.0.0"
+owner: "ChittyOS Evidence Team"
+authority_integration:
+  - chittyschema   # Schema validation for vector metadata
+  - chittycanon    # Canonical field mapping
+
+# =============================================================================
+# ARCHITECTURAL INVARIANT ENFORCEMENT
+# =============================================================================
+#
+# This pipeline enforces the following invariants:
+#
+# 1. R2 ACCESS: Read-only (NO writes, NO mutations)
+# 2. VECTORIZE ACCESS: Write-only for indexes (NO source document storage)
+# 3. METADATA REQUIREMENT: ALL vectors MUST include R2 references
+#    - r2_bucket, r2_key, sha256_hash, ingestion_pipeline_id
+# 4. REBUILDABILITY: Vectors can be rebuilt from R2 at any time
+# 5. NO SOURCE DOCUMENTS: Vectorize stores embeddings + metadata ONLY
+#
+# =============================================================================
+
+# =============================================================================
+# SOURCE: Queue from Evidence Ingestion Pipeline
+# =============================================================================
+source:
+  type: queue
+  queue_name: evidence-vectorization-queue
+  batch_size: 10  # Process multiple documents in parallel for efficiency
+  visibility_timeout: 600  # 10 minutes per batch (chunking + embedding is slow)
+  max_retries: 3
+  dead_letter_queue: vectorization-dlq
+
+# =============================================================================
+# TRANSFORMS: Sequential Processing Stages
+# =============================================================================
+transforms:
+  # ---------------------------------------------------------------------------
+  # Stage 1: Fetch Evidence from R2 (READ-ONLY)
+  # ---------------------------------------------------------------------------
+  - name: fetch_from_r2
+    type: worker
+    worker: chittyevidence-r2-fetcher
+    runtime: workers
+    timeout: 30
+
+    input_mapping:
+      r2_bucket: $.r2_bucket
+      r2_key: $.r2_key
+      evidence_id: $.evidence_id
+      document_type: $.document_type
+      mime_type: $.mime_type
+
+    transform_logic: |
+      // READ-ONLY R2 access - no write methods exposed
+      // Binding configured as read-only in wrangler.toml
+
+      const object = await env.EVIDENCE_BUCKET.get(r2_key);
+
+      if (!object) {
+        throw new Error(`Evidence not found in R2: ${r2_key}`);
+      }
+
+      // Fetch full content for processing
+      const content = await object.arrayBuffer();
+
+      // Verify hash integrity
+      const hash = await crypto.subtle.digest('SHA-256', content);
+      const hashHex = Array.from(new Uint8Array(hash))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      if (hashHex !== $.sha256_hash) {
+        throw new Error('Hash mismatch - evidence integrity compromised');
+      }
+
+      return {
+        content: new TextDecoder().decode(content),
+        r2_metadata: object.customMetadata,
+        size: object.size,
+        fetched_at: new Date().toISOString()
+      };
+
+    output_mapping:
+      evidence_content: $.content
+      r2_metadata: $.r2_metadata
+      content_size: $.size
+
+    error_handling:
+      on_failure: abort  # CRITICAL: Cannot vectorize without source
+      alert: true
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Document Chunking (Type-Specific)
+  # ---------------------------------------------------------------------------
+  - name: chunk_document
+    type: worker
+    worker: chittyevidence-chunker
+    runtime: workers
+    timeout: 60
+
+    input_mapping:
+      content: $.evidence_content
+      document_type: $.document_type
+      mime_type: $.mime_type
+      page_count: $.page_count
+
+    transform_logic: |
+      // Chunking strategies by document type:
+      //
+      // - PDF: Chunk by page (with overlap for context)
+      // - Email: Chunk by thread (keep conversation context)
+      // - Long documents: Sliding window (512 tokens, 128 overlap)
+      // - Images: OCR text extraction → chunk by paragraphs
+      // - Spreadsheets: Chunk by sheet + row range
+
+      const chunks = await chunkDocument({
+        content,
+        document_type,
+        mime_type,
+        strategy: determineChunkingStrategy(document_type),
+        max_chunk_size: 512,  // tokens
+        overlap: 128          // tokens
+      });
+
+      // Each chunk includes:
+      // - chunk_text: The actual text content
+      // - chunk_index: Position in document
+      // - chunk_metadata: Page number, section, etc.
+
+      return {
+        chunks,
+        chunk_count: chunks.length,
+        chunking_strategy: chunks[0].strategy
+      };
+
+    output_mapping:
+      chunks: $.chunks
+      chunk_count: $.chunk_count
+      chunking_strategy: $.chunking_strategy
+
+    error_handling:
+      on_failure: continue  # Log error but continue with partial chunks
+      log_errors: true
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: Generate Embeddings (Workers AI)
+  # ---------------------------------------------------------------------------
+  - name: generate_embeddings
+    type: worker
+    worker: chittyevidence-embedder
+    runtime: workers-ai  # Uses Workers AI binding
+    timeout: 120  # Embedding generation can be slow for large batches
+
+    input_mapping:
+      chunks: $.chunks
+      embedding_model: "@cf/baai/bge-base-en-v1.5"  # 768 dimensions
+
+    transform_logic: |
+      // Generate embeddings for all chunks using Workers AI
+      // Model: @cf/baai/bge-base-en-v1.5 (768 dimensions, cosine similarity)
+
+      const embeddings = await Promise.all(
+        chunks.map(async (chunk) => {
+          const response = await env.AI.run(embedding_model, {
+            text: chunk.chunk_text
+          });
+
+          return {
+            chunk_index: chunk.chunk_index,
+            chunk_text: chunk.chunk_text,
+            chunk_metadata: chunk.chunk_metadata,
+            embedding: response.data[0],  // 768-dimensional vector
+            model: embedding_model,
+            model_version: 'v1.5'
+          };
+        })
+      );
+
+      return {
+        embeddings,
+        embedding_count: embeddings.length,
+        dimensions: 768
+      };
+
+    output_mapping:
+      embeddings: $.embeddings
+      embedding_count: $.embedding_count
+      embedding_dimensions: $.dimensions
+
+    error_handling:
+      on_failure: retry
+      max_retries: 3
+      retry_backoff: exponential
+
+  # ---------------------------------------------------------------------------
+  # Stage 4: Prepare Vectorize Metadata (R2 References Required)
+  # ---------------------------------------------------------------------------
+  - name: prepare_vector_metadata
+    type: worker
+    worker: chittyevidence-metadata-prep
+    runtime: workers
+    timeout: 10
+
+    authority: chittyschema  # Schema validation for vector metadata
+
+    input_mapping:
+      embeddings: $.embeddings
+      evidence_id: $.evidence_id
+      r2_bucket: $.r2_bucket
+      r2_key: $.r2_key
+      sha256_hash: $.sha256_hash
+      case_id: $.case_id
+      evidence_tier: $.evidence_tier
+
+    transform_logic: |
+      // CRITICAL: All vectors MUST include R2 source references
+      // This enables complete rebuild from R2 if needed
+
+      const vectorRecords = embeddings.map((emb) => ({
+        id: `${evidence_id}-chunk-${emb.chunk_index}`,
+        values: emb.embedding,  // 768-dimensional vector
+
+        // REQUIRED METADATA (for rebuildability)
+        metadata: {
+          // R2 source reference (SOURCE OF TRUTH)
+          r2_bucket: r2_bucket,
+          r2_key: r2_key,
+          r2_hash: sha256_hash,
+
+          // Evidence context
+          evidence_id: evidence_id,
+          case_id: case_id,
+          evidence_tier: evidence_tier,
+
+          // Chunk context
+          chunk_index: emb.chunk_index,
+          chunk_text: emb.chunk_text.substring(0, 500),  // Preview only
+          chunk_metadata: JSON.stringify(emb.chunk_metadata),
+
+          // Ingestion provenance
+          ingestion_pipeline: 'chittyevidence-vectorization-production',
+          ingestion_timestamp: new Date().toISOString(),
+          embedding_model: emb.model,
+          embedding_model_version: emb.model_version,
+
+          // Rebuild trigger
+          rebuild_version: 'v1',  // Increment when rebuilding with new model
+
+          // Authority
+          authority: 'chittycanon'
+        }
+      }));
+
+      return {
+        vectors: vectorRecords,
+        vector_count: vectorRecords.length
+      };
+
+    output_mapping:
+      vectors: $.vectors
+      vector_count: $.vector_count
+
+# =============================================================================
+# SINKS: Parallel Writes to Multiple Destinations
+# =============================================================================
+sinks:
+  # ---------------------------------------------------------------------------
+  # Sink 1: Vectorize - Semantic Index (Write-Only)
+  # ---------------------------------------------------------------------------
+  - name: vectorize_intel_embeddings
+    type: vectorize
+    index_name: intel-embeddings
+    dimension: 768
+    metric: cosine
+
+    # ARCHITECTURAL INVARIANT: Vectorize stores ONLY:
+    # 1. Embeddings (vectors)
+    # 2. Metadata with R2 references
+    #
+    # Vectorize NEVER stores:
+    # - Source documents
+    # - Full text content
+    # - Binary data
+
+    upsert:
+      vectors: "{{vectors}}"
+
+    # Namespace by case for isolation
+    namespace: "case-{{case_id}}"
+
+    error_handling:
+      on_error: retry
+      max_retries: 3
+      retry_backoff: exponential
+      alert_on_failure: true
+
+  # ---------------------------------------------------------------------------
+  # Sink 2: D1 - Vector Index Registry
+  # ---------------------------------------------------------------------------
+  - name: d1_vector_registry_update
+    type: d1
+    database_binding: EVIDENCE_REGISTRY_DB
+
+    query: |
+      UPDATE vector_indexes
+      SET
+        chunk_count = chunk_count + ?,
+        total_vectors = total_vectors + ?,
+        last_ingestion_timestamp = CURRENT_TIMESTAMP,
+        index_status = 'ACTIVE',
+        updated_at = CURRENT_TIMESTAMP
+      WHERE evidence_id = ? AND r2_key = ?;
+
+      -- If no rows updated, insert new record
+      INSERT INTO vector_indexes (
+        evidence_id,
+        case_id,
+        r2_key,
+        r2_bucket,
+        file_hash,
+        chunk_count,
+        total_vectors,
+        embedding_model,
+        model_version,
+        index_status
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE'
+      WHERE (SELECT changes() = 0);
+
+    params:
+      # UPDATE params
+      - "{{chunk_count}}"
+      - "{{vector_count}}"
+      - "{{evidence_id}}"
+      - "{{r2_key}}"
+      # INSERT params
+      - "{{evidence_id}}"
+      - "{{case_id}}"
+      - "{{r2_key}}"
+      - "{{r2_bucket}}"
+      - "{{sha256_hash}}"
+      - "{{chunk_count}}"
+      - "{{vector_count}}"
+      - "@cf/baai/bge-base-en-v1.5"
+      - "v1.5"
+
+  # ---------------------------------------------------------------------------
+  # Sink 3: Analytics Engine (Performance Tracking)
+  # ---------------------------------------------------------------------------
+  - name: analytics_vectorization
+    type: analytics_engine
+    dataset: EVIDENCE_VECTORIZATION
+
+    fields:
+      timestamp: "{{timestamp}}"
+      evidence_id: "{{evidence_id}}"
+      case_id: "{{case_id}}"
+      document_type: "{{document_type}}"
+      content_size: "{{content_size}}"
+      chunk_count: "{{chunk_count}}"
+      vector_count: "{{vector_count}}"
+      chunking_strategy: "{{chunking_strategy}}"
+      embedding_model: "@cf/baai/bge-base-en-v1.5"
+      vectorization_duration_ms: "{{pipeline_duration}}"
+      r2_bucket: "{{r2_bucket}}"
+
+  # ---------------------------------------------------------------------------
+  # Sink 4: Neon - Vectorization Audit Log
+  # ---------------------------------------------------------------------------
+  - name: neon_vectorization_log
+    type: postgres
+    connection_string_secret: NEON_DATABASE_URL
+
+    query: |
+      INSERT INTO evidence_vectorization_log (
+        evidence_id,
+        r2_bucket,
+        r2_key,
+        sha256_hash,
+        chunk_count,
+        vector_count,
+        embedding_model,
+        vectorize_index,
+        vectorization_timestamp,
+        pipeline_version
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
+
+    params:
+      - "{{evidence_id}}"
+      - "{{r2_bucket}}"
+      - "{{r2_key}}"
+      - "{{sha256_hash}}"
+      - "{{chunk_count}}"
+      - "{{vector_count}}"
+      - "@cf/baai/bge-base-en-v1.5"
+      - "intel-embeddings"
+      - "{{timestamp}}"
+      - "v1.0.0"
+
+# =============================================================================
+# REBUILD TRIGGERS (For Model Upgrades or Re-Indexing)
+# =============================================================================
+rebuild_triggers:
+  # Trigger 1: Model Upgrade
+  # When embedding model is upgraded, rebuild all vectors from R2
+  - name: model_upgrade_rebuild
+    trigger: manual  # Triggered by ops team
+    source:
+      type: r2_list
+      bucket: chittyevidence-originals
+      prefix: evidence/
+
+    rebuild_strategy: incremental  # Only rebuild vectors with old model version
+    filter: metadata.embedding_model_version != 'v2.0'
+
+  # Trigger 2: Evidence Update
+  # If evidence content changes in R2, re-vectorize
+  - name: evidence_update_rebuild
+    trigger: r2_event
+    event: object.overwrite  # Should be rare (append-only)
+    rebuild_strategy: full  # Complete re-vectorization
+
+  # Trigger 3: Index Corruption Recovery
+  # If Vectorize index is corrupted, rebuild from R2
+  - name: corruption_recovery_rebuild
+    trigger: manual
+    rebuild_strategy: full
+    verification: true  # Verify all R2 hashes match
+
+# =============================================================================
+# ERROR HANDLING & MONITORING
+# =============================================================================
+error_handling:
+  dead_letter_queue: vectorization-dlq
+  max_retries: 3
+  retry_backoff: exponential
+  alert_on_failure: true
+  alert_webhook_secret: SLACK_WEBHOOK_VECTORIZATION_ALERTS
+
+monitoring:
+  enable_traces: true
+  enable_metrics: true
+  trace_sampling: 0.1  # 10% sampling (vectorization is high-volume)
+
+  metrics_export:
+    - analytics_engine
+    - cloudflare_logs
+
+  alerts:
+    - condition: vectorization_failure_rate > 5%
+      severity: warning
+      destination: slack
+
+    - condition: r2_fetch_failure
+      severity: critical
+      destination: pagerduty
+
+    - condition: vectorize_write_failure
+      severity: critical
+      destination: pagerduty
+
+    - condition: hash_mismatch
+      severity: critical
+      destination: pagerduty
+
+# =============================================================================
+# GOVERNANCE & COMPLIANCE
+# =============================================================================
+governance:
+  schema_authority: chittyschema
+  canonical_authority: chittycanon
+
+  required_approvals:
+    - schema_owner      # chittyschema governance
+    - vectorize_admin   # Vectorize index management
+
+  metadata_requirements:
+    enforced: true
+    required_fields:
+      - r2_bucket
+      - r2_key
+      - r2_hash
+      - evidence_id
+      - ingestion_pipeline
+      - embedding_model
+      - embedding_model_version
+
+  audit_trail:
+    enabled: true
+    log_all_vectorizations: true
+    retention: permanent
+
+# =============================================================================
+# PERFORMANCE & OPTIMIZATION
+# =============================================================================
+performance:
+  # Batch processing for efficiency
+  batch_size: 10
+  parallel_embedding_requests: 5
+
+  # Caching strategy
+  chunk_cache_ttl: 3600  # Cache chunks for 1 hour (during retry)
+  embedding_cache_ttl: 86400  # Cache embeddings for 24 hours
+
+  # Resource limits
+  max_chunk_size: 512  # tokens
+  max_chunks_per_document: 1000
+  max_concurrent_vectorizations: 50
+
+# =============================================================================
+# DEPLOYMENT & VERSIONING
+# =============================================================================
+deployment:
+  environment: production
+  region: global  # Cloudflare edge network
+
+  version_control:
+    git_repo: github.com/chittyos/chitty-cloud-repo-operator
+    config_path: pipelines/vectorization.yaml
+    requires_approval: true
+
+  rollout_strategy: blue_green
+  canary_percentage: 10
+
+  health_checks:
+    - endpoint: /health
+      interval: 60
+      timeout: 10
+
+# =============================================================================
+# RATE LIMITS & THROTTLING
+# =============================================================================
+rate_limits:
+  max_concurrent: 50
+  max_per_minute: 500
+  max_per_hour: 10000
+
+  backpressure:
+    queue_depth_threshold: 5000
+    action: slow_consumer
+
+# =============================================================================
+# REBUILDABILITY VERIFICATION
+# =============================================================================
+#
+# This pipeline is designed for complete rebuildability:
+#
+# 1. All vectors reference R2 source (bucket + key + hash)
+# 2. Embedding model and version tracked in metadata
+# 3. Chunking strategy recorded for reproducibility
+# 4. Pipeline version tracked for audit
+#
+# To rebuild the entire index from R2:
+#   1. List all objects in r2://chittyevidence-originals/evidence/
+#   2. Queue all R2 keys to evidence-vectorization-queue
+#   3. Pipeline re-processes each document
+#   4. Upsert replaces old vectors with new ones
+#
+# To rebuild a specific case:
+#   1. Query Neon: SELECT r2_key FROM evidence WHERE case_id = ?
+#   2. Queue those R2 keys
+#   3. Pipeline re-vectorizes
+#
+# To upgrade embedding model:
+#   1. Change embedding_model parameter
+#   2. Increment rebuild_version
+#   3. Trigger model_upgrade_rebuild
+#   4. Pipeline re-processes all documents with old model version
+#
+# =============================================================================
+
+# =============================================================================
+# END OF PIPELINE CONFIGURATION
+# =============================================================================

@@ -1,0 +1,249 @@
+# ChittyOS AutoRAG Query Worker - Wrangler Configuration
+# PATTERN: Read-Only Worker (Query Operations Only)
+#
+# This configuration demonstrates the CORRECT binding pattern for AutoRAG
+# query workers that need read-only access to evidence and vector indexes.
+#
+# ARCHITECTURAL INVARIANTS ENFORCED:
+# 1. NO R2 write bindings (read-only R2 access)
+# 2. NO Vectorize write bindings (query-only access)
+# 3. NO Queue bindings (cannot trigger pipelines)
+# 4. Comprehensive audit logging
+#
+# @version 1.0.0
+# @authority ChittyOS Core Team
+
+name = "chittyevidence-autorag-query"
+main = "workers/autorag-query.ts"
+compatibility_date = "2025-01-01"
+node_compat = true
+
+# =============================================================================
+# WORKERS CONFIGURATION
+# =============================================================================
+
+workers_dev = true
+route = "autorag.chitty.cc/*"
+
+# Account configuration
+account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"
+
+# =============================================================================
+# R2 BINDINGS (READ-ONLY)
+# =============================================================================
+#
+# IMPORTANT: R2 bindings for query workers are READ-ONLY.
+# Enforcement:
+# - TypeScript type guards remove put/delete methods
+# - StorageGuard middleware validates operations
+# - No write permissions in Cloudflare IAM
+#
+
+[[r2_buckets]]
+binding = "EVIDENCE_BUCKET"
+bucket_name = "chittyevidence-originals"
+jurisdiction = "US"
+
+# READ-ONLY ACCESS PATTERN:
+# ✅ env.EVIDENCE_BUCKET.get(key)     - Allowed
+# ❌ env.EVIDENCE_BUCKET.put(key, val) - Forbidden (type guard removes method)
+# ❌ env.EVIDENCE_BUCKET.delete(key)   - Forbidden (type guard removes method)
+
+# =============================================================================
+# VECTORIZE BINDINGS (QUERY-ONLY)
+# =============================================================================
+#
+# Vectorize bindings for query workers are QUERY-ONLY.
+# No upsert or delete operations allowed.
+#
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "intel-embeddings"
+
+# QUERY-ONLY ACCESS PATTERN:
+# ✅ env.VECTORIZE.query(embedding, {topK: 10}) - Allowed
+# ❌ env.VECTORIZE.upsert(vectors)              - Forbidden (type guard removes method)
+# ❌ env.VECTORIZE.deleteByIds(ids)             - Forbidden (type guard removes method)
+
+# =============================================================================
+# D1 DATABASE BINDINGS (READ-ONLY QUERIES)
+# =============================================================================
+#
+# D1 database for vector index registry metadata.
+# Query-only access (no writes).
+#
+
+[[d1_databases]]
+binding = "DB"
+database_name = "chittyevidence-registry"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# READ-ONLY QUERY PATTERN:
+# ✅ env.DB.prepare("SELECT ...").all()
+# ❌ env.DB.prepare("INSERT ...").run()  - Discouraged (no enforcement)
+
+# =============================================================================
+# ANALYTICS ENGINE (AUDIT LOGGING)
+# =============================================================================
+#
+# All evidence access logged to Analytics Engine for audit trail.
+#
+
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "EVIDENCE_ACCESS"
+
+# USAGE:
+# env.ANALYTICS.writeDataPoint({
+#   indexes: ['evidence_access'],
+#   blobs: [user_id, evidence_id, 'QUERY'],
+#   doubles: [1]
+# });
+
+# =============================================================================
+# SECRETS (Read-Only by Nature)
+# =============================================================================
+#
+# Set secrets using: wrangler secret put SECRET_NAME
+#
+
+# JWT verification secret
+# wrangler secret put JWT_SECRET
+
+# Neon database connection (read-only queries)
+# wrangler secret put NEON_DATABASE_URL
+
+# =============================================================================
+# WORKERS AI BINDING (For Query Embedding Generation)
+# =============================================================================
+
+[ai]
+binding = "AI"
+
+# USAGE:
+# const embedding = await env.AI.run('@cf/baai/bge-base-en-v1.5', {
+#   text: query
+# });
+
+# =============================================================================
+# OBSERVABILITY
+# =============================================================================
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1  # Sample 10% of requests
+
+# Logpush configuration
+[logpush]
+enabled = true
+dataset = "workers_trace_events"
+frequency = "high"
+
+# =============================================================================
+# DEPLOYMENT CONFIGURATION
+# =============================================================================
+
+[env.production]
+name = "chittyevidence-autorag-query-production"
+route = "autorag.chitty.cc/*"
+workers_dev = false
+
+[env.staging]
+name = "chittyevidence-autorag-query-staging"
+route = "autorag-staging.chitty.cc/*"
+workers_dev = false
+
+# =============================================================================
+# BUILD CONFIGURATION
+# =============================================================================
+
+[build]
+command = "npm run build"
+watch_dirs = ["workers", "middleware"]
+
+[build.upload]
+format = "modules"
+main = "./dist/autorag-query.js"
+
+# =============================================================================
+# LIMITS & QUOTAS
+# =============================================================================
+
+# CPU time limit per request (ms)
+cpu_ms = 50
+
+# Memory limit per request (MB)
+usage_model = "unbound"
+
+# =============================================================================
+# FORBIDDEN BINDINGS FOR QUERY WORKERS
+# =============================================================================
+#
+# The following bindings are FORBIDDEN for query workers:
+#
+# ❌ NO QUEUE BINDINGS
+# [[queues.producers]]
+# binding = "UPLOAD_QUEUE"
+# queue = "evidence-upload-queue"
+#
+# Reason: Query workers cannot trigger pipelines or upload evidence
+#
+# ❌ NO KV WRITE NAMESPACES (except rate limiting)
+# [[kv_namespaces]]
+# binding = "EVIDENCE_CACHE"
+# id = "..."
+#
+# Reason: Evidence cannot be cached in KV (must be in R2)
+#
+# ❌ NO DURABLE OBJECTS (State Mutation)
+# [[durable_objects.bindings]]
+# name = "EVIDENCE_COORDINATOR"
+# class_name = "EvidenceCoordinator"
+#
+# Reason: Query workers are stateless read-only
+#
+# =============================================================================
+
+# =============================================================================
+# CLOUDFLARE IAM POLICY (Companion Configuration)
+# =============================================================================
+#
+# In addition to this wrangler.toml, apply IAM policies to enforce read-only:
+#
+# {
+#   "effect": "deny",
+#   "action": [
+#     "r2:PutObject",
+#     "r2:DeleteObject",
+#     "vectorize:Upsert",
+#     "vectorize:Delete"
+#   ],
+#   "resources": ["workers:chittyevidence-autorag-query-*"]
+# }
+#
+# See: iam-policies/cloudflare-iam.json
+#
+# =============================================================================
+
+# =============================================================================
+# USAGE NOTES
+# =============================================================================
+#
+# Deploy:
+#   wrangler deploy --env production
+#
+# Set secrets:
+#   wrangler secret put JWT_SECRET --env production
+#   wrangler secret put NEON_DATABASE_URL --env production
+#
+# Test locally:
+#   npm run dev
+#
+# View logs:
+#   wrangler tail --env production
+#
+# Verify bindings:
+#   wrangler deployments list --env production
+#
+# =============================================================================

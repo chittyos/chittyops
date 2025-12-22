@@ -1,0 +1,566 @@
+# ChittyOS Evidence Ingestion Pipeline
+# Cloudflare Pipelines Configuration
+# Version: 1.0.0
+# Authority: Canonical
+
+# Pipeline Metadata
+name: chittyevidence-ingestion-production
+description: "Legal-grade evidence ingestion with chain of custody tracking"
+version: "1.0.0"
+owner: "ChittyOS Evidence Team"
+authority_integration:
+  - chittyid       # Identity/ChittyID minting
+  - chittycert     # Certificate signing
+  - chittyschema   # Schema validation
+  - chittycanon    # Canonical field mapping
+  - chittyregister # Service registration
+
+# =============================================================================
+# SOURCE: Queue from Upload Worker
+# =============================================================================
+source:
+  type: queue
+  queue_name: evidence-upload-queue
+  batch_size: 1  # Process one evidence item at a time for legal isolation
+  visibility_timeout: 300  # 5 minutes per evidence item
+  max_retries: 3
+  dead_letter_queue: evidence-ingestion-dlq
+
+# =============================================================================
+# TRANSFORMS: Sequential Processing Stages
+# =============================================================================
+transforms:
+  # ---------------------------------------------------------------------------
+  # Stage 1: Metadata Extraction & Document Analysis
+  # ---------------------------------------------------------------------------
+  - name: extract_metadata
+    type: worker
+    worker: chittyevidence-metadata-extractor
+    runtime: workers
+    timeout: 30
+
+    input_mapping:
+      file_data: $.file
+      mime_type: $.mime_type
+      filename: $.filename
+      case_id: $.case_id
+
+    transform_logic: |
+      // Extract metadata from evidence file
+      // - PDF: text extraction, page count, creation date
+      // - Image: EXIF data, dimensions, geolocation
+      // - Email: headers, sender, recipients, attachments
+      // - Document: author, modified date, version
+
+      const metadata = await extractMetadata(file_data, mime_type);
+
+      return {
+        extracted_text: metadata.text,
+        document_type: metadata.type,
+        page_count: metadata.pages,
+        author: metadata.author,
+        created_date: metadata.created,
+        exif_data: metadata.exif,
+        email_headers: metadata.email_headers
+      };
+
+    output_mapping:
+      extracted_text: $.text
+      document_type: $.type
+      page_count: $.pages
+      metadata_json: $.metadata
+
+    error_handling:
+      on_failure: continue  # Continue even if metadata extraction fails
+      log_errors: true
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Security Validation & Virus Scan
+  # ---------------------------------------------------------------------------
+  - name: security_scan
+    type: worker
+    worker: chittyevidence-security-scanner
+    runtime: workers-ai  # Uses Workers AI for malware detection
+    timeout: 30
+
+    input_mapping:
+      file_data: $.file
+      file_hash: $.sha256_hash
+      filename: $.filename
+
+    transform_logic: |
+      // Security checks:
+      // 1. Virus scan using Workers AI models
+      // 2. File format validation (no polyglots)
+      // 3. Embedded script detection
+      // 4. Known malware signature check
+
+      const scanResult = await virusScan(file_data);
+
+      if (scanResult.threat_detected) {
+        throw new Error(`Security threat: ${scanResult.threat_type}`);
+      }
+
+      return {
+        scan_result: 'CLEAN',
+        scan_timestamp: new Date().toISOString(),
+        scanner_version: scanResult.version
+      };
+
+    output_mapping:
+      security_scan_result: $.scan_result
+      security_scan_timestamp: $.scan_timestamp
+
+    error_handling:
+      on_failure: abort  # CRITICAL: Abort pipeline if security scan fails
+      alert: true
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: ChittyID Minting (Authority: chittyid)
+  # ---------------------------------------------------------------------------
+  - name: mint_chittyids
+    type: worker
+    worker: chittyevidence-chittyid-minter
+    runtime: workers
+    timeout: 15
+
+    authority: chittyid  # Canonical authority for identity
+
+    input_mapping:
+      case_id: $.case_id
+      entity_type: "EVIDENCE"
+
+    transform_logic: |
+      // Mint ChittyIDs via ChittyID service
+      // - evidence_chitty_id: Unique identifier for this evidence item
+      // - thing_chitty_id: ChittyLedger integration (evidence is a "thing")
+      // - coc_chitty_id: Chain of custody tracking identifier
+
+      const evidence_id = await mintChittyID('EVIDENCE', env.CHITTY_ID_SERVICE_TOKEN);
+      const thing_id = await mintChittyID('THING', env.CHITTY_ID_SERVICE_TOKEN);
+      const coc_id = await mintChittyID('CHAIN_OF_CUSTODY', env.CHITTY_ID_SERVICE_TOKEN);
+
+      return { evidence_id, thing_id, coc_id };
+
+    output_mapping:
+      evidence_chitty_id: $.evidence_id
+      thing_chitty_id: $.thing_id
+      coc_chitty_id: $.coc_id
+
+  # ---------------------------------------------------------------------------
+  # Stage 4: Legal Tier Assignment (Authority: chittycanon)
+  # ---------------------------------------------------------------------------
+  - name: assign_legal_tier
+    type: worker
+    worker: chittyevidence-tier-classifier
+    runtime: workers-ai
+    timeout: 20
+
+    authority: chittycanon  # Canonical authority for legal classification
+
+    input_mapping:
+      document_type: $.document_type
+      metadata: $.extracted_metadata
+      source_authority: $.source
+      email_headers: $.email_headers
+
+    transform_logic: |
+      // Federal Rules of Evidence (FRE) tier classification
+      // Priority order (highest to lowest):
+      // 1. SELF_AUTHENTICATING (FRE 902)
+      // 2. GOVERNMENT (FRE 803(8))
+      // 3. FINANCIAL_INSTITUTION (FRE 803(6))
+      // 4. INDEPENDENT_THIRD_PARTY (FRE 803(6))
+      // 5. BUSINESS_RECORDS (FRE 803(6))
+      // 6. FIRST_PARTY_ADVERSE (FRE 801(d)(2))
+      // 7. FIRST_PARTY_FRIENDLY (FRE 803(5))
+      // 8. UNCORROBORATED_PERSON
+
+      const tier = await classifyEvidenceTier({
+        document_type,
+        metadata,
+        source_authority,
+        email_headers
+      });
+
+      return {
+        evidence_tier: tier.tier,
+        evidence_weight: tier.weight,
+        tier_justification: tier.justification,
+        authentication_method: tier.auth_method
+      };
+
+    output_mapping:
+      evidence_tier: $.tier
+      evidence_weight: $.weight
+      tier_justification: $.justification
+      authentication_method: $.auth_method
+
+  # ---------------------------------------------------------------------------
+  # Stage 5: R2 Key Generation & COC Event Creation
+  # ---------------------------------------------------------------------------
+  - name: prepare_storage
+    type: worker
+    worker: chittyevidence-storage-prep
+    runtime: workers
+    timeout: 10
+
+    input_mapping:
+      case_id: $.case_id
+      evidence_chitty_id: $.evidence_chitty_id
+      sha256_hash: $.sha256_hash
+      filename: $.filename
+      coc_chitty_id: $.coc_chitty_id
+      uploaded_by: $.uploaded_by
+      client_ip: $.client_ip
+
+    transform_logic: |
+      // Generate R2 key with structure:
+      // evidence/{case_id}/{evidence_chitty_id}/{sha256_hash}/{filename}
+
+      const r2_key = `evidence/${case_id}/${evidence_chitty_id}/${sha256_hash}/${filename}`;
+
+      // Create chain of custody event payload
+      const coc_event = {
+        evidence_id: evidence_chitty_id,
+        coc_chitty_id,
+        event_type: 'INGESTION',
+        event_timestamp: new Date().toISOString(),
+        to_custodian_id: uploaded_by,
+        transfer_method: 'ELECTRONIC_PIPELINE',
+        integrity_verified: true,
+        integrity_check_method: 'HASH_VERIFICATION',
+        ip_address: client_ip,
+        location: 'Cloudflare Edge',
+        drand_round: await getDrandRound()  // Cryptographic timestamp
+      };
+
+      return { r2_key, coc_event };
+
+    output_mapping:
+      r2_key: $.r2_key
+      coc_event: $.coc_event
+
+  # ---------------------------------------------------------------------------
+  # Stage 6: ChittyCert Signing (Authority: chittycert)
+  # ---------------------------------------------------------------------------
+  - name: sign_evidence
+    type: worker
+    worker: chittyevidence-cert-signer
+    runtime: workers
+    timeout: 15
+
+    authority: chittycert  # Canonical authority for signing
+
+    input_mapping:
+      evidence_id: $.evidence_chitty_id
+      coc_event: $.coc_event
+      sha256_hash: $.sha256_hash
+
+    transform_logic: |
+      // Sign chain of custody event with ChittyCert
+      // - Creates cryptographic signature
+      // - Includes certificate chain
+      // - Verifiable via public key
+
+      const signature = await signWithChittyCert({
+        payload: coc_event,
+        hash: sha256_hash,
+        cert_level: 'L2'  // Legal-grade certificate
+      }, env.CHITTY_CERT_SERVICE_TOKEN);
+
+      return {
+        signature: signature.signature,
+        cert_chain: signature.cert_chain,
+        signed_at: signature.timestamp
+      };
+
+    output_mapping:
+      coc_signature: $.signature
+      cert_chain: $.cert_chain
+      signed_at: $.signed_at
+
+# =============================================================================
+# SINKS: Parallel Writes to Multiple Destinations
+# =============================================================================
+sinks:
+  # ---------------------------------------------------------------------------
+  # Sink 1: R2 - SOURCE OF TRUTH (Authoritative Evidence Storage)
+  # ---------------------------------------------------------------------------
+  - name: r2_evidence_originals
+    type: r2
+    bucket: chittyevidence-originals
+    key_template: "{{r2_key}}"
+
+    # R2 Custom Metadata (attached to object)
+    metadata:
+      evidence_id: "{{evidence_chitty_id}}"
+      case_id: "{{case_id}}"
+      thing_id: "{{thing_chitty_id}}"
+      sha256_hash: "{{sha256_hash}}"
+      evidence_tier: "{{evidence_tier}}"
+      evidence_weight: "{{evidence_weight}}"
+      coc_chitty_id: "{{coc_chitty_id}}"
+      ingested_at: "{{timestamp}}"
+      ingestion_pipeline: "chittyevidence-ingestion-production"
+      custodian_id: "{{uploaded_by}}"
+      source_platform: "{{source_platform}}"
+      authenticated_method: "{{authentication_method}}"
+      source_of_truth: "R2"
+      authority: "chittycanon"
+
+    # Immutability enforcement
+    immutable: true
+    overwrite_protection: true
+
+    error_handling:
+      on_error: abort  # CRITICAL: Pipeline fails if R2 write fails
+      retry_count: 3
+      retry_backoff: exponential
+
+  # ---------------------------------------------------------------------------
+  # Sink 2: Neon - Metadata Index (Authority: chittyschema)
+  # ---------------------------------------------------------------------------
+  - name: neon_evidence_registry
+    type: postgres
+    connection_string_secret: NEON_DATABASE_URL
+    authority: chittyschema  # Schema governance via chittyschema
+
+    query: |
+      INSERT INTO evidence (
+        chitty_id,
+        case_id,
+        thing_id,
+        evidence_number,
+        evidence_tier,
+        evidence_weight,
+        r2_bucket,
+        r2_key,
+        r2_cdn_url,
+        sha256_hash,
+        file_size,
+        mime_type,
+        authentication_method,
+        created_by
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+      )
+      RETURNING id;
+
+    params:
+      - "{{evidence_chitty_id}}"
+      - "{{case_id}}"
+      - "{{thing_chitty_id}}"
+      - "{{evidence_number}}"
+      - "{{evidence_tier}}"
+      - "{{evidence_weight}}"
+      - "chittyevidence-originals"
+      - "{{r2_key}}"
+      - "https://evidence-cdn.chitty.cc/{{r2_key}}"
+      - "{{sha256_hash}}"
+      - "{{file_size}}"
+      - "{{mime_type}}"
+      - "{{authentication_method}}"
+      - "{{uploaded_by}}"
+
+    error_handling:
+      on_error: retry
+      max_retries: 3
+      retry_backoff: exponential
+
+  # ---------------------------------------------------------------------------
+  # Sink 3: Chain of Custody (Immutable Audit Trail)
+  # ---------------------------------------------------------------------------
+  - name: neon_chain_of_custody
+    type: postgres
+    connection_string_secret: NEON_DATABASE_URL
+
+    query: |
+      INSERT INTO evidence_chain_of_custody (
+        evidence_id,
+        coc_chitty_id,
+        event_type,
+        event_timestamp,
+        to_custodian_id,
+        transfer_method,
+        integrity_verified,
+        integrity_check_method,
+        ip_address,
+        user_agent,
+        location,
+        drand_round,
+        notes
+      ) SELECT
+        (SELECT id FROM evidence WHERE chitty_id = $1),
+        $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13;
+
+    params:
+      - "{{evidence_chitty_id}}"
+      - "{{coc_chitty_id}}"
+      - "INGESTION"
+      - "{{coc_event.event_timestamp}}"
+      - "{{uploaded_by}}"
+      - "ELECTRONIC_PIPELINE"
+      - true
+      - "HASH_VERIFICATION"
+      - "{{client_ip}}"
+      - "{{user_agent}}"
+      - "Cloudflare Edge"
+      - "{{coc_event.drand_round}}"
+      - "Ingested via evidence pipeline with ChittyCert signature"
+
+  # ---------------------------------------------------------------------------
+  # Sink 4: D1 Vector Registry (Prepares for Vectorization)
+  # ---------------------------------------------------------------------------
+  - name: d1_vector_registry
+    type: d1
+    database_binding: EVIDENCE_REGISTRY_DB
+
+    query: |
+      INSERT INTO vector_indexes (
+        evidence_id,
+        case_id,
+        r2_key,
+        r2_bucket,
+        file_hash,
+        chunk_count,
+        total_vectors,
+        embedding_model,
+        model_version,
+        index_status
+      ) VALUES (?, ?, ?, ?, ?, 0, 0, '@cf/baai/bge-base-en-v1.5', 'v1.5', 'PENDING')
+      ON CONFLICT(r2_key) DO UPDATE SET
+        index_status = 'PENDING',
+        updated_at = CURRENT_TIMESTAMP;
+
+    params:
+      - "{{evidence_chitty_id}}"
+      - "{{case_id}}"
+      - "{{r2_key}}"
+      - "chittyevidence-originals"
+      - "{{sha256_hash}}"
+
+  # ---------------------------------------------------------------------------
+  # Sink 5: Analytics Engine (Usage Tracking)
+  # ---------------------------------------------------------------------------
+  - name: analytics_ingestion
+    type: analytics_engine
+    dataset: EVIDENCE_INGESTION
+
+    fields:
+      timestamp: "{{timestamp}}"
+      evidence_id: "{{evidence_chitty_id}}"
+      case_id: "{{case_id}}"
+      tier: "{{evidence_tier}}"
+      file_size: "{{file_size}}"
+      mime_type: "{{mime_type}}"
+      document_type: "{{document_type}}"
+      ingestion_duration_ms: "{{pipeline_duration}}"
+      source_platform: "{{source_platform}}"
+      uploaded_by: "{{uploaded_by}}"
+
+  # ---------------------------------------------------------------------------
+  # Sink 6: Vectorization Queue (Async Processing)
+  # ---------------------------------------------------------------------------
+  - name: vectorization_queue
+    type: queue
+    queue_name: evidence-vectorization-queue
+
+    message:
+      evidence_id: "{{evidence_chitty_id}}"
+      r2_key: "{{r2_key}}"
+      r2_bucket: "chittyevidence-originals"
+      document_type: "{{document_type}}"
+      page_count: "{{page_count}}"
+      mime_type: "{{mime_type}}"
+      case_id: "{{case_id}}"
+
+# =============================================================================
+# ERROR HANDLING & MONITORING
+# =============================================================================
+error_handling:
+  dead_letter_queue: evidence-ingestion-dlq
+  max_retries: 3
+  retry_backoff: exponential
+  alert_on_failure: true
+  alert_webhook_secret: SLACK_WEBHOOK_EVIDENCE_ALERTS
+
+monitoring:
+  enable_traces: true
+  enable_metrics: true
+  trace_sampling: 1.0  # 100% tracing for legal compliance
+  metrics_export:
+    - analytics_engine
+    - cloudflare_logs
+
+  alerts:
+    - condition: pipeline_failure
+      severity: critical
+      destination: slack
+
+    - condition: security_scan_fail
+      severity: critical
+      destination: pagerduty
+
+    - condition: r2_write_fail
+      severity: critical
+      destination: pagerduty
+
+# =============================================================================
+# GOVERNANCE & COMPLIANCE
+# =============================================================================
+governance:
+  schema_authority: chittyschema
+  canonical_authority: chittycanon
+  signing_authority: chittycert
+
+  required_approvals:
+    - schema_owner  # chittyschema governance
+    - legal_team    # Legal review for tier classification
+
+  audit_trail:
+    enabled: true
+    immutable: true
+    retention: permanent
+
+  compliance:
+    - FRE_901  # Authentication requirements
+    - FRE_902  # Self-authenticating evidence
+    - ISO_27001  # Information security
+    - NIST_CSF  # Cybersecurity framework
+
+# =============================================================================
+# DEPLOYMENT & VERSIONING
+# =============================================================================
+deployment:
+  environment: production
+  region: global  # Cloudflare edge network
+
+  version_control:
+    git_repo: github.com/chittyos/chitty-cloud-repo-operator
+    config_path: pipelines/evidence-ingestion.yaml
+    requires_approval: true
+
+  rollout_strategy: blue_green
+  canary_percentage: 10
+
+  health_checks:
+    - endpoint: /health
+      interval: 60
+      timeout: 10
+
+# =============================================================================
+# RATE LIMITS & THROTTLING
+# =============================================================================
+rate_limits:
+  max_concurrent: 100
+  max_per_minute: 1000
+  max_per_hour: 50000
+
+  backpressure:
+    queue_depth_threshold: 10000
+    action: slow_consumer
+
+# =============================================================================
+# END OF PIPELINE CONFIGURATION
+# =============================================================================

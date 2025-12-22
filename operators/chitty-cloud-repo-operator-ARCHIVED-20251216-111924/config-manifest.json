@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schemas.chitty.cc/operator/config-manifest.schema.json",
+  "operator": "chitty-cloud-repo-operator",
+  "version": 1,
+  "repository": {
+    "url": "https://github.com/chittyos/chittyops",
+    "branch": "main",
+    "path": "/"
+  },
+  "registry": {
+    "connectUrl": "https://connect.chitty.cc",
+    "ledgerUrl": "https://ledger.chitty.cc"
+  },
+  "capabilities": [
+    "sync",
+    "validate",
+    "publish"
+  ]
+}
+
