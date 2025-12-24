@@ -1,0 +1,18 @@
+version: 1
+name: chittyos-mcp-fix
+env:
+  MCP_URL: https://connect.chitty.cc/mcp/sse
+  RESTART: "0"
+steps:
+  - run: ./fix.sh
+    shell: bash
+    timeout: 600
+docs:
+  summary: |
+    Converts the chittyos Claude extension into a node-based MCP server entry and bridges
+    to chittyconnect via mcp-remote. Cleans the manifest to align with Model Context Protocol
+    v2025-06-18 and removes invalid DXT keys. Reads token from MCP_AUTH_HEADER, WORKER_TOKEN,
+    chittyos.json, chitty-remote.json, or chittyauth CLI.
+  notes: |
+    - Provide WORKER_TOKEN as an env var or ensure chitty-remote.json or chittyauth is available.
+    - Set RESTART=1 to auto restart Claude after patching.

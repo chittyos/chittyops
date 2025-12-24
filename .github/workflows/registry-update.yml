@@ -59,28 +59,61 @@ jobs:
           openssl dgst -sha256 -sign <(printf "%s" "${ACTIONS_ID_TOKEN_REQUEST_TOKEN}") \
             operators/chitty-cloud-repo-operator/config-manifest.json | base64 -w0 > manifest.sig
 
-      - name: Get OIDC token for registry
-        id: oidc_registry
+      - name: OIDC for get.chitty.cc
+        id: oidc_get
         shell: bash
         run: |
           set -euo pipefail
           if [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" && -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            TOKEN=$(curl -sS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://registry.chitty.cc" \
+            TOKEN=$(curl -sS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://get.chitty.cc" \
               -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" | jq -r '.value')
             if [[ "$TOKEN" == "null" || -z "$TOKEN" ]]; then
-              echo "Failed to fetch OIDC token for registry" >&2; exit 1
+              echo "Failed to fetch OIDC token for get.chitty.cc" >&2; exit 1
             fi
             echo "token=$TOKEN" >> $GITHUB_OUTPUT
           else
-            echo "token=${REGISTRY_TOKEN:-}" >> $GITHUB_OUTPUT
+            echo "No OIDC available" >&2; exit 1
           fi
-        env:
-          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
 
-      - name: Schema sync to registry (3x retry)
+      - name: Exchange for Chitty-register-token
+        id: register_token
         env:
-          TOKEN: ${{ steps.oidc_registry.outputs.token }}
+          REGISTER_EXCHANGE_URL: ${{ secrets.REGISTER_EXCHANGE_URL || 'https://get.chitty.cc/v1/register/token' }}
+          FALLBACK_REGISTER_TOKEN: ${{ secrets.REGISTER_TOKEN }}
+        run: |
+          set -euo pipefail
+          OIDC="${{ steps.oidc_get.outputs.token }}"
+          URL="${REGISTER_EXCHANGE_URL}"
+          if [[ -z "$URL" ]]; then
+            echo "No REGISTER_EXCHANGE_URL configured" >&2; exit 1
+          fi
+          code=$(curl -sS -o reg.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${OIDC}" -H 'Content-Type: application/json' \
+            --data "{\"repo\":\"${GITHUB_REPOSITORY}\",\"commit\":\"${GITHUB_SHA}\"}" \
+            "$URL" || true)
+          if [[ "$code" == "200" ]]; then
+            tok=$(jq -r '.token // .register_token // empty' reg.json)
+            if [[ -n "$tok" && "$tok" != "null" ]]; then
+              echo "::add-mask::$tok"
+              echo "token=$tok" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          if [[ -n "${FALLBACK_REGISTER_TOKEN}" ]]; then
+            echo "Using fallback REGISTER_TOKEN from secrets"
+            echo "::add-mask::${FALLBACK_REGISTER_TOKEN}"
+            echo "token=${FALLBACK_REGISTER_TOKEN}" >> $GITHUB_OUTPUT
+          else
+            echo "Failed to obtain register token (HTTP $code) and no fallback configured" >&2
+            cat reg.json || true
+            exit 1
+          fi
+
+      - name: Register manifest via register service (3x retry)
+        env:
+          TOKEN: ${{ steps.register_token.outputs.token }}
           SHA: ${{ steps.manifest.outputs.sha }}
+          REGISTER_SYNC_URL: ${{ secrets.REGISTER_SYNC_URL || 'https://register.chitty.cc/api/v1/registry/sync' }}
         run: |
           set -euo pipefail
           manifest_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/operators/chitty-cloud-repo-operator/config-manifest.json"
@@ -97,12 +130,12 @@ jobs:
               -H "Authorization: Bearer ${TOKEN}" \
               -H 'Content-Type: application/json' \
               --data "$payload" \
-              https://registry.chitty.cc/v1/schema/sync || true)
-            if [[ "$code" == "200" ]]; then
-              echo "Schema sync ok"; jq -c '.status, .verified' resp.json; break
+              "${REGISTER_SYNC_URL}" || true)
+            if [[ "$code" == "200" || "$code" == "201" ]]; then
+              echo "Register sync ok"; jq -c '.status // .registered // .ok // .success' resp.json; break
             fi
-            echo "Schema sync failed (attempt $i, code $code)"; sleep $((2**i));
-            if [[ $i -eq 3 ]]; then echo "Schema sync failed after retries" >&2; cat resp.json >&2; exit 1; fi
+            echo "Register sync failed (attempt $i, code $code)"; sleep $((2**i));
+            if [[ $i -eq 3 ]]; then echo "Register sync failed after retries" >&2; cat resp.json >&2; exit 1; fi
           done
 
       - name: Ledger OIDC token
@@ -244,9 +277,10 @@ jobs:
           })().catch((e)=>{ console.error(e.message||e); process.exit(1); });
           EOF
 
-      - name: Health report (3x retry)
+      - name: Health report via register (3x retry)
         env:
-          TOKEN: ${{ steps.oidc_registry.outputs.token }}
+          TOKEN: ${{ steps.register_token.outputs.token }}
+          REGISTER_HEALTH_URL: ${{ secrets.REGISTER_HEALTH_URL || 'https://register.chitty.cc/api/v1/health/report' }}
         run: |
           set -euo pipefail
           payload=$(jq -n \
@@ -260,6 +294,18 @@ jobs:
             --arg kid "$(test -f manifest.kid && cat manifest.kid || echo '')" \
             --arg jwks_url "${CERT_JWKS_URL:-}" \
             '{node:$node,status:$status,uptime:$uptime,schema_state:$schema_state,last_sync:$last_sync,ledger_ref:$ledger_ref,timestamp:$timestamp,kid:$kid,jwks_url:$jwks_url}')
+          for i in 1 2 3; do
+            code=$(curl -sS -o resp2.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data "$payload" \
+              "${REGISTER_HEALTH_URL}" || true)
+            if [[ "$code" == "200" || "$code" == "201" ]]; then
+              echo "Health report ok"; jq -c '.status // .recorded // .ok // .success' resp2.json; break
+            fi
+            echo "Health report failed (attempt $i, code $code)"; sleep $((2**i));
+            if [[ $i -eq 3 ]]; then echo "Health report failed after retries" >&2; cat resp2.json >&2; exit 1; fi
+          done
 
       - name: Emit summary artifact
         if: always()
@@ -269,20 +315,9 @@ jobs:
           path: |
             resp.json
             resp2.json
+            reg.json
             manifest.sig
             operators/chitty-cloud-repo-operator/config-manifest.json
-          for i in 1 2 3; do
-            code=$(curl -sS -o resp2.json -w '%{http_code}' -X POST \
-              -H "Authorization: Bearer ${TOKEN}" \
-              -H 'Content-Type: application/json' \
-              --data "$payload" \
-              https://registry.chitty.cc/v1/health/report || true)
-            if [[ "$code" == "200" ]]; then
-              echo "Health report ok"; jq -c '.status, .recorded' resp2.json; break
-            fi
-            echo "Health report failed (attempt $i, code $code)"; sleep $((2**i));
-            if [[ $i -eq 3 ]]; then echo "Health report failed after retries" >&2; cat resp2.json >&2; exit 1; fi
-          done
 
       - name: Report sync failure to PR
         if: failure()
