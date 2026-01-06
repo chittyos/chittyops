@@ -1,0 +1,44 @@
+# Copy this to your service repo as .github/workflows/deploy.yml
+# Replace {SERVICE_NAME} with your service name (e.g., chittyid, chittyauth)
+#
+# Required org secret: CHITTYCONNECT_API_KEY
+# ChittyConnect provisions ephemeral credentials on-demand
+
+name: Deploy & Publish
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+jobs:
+  deploy:
+    uses: CHITTYOS/chittyops/.github/workflows/reusable-worker-deploy.yml@main
+    with:
+      service_name: '{SERVICE_NAME}'
+      environment: ${{ github.event.inputs.environment || 'production' }}
+    secrets:
+      CHITTYCONNECT_API_KEY: ${{ secrets.CHITTYCONNECT_API_KEY }}
+
+  publish:
+    if: github.event_name == 'release'
+    needs: deploy
+    uses: CHITTYOS/chittyops/.github/workflows/reusable-package-publish.yml@main
+    with:
+      service_name: '{SERVICE_NAME}'
+      publish_npm: true
+      publish_r2: true
+      # brew_formula: '{SERVICE_NAME}'  # Uncomment if publishing to Homebrew
+    secrets:
+      CHITTYCONNECT_API_KEY: ${{ secrets.CHITTYCONNECT_API_KEY }}

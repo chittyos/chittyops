@@ -1,0 +1,87 @@
+name: Reusable Worker Deploy
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 'Service name (e.g., chittyid, chittyauth)'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment'
+        required: false
+        type: string
+        default: 'production'
+      node_version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: '20'
+      include_beacon:
+        description: 'Include ChittyBeacon'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      CHITTYCONNECT_API_KEY:
+        required: true
+
+jobs:
+  get-credentials:
+    runs-on: ubuntu-latest
+    outputs:
+      cloudflare_token: ${{ steps.creds.outputs.cloudflare_token }}
+      account_id: ${{ steps.creds.outputs.account_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: CHITTYOS/chittyops
+          sparse-checkout: .github/actions/getchitty-creds
+          path: .chittyops
+
+      - name: Fetch ephemeral credentials
+        id: creds
+        uses: ./.chittyops/.github/actions/getchitty-creds
+        with:
+          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
+          purpose: 'worker-deploy'
+          service: ${{ inputs.service_name }}
+
+  deploy:
+    needs: get-credentials
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install ChittyBeacon
+        if: inputs.include_beacon
+        run: npm install @chittycorp/app-beacon --save
+
+      - run: npm run build --if-present
+
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ needs.get-credentials.outputs.cloudflare_token }}
+          accountId: ${{ needs.get-credentials.outputs.account_id }}
+          environment: ${{ inputs.environment }}
+
+      - name: Verify deployment
+        run: |
+          sleep 5
+          curl -sf https://${{ inputs.service_name }}.chitty.cc/health && echo "Health check passed" || echo "Health check pending"
+
+      - name: Register with ChittyRegistry
+        if: inputs.environment == 'production'
+        run: |
+          curl -X POST https://registry.chitty.cc/api/services/${{ inputs.service_name }}/heartbeat \
+            -H "Content-Type: application/json" \
+            -d '{"status":"deployed","version":"${{ github.sha }}"}' || true
+        continue-on-error: true

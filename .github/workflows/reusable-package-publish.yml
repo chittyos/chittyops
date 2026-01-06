@@ -1,0 +1,172 @@
+name: Reusable Package Publish
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 'Service name (e.g., chittyid, chittyauth)'
+        required: true
+        type: string
+      publish_npm:
+        description: 'Publish to npm registry'
+        required: false
+        type: boolean
+        default: false
+      publish_r2:
+        description: 'Publish to git.chitty.cc (R2)'
+        required: false
+        type: boolean
+        default: true
+      brew_formula:
+        description: 'Homebrew formula name (optional)'
+        required: false
+        type: string
+    secrets:
+      CHITTYCONNECT_API_KEY:
+        required: true
+
+jobs:
+  get-credentials:
+    runs-on: ubuntu-latest
+    outputs:
+      cloudflare_token: ${{ steps.creds.outputs.cloudflare_token }}
+      account_id: ${{ steps.creds.outputs.account_id }}
+      npm_token: ${{ steps.creds.outputs.npm_token }}
+      github_token: ${{ steps.creds.outputs.github_token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: CHITTYOS/chittyops
+          sparse-checkout: .github/actions/getchitty-creds
+          path: .chittyops
+
+      - name: Fetch ephemeral credentials
+        id: creds
+        uses: ./.chittyops/.github/actions/getchitty-creds
+        with:
+          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
+          purpose: 'package-publish'
+          service: ${{ inputs.service_name }}
+
+  build:
+    needs: get-credentials
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm ci
+      - run: npm run build --if-present
+
+      - id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - id: pack
+        run: |
+          npm pack
+          echo "tarball=$(ls *.tgz)" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: '*.tgz'
+
+  publish-npm:
+    needs: [get-credentials, build]
+    if: inputs.publish_npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+      - run: npm run build --if-present
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ needs.get-credentials.outputs.npm_token }}
+
+  publish-r2:
+    needs: [get-credentials, build]
+    if: inputs.publish_r2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+
+      - name: Install wrangler
+        run: npm install -g wrangler
+
+      - name: Upload to git.chitty.cc (R2)
+        run: |
+          VERSION=${{ needs.build.outputs.version }}
+          TARBALL=${{ needs.build.outputs.tarball }}
+
+          # Upload versioned
+          wrangler r2 object put chittyos-packages/${{ inputs.service_name }}/${VERSION}/${TARBALL} \
+            --file ${TARBALL}
+
+          # Upload as latest
+          wrangler r2 object put chittyos-packages/${{ inputs.service_name }}/latest/${TARBALL} \
+            --file ${TARBALL}
+
+          # Update metadata
+          cat > metadata.json << EOF
+          {
+            "name": "${{ inputs.service_name }}",
+            "version": "${VERSION}",
+            "tarball": "${TARBALL}",
+            "published": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": ["npm", "binary"],
+            "install_url": "https://git.chitty.cc/${{ inputs.service_name }}"
+          }
+          EOF
+          wrangler r2 object put chittyos-packages/${{ inputs.service_name }}/metadata.json \
+            --file metadata.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ needs.get-credentials.outputs.cloudflare_token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ needs.get-credentials.outputs.account_id }}
+
+      - name: Notify gitChitty
+        run: |
+          curl -X POST https://git.chitty.cc/api/refresh/${{ inputs.service_name }} || true
+        continue-on-error: true
+
+  publish-brew:
+    needs: [get-credentials, build]
+    if: inputs.brew_formula != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+
+      - name: Calculate SHA256
+        id: sha
+        run: echo "sha256=$(shasum -a 256 *.tgz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Update Homebrew tap
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ needs.get-credentials.outputs.github_token }}
+          repository: CHITTYOS/homebrew-tap
+          event-type: update-formula
+          client-payload: |
+            {
+              "formula": "${{ inputs.brew_formula }}",
+              "version": "${{ needs.build.outputs.version }}",
+              "sha256": "${{ steps.sha.outputs.sha256 }}",
+              "url": "https://git.chitty.cc/${{ inputs.service_name }}@${{ needs.build.outputs.version }}"
+            }

@@ -1,0 +1,25 @@
+{
+  "name": "@chittyos/mcp-{service}",
+  "version": "0.1.0",
+  "description": "MCP tools for {Service}",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "peerDependencies": {
+    "@chittyos/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "keywords": ["chittyos", "mcp", "{service}"]
+}

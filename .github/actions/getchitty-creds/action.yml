@@ -1,0 +1,53 @@
+name: 'getChitty Creds'
+description: 'Fetches ephemeral credentials from ChittyConnect on-demand'
+inputs:
+  api_key:
+    description: 'ChittyConnect API key'
+    required: true
+  purpose:
+    description: 'Purpose of credential request'
+    required: false
+    default: 'ci-deploy'
+  service:
+    description: 'Service name requesting credentials'
+    required: false
+    default: ''
+outputs:
+  cloudflare_token:
+    description: 'Ephemeral Cloudflare API token'
+    value: ${{ steps.fetch.outputs.cloudflare_token }}
+  npm_token:
+    description: 'Ephemeral npm token'
+    value: ${{ steps.fetch.outputs.npm_token }}
+  github_token:
+    description: 'Ephemeral GitHub token'
+    value: ${{ steps.fetch.outputs.github_token }}
+  account_id:
+    description: 'Cloudflare Account ID'
+    value: ${{ steps.fetch.outputs.account_id }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Fetch ephemeral credentials
+      id: fetch
+      shell: bash
+      run: |
+        RESPONSE=$(curl -sf https://connect.chitty.cc/credentials/deploy \
+          -H "Authorization: Bearer ${{ inputs.api_key }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "purpose": "${{ inputs.purpose }}",
+            "service": "${{ inputs.service }}",
+            "repo": "${{ github.repository }}",
+            "run_id": "${{ github.run_id }}"
+          }')
+
+        echo "cloudflare_token=$(echo $RESPONSE | jq -r '.cloudflare_token // empty')" >> $GITHUB_OUTPUT
+        echo "npm_token=$(echo $RESPONSE | jq -r '.npm_token // empty')" >> $GITHUB_OUTPUT
+        echo "github_token=$(echo $RESPONSE | jq -r '.github_token // empty')" >> $GITHUB_OUTPUT
+        echo "account_id=$(echo $RESPONSE | jq -r '.account_id // empty')" >> $GITHUB_OUTPUT
+
+        # Mask sensitive values
+        echo "::add-mask::$(echo $RESPONSE | jq -r '.cloudflare_token // empty')"
+        echo "::add-mask::$(echo $RESPONSE | jq -r '.npm_token // empty')"
+        echo "::add-mask::$(echo $RESPONSE | jq -r '.github_token // empty')"

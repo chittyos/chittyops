@@ -80,17 +80,60 @@ gh pr list --label="dependencies"
    - Cloudflare Workers (edge deployment)
    - Generic Node.js CI/CD
 
-### Required GitHub Secrets
+### Secrets Provisioning (IMPORTANT)
 
-| Secret Name | Purpose | Required For |
-|------------|---------|--------------|
-| `BEACON_ENDPOINT` | ChittyBeacon tracking URL | Optional (defaults to https://beacon.cloudeto.com) |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare deployments | Cloudflare Workers projects |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account | Cloudflare Workers projects |
-| `VERCEL_TOKEN` | Vercel deployments | Vercel projects |
-| `VERCEL_ORG_ID` | Vercel organization | Vercel projects |
-| `VERCEL_PROJECT_ID` | Vercel project | Vercel projects |
-| `SNYK_TOKEN` | Security scanning | Recommended for all |
+**All secrets are provisioned ephemerally by ChittyConnect.**
+
+DO NOT add long-lived secrets to repos. Instead, use ChittyConnect's ephemeral credential system:
+
+```yaml
+# ✅ CORRECT: Use reusable workflow with ChittyConnect
+jobs:
+  deploy:
+    uses: CHITTYOS/chittyops/.github/workflows/reusable-worker-deploy.yml@main
+    with:
+      service_name: 'my-service'
+    secrets:
+      CHITTYCONNECT_API_KEY: ${{ secrets.CHITTYCONNECT_API_KEY }}
+```
+
+The only required org-level secret is `CHITTYCONNECT_API_KEY`. All other credentials (Cloudflare, npm, GitHub tokens) are provisioned on-demand by ChittyConnect.
+
+**See:** `SECRETS_PROVISIONING.md` for complete documentation.
+
+### Reusable Workflows
+
+| Workflow | Purpose |
+|----------|---------|
+| `reusable-worker-deploy.yml` | Deploy Cloudflare Workers |
+| `reusable-package-publish.yml` | Publish to npm/R2/Homebrew |
+
+### getchitty-creds Action
+
+For custom workflows, use the `getchitty-creds` action:
+
+```yaml
+- uses: CHITTYOS/chittyops/.github/actions/getchitty-creds@main
+  id: creds
+  with:
+    api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
+    purpose: 'my-purpose'
+    service: 'my-service'
+
+# Outputs: cloudflare_token, npm_token, github_token, account_id
+```
+
+### Legacy Secrets (Deprecated)
+
+The following secrets are deprecated. Use ChittyConnect instead:
+
+| Secret Name | Status | Replacement |
+|------------|--------|-------------|
+| `CLOUDFLARE_API_TOKEN` | Deprecated | `steps.creds.outputs.cloudflare_token` |
+| `CLOUDFLARE_ACCOUNT_ID` | Deprecated | `steps.creds.outputs.account_id` |
+| `NPM_TOKEN` | Deprecated | `steps.creds.outputs.npm_token` |
+| `VERCEL_TOKEN` | Deprecated | Use ChittyConnect |
+| `SNYK_TOKEN` | Still used | Security scanning |
 
 ### Organizations Managed
 - ChittyOS
