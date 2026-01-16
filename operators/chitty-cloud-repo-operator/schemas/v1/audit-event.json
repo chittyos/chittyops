@@ -1,0 +1,361 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.chitty.os/schemas/v1/audit-event.json",
+  "title": "OCSF-Compliant Audit Event",
+  "description": "Audit log entry following the Open Cybersecurity Schema Framework (OCSF) for standardized security logging across the ChittyOS ecosystem.",
+  "type": "object",
+  "required": [
+    "class_uid",
+    "category_uid",
+    "activity_id",
+    "time",
+    "severity_id",
+    "status_id",
+    "metadata"
+  ],
+  "properties": {
+    "class_uid": {
+      "type": "integer",
+      "description": "OCSF Event Class UID. Common values: 1001 (System Activity), 3002 (Authentication), 5001 (Compliance), 6004 (Datastore Activity)."
+    },
+    "class_name": {
+      "type": "string",
+      "description": "Human-readable class name.",
+      "examples": ["System Activity", "Authentication", "Compliance Finding", "Datastore Activity"]
+    },
+    "category_uid": {
+      "type": "integer",
+      "description": "OCSF Category UID. 1=System, 3=Identity & Access, 5=Findings, 6=Network Activity."
+    },
+    "category_name": {
+      "type": "string",
+      "description": "Human-readable category name."
+    },
+    "activity_id": {
+      "type": "integer",
+      "description": "Activity identifier within the class. Semantics depend on class_uid."
+    },
+    "activity_name": {
+      "type": "string",
+      "description": "Human-readable activity name.",
+      "examples": ["Create", "Update", "Delete", "Query", "Override", "Verify"]
+    },
+    "time": {
+      "type": "integer",
+      "description": "Unix timestamp in milliseconds when the event occurred."
+    },
+    "time_dt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 formatted timestamp."
+    },
+    "severity_id": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 6,
+      "description": "OCSF severity: 0=Unknown, 1=Informational, 2=Low, 3=Medium, 4=High, 5=Critical, 6=Fatal."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["Unknown", "Informational", "Low", "Medium", "High", "Critical", "Fatal"]
+    },
+    "status_id": {
+      "type": "integer",
+      "description": "Outcome status: 0=Unknown, 1=Success, 2=Failure, 99=Other."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["Unknown", "Success", "Failure", "Other"]
+    },
+    "status_detail": {
+      "type": "string",
+      "description": "Detailed status message or error code."
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable event description."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "OCSF metadata object with event context.",
+      "required": ["product", "version"],
+      "properties": {
+        "product": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "Chitty Cloud Repo Operator"
+            },
+            "vendor_name": {
+              "type": "string",
+              "default": "ChittyOS"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "version": {
+          "type": "string",
+          "description": "OCSF schema version.",
+          "default": "1.1.0"
+        },
+        "uid": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier."
+        },
+        "correlation_uid": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Correlation ID to link related events."
+        },
+        "sequence": {
+          "type": "integer",
+          "description": "Sequence number within a correlated event chain."
+        },
+        "logged_time": {
+          "type": "integer",
+          "description": "Unix timestamp when event was logged (may differ from event time)."
+        },
+        "original_time": {
+          "type": "string",
+          "description": "Original timestamp string from source system."
+        }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "description": "The entity that performed the action.",
+      "properties": {
+        "user": {
+          "type": "object",
+          "properties": {
+            "uid": {
+              "type": "string",
+              "format": "uuid",
+              "description": "ChittyID of the actor."
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["User", "System", "Service", "Agent"]
+            },
+            "credential_uid": {
+              "type": "string",
+              "description": "ID of the credential used for authentication."
+            }
+          }
+        },
+        "session": {
+          "type": "object",
+          "properties": {
+            "uid": {
+              "type": "string"
+            },
+            "created_time": {
+              "type": "integer"
+            },
+            "issuer": {
+              "type": "string"
+            }
+          }
+        },
+        "authorization": {
+          "type": "object",
+          "properties": {
+            "decision": {
+              "type": "string",
+              "enum": ["Authorized", "Denied", "Error"]
+            },
+            "policy": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "uid": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "src_endpoint": {
+      "type": "object",
+      "description": "Source endpoint of the request.",
+      "properties": {
+        "ip": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "location": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" },
+            "country": { "type": "string" },
+            "region": { "type": "string" }
+          }
+        }
+      }
+    },
+    "dst_endpoint": {
+      "type": "object",
+      "description": "Destination endpoint (the CCRO service).",
+      "properties": {
+        "ip": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "svc_name": {
+          "type": "string",
+          "default": "ccro"
+        }
+      }
+    },
+    "http_request": {
+      "type": "object",
+      "description": "HTTP request details for API calls.",
+      "properties": {
+        "http_method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]
+        },
+        "url": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "query_string": { "type": "string" }
+          }
+        },
+        "user_agent": {
+          "type": "string"
+        },
+        "referrer": {
+          "type": "string"
+        }
+      }
+    },
+    "http_response": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer"
+        },
+        "latency_duration": {
+          "type": "integer",
+          "description": "Response time in milliseconds."
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "description": "Resources affected by this event.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string",
+            "examples": ["ChittyScore", "TrustEvent", "JusticeOverride", "Verification"]
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "object",
+            "properties": {
+              "uid": { "type": "string", "format": "uuid" },
+              "name": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "observables": {
+      "type": "array",
+      "description": "Observable artifacts from the event.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "value": { "type": "string" }
+        }
+      }
+    },
+    "enrichments": {
+      "type": "array",
+      "description": "Additional context added during log processing.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "provider": { "type": "string" },
+          "value": { "type": "string" },
+          "data": { "type": "object" }
+        }
+      }
+    },
+    "chitty_extensions": {
+      "type": "object",
+      "description": "ChittyOS-specific extensions to OCSF.",
+      "properties": {
+        "bias_fingerprint_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Reference to the Bias Fingerprint for this operation."
+        },
+        "view_mode": {
+          "type": "string",
+          "enum": ["BLUE_PILL", "RED_PILL"],
+          "description": "Transparency mode used for this request."
+        },
+        "justice_protocol_invoked": {
+          "type": "boolean",
+          "description": "Whether this event triggered the Justice Protocol."
+        },
+        "ledger_anchor": {
+          "type": "object",
+          "description": "ChittyChain anchoring information if applicable.",
+          "properties": {
+            "block_hash": { "type": "string" },
+            "block_height": { "type": "integer" },
+            "transaction_id": { "type": "string" }
+          }
+        },
+        "trust_impact": {
+          "type": "object",
+          "description": "Impact on trust scores if applicable.",
+          "properties": {
+            "affected_entity_id": { "type": "string", "format": "uuid" },
+            "score_delta": { "type": "number" },
+            "dimension_affected": {
+              "type": "string",
+              "enum": ["personal", "legal", "state", "ethics", "aggregate"]
+            }
+          }
+        }
+      }
+    },
+    "unmapped": {
+      "type": "object",
+      "description": "Fields that don't map to standard OCSF.",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

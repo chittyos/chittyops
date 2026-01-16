@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.chitty.os/schemas/v1/chitty-score.json",
+  "title": "ChittyScore Composite Metric",
+  "description": "A multi-dimensional trust metric representing an entity's standing within the ChittyOS ecosystem. Supports both Blue Pill (simplified) and Red Pill (detailed) views.",
+  "type": "object",
+  "required": ["entity_id", "aggregate_score", "dimensions", "meta"],
+  "properties": {
+    "entity_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The unique ChittyID of the subject entity (user, organization, or agent)."
+    },
+    "aggregate_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "The unified trust score presented in simplified (Blue Pill) views. Computed as weighted average of dimensions."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "EXCELLENT",
+        "GOOD_STANDING",
+        "FAIR",
+        "NEEDS_ATTENTION",
+        "UNDER_REVIEW",
+        "SUSPENDED",
+        "NEW_ENTITY"
+      ],
+      "description": "Human-readable status derived from aggregate score and recent activity."
+    },
+    "dimensions": {
+      "type": "object",
+      "description": "The four cardinal pillars of Chitty Trust as defined by the Chitty Foundation.",
+      "required": ["personal", "legal", "state", "ethics"],
+      "properties": {
+        "personal": {
+          "$ref": "#/$defs/ScoreDimension",
+          "description": "Trust derived from peer-to-peer interactions (e.g., landlord reviews, marketplace transactions)."
+        },
+        "legal": {
+          "$ref": "#/$defs/ScoreDimension",
+          "description": "Trust derived from contract adherence and legal compliance via ChittyCounsel."
+        },
+        "state": {
+          "$ref": "#/$defs/ScoreDimension",
+          "description": "Trust derived from identity document validity and government verification via ChittyID."
+        },
+        "ethics": {
+          "$ref": "#/$defs/ScoreDimension",
+          "description": "Trust derived from the entity's history of fair play, dispute resolution, and override interactions."
+        }
+      }
+    },
+    "trend_analysis": {
+      "type": "object",
+      "description": "Historical analysis of score trajectory and volatility.",
+      "properties": {
+        "trajectory": {
+          "type": "string",
+          "enum": ["IMPROVING", "STABLE", "DECLINING", "VOLATILE", "INSUFFICIENT_DATA"],
+          "description": "Direction of score movement over the analysis period."
+        },
+        "volatility_index": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Measure of score fluctuation (0 = very stable, 1 = highly volatile)."
+        },
+        "analysis_period_days": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of days included in the trend analysis."
+        },
+        "significant_events": {
+          "type": "array",
+          "description": "Major events that affected the score during the analysis period.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "event_id": { "type": "string", "format": "uuid" },
+              "event_type": { "type": "string" },
+              "impact": { "type": "number" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "description": "Metadata about the score calculation and validity.",
+      "required": ["valid_from", "recalc_due_at", "calculation_engine_version"],
+      "properties": {
+        "valid_from": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this score calculation became effective."
+        },
+        "recalc_due_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this score should be refreshed. Clients should not cache beyond this time."
+        },
+        "calculation_engine_version": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "Version of the ChittyTrust calculation engine used."
+        },
+        "data_freshness": {
+          "type": "string",
+          "enum": ["REAL_TIME", "NEAR_REAL_TIME", "DAILY", "STALE"],
+          "description": "Indicates how current the underlying data is."
+        },
+        "last_event_processed": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ID of the most recent trust event incorporated into this score."
+        }
+      }
+    },
+    "bias_fingerprint": {
+      "$ref": "https://api.chitty.os/schemas/v1/bias-fingerprint.json",
+      "description": "Full provenance metadata (only included in Red Pill mode)."
+    },
+    "integrity_proof": {
+      "$ref": "https://api.chitty.os/schemas/v1/merkle-proof.json",
+      "description": "Cryptographic proof of data integrity (only included in Red Pill mode)."
+    }
+  },
+  "$defs": {
+    "ScoreDimension": {
+      "type": "object",
+      "description": "A single dimension of the composite trust score.",
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "The numeric score for this dimension."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Statistical confidence in this score based on available data."
+        },
+        "data_points_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of data points used to calculate this dimension."
+        },
+        "primary_factors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "maxItems": 5,
+          "description": "Human-readable list of top factors influencing this dimension."
+        },
+        "sub_dimensions": {
+          "type": "object",
+          "description": "Optional breakdown into more granular sub-scores.",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "last_updated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this specific dimension was last recalculated."
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

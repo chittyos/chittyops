@@ -1,20 +1,96 @@
 {
   "$schema": "https://schemas.chitty.cc/operator/config-manifest.schema.json",
   "operator": "chitty-cloud-repo-operator",
-  "version": 1,
+  "version": 2,
+  "description": "Central governance gateway for the ChittyOS ecosystem. Manages trust events, ChittyScores, and the Justice Protocol.",
   "repository": {
     "url": "https://github.com/chittyos/chittyops",
     "branch": "main",
-    "path": "/"
+    "path": "/operators/chitty-cloud-repo-operator"
   },
   "registry": {
     "connectUrl": "https://connect.chitty.cc",
-    "ledgerUrl": "https://ledger.chitty.cc"
+    "ledgerUrl": "https://ledger.chitty.cc",
+    "trustEngineUrl": "https://trust.chitty.os",
+    "identityUrl": "https://id.chitty.os"
   },
   "capabilities": [
     "sync",
     "validate",
-    "publish"
-  ]
+    "publish",
+    "trust-scoring",
+    "bias-fingerprinting",
+    "justice-protocol",
+    "merkle-proofs",
+    "ocsf-audit"
+  ],
+  "api": {
+    "specPath": "api/openapi.yaml",
+    "version": "1.2.0",
+    "baseUrl": "https://api.chitty.os/repo/v1",
+    "sandboxUrl": "https://api.sandbox.chitty.os/repo/v1"
+  },
+  "schemas": {
+    "baseUrl": "https://api.chitty.os/schemas/v1",
+    "localPath": "schemas/v1",
+    "definitions": [
+      {
+        "name": "BiasFingerprint",
+        "file": "bias-fingerprint.json",
+        "description": "Provenance metadata envelope for transparent trust data"
+      },
+      {
+        "name": "ChittyScore",
+        "file": "chitty-score.json",
+        "description": "Multi-dimensional trust metric with Blue/Red Pill support"
+      },
+      {
+        "name": "JusticeOverride",
+        "file": "justice-override.json",
+        "description": "Structured human override for antifragile learning"
+      },
+      {
+        "name": "MerkleProof",
+        "file": "merkle-proof.json",
+        "description": "Cryptographic proof for ChittyChain data integrity"
+      },
+      {
+        "name": "AuditEvent",
+        "file": "audit-event.json",
+        "description": "OCSF-compliant audit logging schema"
+      }
+    ]
+  },
+  "security": {
+    "authMethods": [
+      "mTLS",
+      "ChittyID_OAuth",
+      "ApiKey"
+    ],
+    "requiredScopes": {
+      "trust.read": "Read trust scores and profiles",
+      "trust.write": "Submit trust events",
+      "justice.override": "Execute Justice Protocol (high privilege)",
+      "ledger.audit": "Access immutable audit history"
+    }
+  },
+  "integrations": {
+    "chittyTrust": {
+      "purpose": "Trust score calculation and ML model updates",
+      "protocol": "gRPC"
+    },
+    "chittyChain": {
+      "purpose": "Immutable ledger for precedents and proofs",
+      "protocol": "JSON-RPC"
+    },
+    "chittyId": {
+      "purpose": "Identity verification and OAuth provider",
+      "protocol": "OIDC"
+    }
+  },
+  "monitoring": {
+    "healthEndpoint": "/health",
+    "readinessEndpoint": "/health/ready",
+    "metricsFormat": "prometheus"
+  }
 }
-
