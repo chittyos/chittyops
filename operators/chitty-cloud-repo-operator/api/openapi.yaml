@@ -914,6 +914,11 @@ paths:
             minimum: 1
             maximum: 1000
             default: 100
+        - name: continuation_token
+          in: query
+          schema:
+            type: string
+          description: Cursor for pagination, returned from previous response.
       responses:
         '200':
           description: Audit log entries.
