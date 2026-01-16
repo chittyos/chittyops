@@ -54,6 +54,12 @@ tags:
   - name: Health
     description: Service health and operational status endpoints.
 
+# Default security for all endpoints (can be overridden per-operation)
+# New endpoints inherit this protection automatically
+security:
+  - ChittyID_OAuth: []
+  - ApiKey: []
+
 components:
   securitySchemes:
     mTLS:
