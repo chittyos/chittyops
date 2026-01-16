@@ -262,6 +262,11 @@ components:
     BluePillScore:
       type: object
       description: Simplified score response for general UI consumption.
+      required:
+        - entity_id
+        - score
+        - status
+      additionalProperties: false
       properties:
         entity_id:
           type: string
