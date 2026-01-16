@@ -58,7 +58,7 @@ Human overrides of automated decisions are treated as training signals:
 
 ## Directory Structure
 
-```
+```text
 operators/chitty-cloud-repo-operator/
 ├── api/
 │   └── openapi.yaml          # OpenAPI 3.1 specification
