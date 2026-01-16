@@ -1,0 +1,35 @@
+# ChittyConnect Configuration for chittyops
+service:
+  name: chittyops
+  display_name: Chittyops
+  type: operations
+  tier: 3
+  organization: CHITTYOS
+  chitty_id: ${CHITTYOPS_SERVICE_ID}
+  domains:
+    production: ops.chitty.cc
+
+onboarding:
+  endpoint: https://get.chitty.cc/api/onboard
+  provisions: [chitty_id, service_token, certificate, trust_chain]
+
+auth:
+  provider: chittyauth
+  endpoint: https://auth.chitty.cc
+  service_token:
+    source: chittyconnect
+    key: CHITTYOPS_SERVICE_TOKEN
+
+secrets:
+  provider: chittyconnect
+  vault: 1password
+  paths:
+    production: op://ChittyOS/chittyops-prod
+
+github:
+  repository: CHITTYOS/chittyops
+
+monitoring:
+  health:
+    endpoint: /health
+    interval: 60s

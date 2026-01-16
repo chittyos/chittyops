@@ -72,7 +72,6 @@ command = "npm run build"
 
 # Development configuration
 [env.staging]
-name = "chittyops-project-awareness-staging"
 route = { pattern = "project-awareness-staging.chitty.cc/*", custom_domain = true }
 
 [env.staging.vars]
@@ -81,7 +80,6 @@ CORS_ORIGIN = "*"
 RATE_LIMIT_RPM = "100"
 
 [env.development]
-name = "chittyops-project-awareness-dev"
 vars.ENVIRONMENT = "development"
 vars.CORS_ORIGIN = "*"
 
