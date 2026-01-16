@@ -6,7 +6,7 @@ The Chitty Cloud Repo Operator is the central governance gateway for the ChittyO
 
 The CCRO serves as the orchestration layer between ChittyOS applications and the core infrastructure:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    Presentation Layer                        │
 │              (Blue Pill / Red Pill UI Modes)                │
