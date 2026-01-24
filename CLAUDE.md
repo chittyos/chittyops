@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the ChittyOps CI/CD repository - a centralized system for managing standardized CI/CD workflows across all ChittyOS, ChittyCorp, and nevershitty organization repositories. It provides automated testing, deployment, security scanning, and ChittyBeacon monitoring integration.
 
+**Architecture:**
+- **Foundation Layer:** [chittyfoundation/chittyops](https://github.com/chittyfoundation/chittyops) - Governance primitives, hook contracts, territory definitions
+- **Implementation Layer:** ChittyOS/chittyops (this repo) - CI/CD workflows, deployment automation, operational tools
+- **Reference:** Organizations consume this implementation which adheres to foundation governance
+
 ## Common Commands
 
 ### CI/CD Setup and Management
