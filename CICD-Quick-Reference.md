@@ -11,6 +11,22 @@
 gh workflow run setup.yml
 ```
 
+### PR Automation
+```bash
+# Check PR automation status
+gh pr checks [PR_NUMBER]
+
+# Manually trigger AI reviews
+gh workflow run ai-review-claude.yml -f pr_number=[PR] -f pr_sha=[SHA]
+gh workflow run ai-review-codex.yml -f pr_number=[PR] -f pr_sha=[SHA]
+
+# Check auto-merge eligibility
+gh workflow run auto-merge.yml -f pr_number=[PR_NUMBER]
+
+# Prevent auto-merge
+gh pr edit [PR_NUMBER] --add-label "do-not-merge"
+```
+
 ### Daily Operations
 ```bash
 # Check workflow status
@@ -40,12 +56,19 @@ npx wrangler publish
 
 ## 🔐 Required Secrets
 
-### GitHub Repository Secrets
+### GitHub Organization Secrets (New for PR Automation)
+| Secret | Used For | Required |
+|--------|----------|----------|
+| `ANTHROPIC_API_KEY` | Claude AI reviews | For AI reviews |
+| `OPENAI_API_KEY` | Codex AI reviews | For AI reviews |
+| `CHITTYCONNECT_API_KEY` | Ephemeral credentials | Required |
+
+### GitHub Repository Secrets (Legacy - Use ChittyConnect Instead)
 | Secret | Used For | Required |
 |--------|----------|----------|
 | `BEACON_ENDPOINT` | ChittyBeacon URL | Optional |
-| `CLOUDFLARE_API_TOKEN` | CF deployments | If using CF |
-| `CLOUDFLARE_ACCOUNT_ID` | CF account | If using CF |
+| `CLOUDFLARE_API_TOKEN` | CF deployments | Deprecated - use ChittyConnect |
+| `CLOUDFLARE_ACCOUNT_ID` | CF account | Deprecated - use ChittyConnect |
 | `VERCEL_TOKEN` | Vercel deploys | If using Vercel |
 | `VERCEL_ORG_ID` | Vercel org | If using Vercel |
 | `VERCEL_PROJECT_ID` | Vercel project | If using Vercel |
