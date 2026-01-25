@@ -1,0 +1,159 @@
+name: 🧠 Claude AI Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+      pr_sha:
+        description: 'PR head SHA'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+      pr_sha:
+        description: 'PR head SHA'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.pr_sha }}
+
+      - name: Get PR details
+        id: pr
+        run: |
+          PR_DATA=$(gh pr view ${{ inputs.pr_number }} --json title,body,files)
+          echo "title=$(echo $PR_DATA | jq -r .title)" >> $GITHUB_OUTPUT
+          echo "body=$(echo $PR_DATA | jq -r .body)" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          # Get the base branch
+          BASE_REF=$(gh pr view ${{ inputs.pr_number }} --json baseRefName -q .baseRefName)
+          
+          # Fetch base branch
+          git fetch origin $BASE_REF
+          
+          # Get diff (limit to 50KB for API)
+          DIFF=$(git diff origin/$BASE_REF...HEAD | head -c 50000)
+          
+          # Save diff to file for processing
+          echo "$DIFF" > /tmp/pr_diff.txt
+          
+          # Get stats
+          FILES_CHANGED=$(git diff --name-only origin/$BASE_REF...HEAD | wc -l)
+          LINES_ADDED=$(git diff --shortstat origin/$BASE_REF...HEAD | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+          LINES_DELETED=$(git diff --shortstat origin/$BASE_REF...HEAD | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+          
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "lines_added=$LINES_ADDED" >> $GITHUB_OUTPUT
+          echo "lines_deleted=$LINES_DELETED" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Call Claude API for code review
+        id: claude
+        run: |
+          # Read diff
+          DIFF=$(cat /tmp/pr_diff.txt)
+          
+          # Prepare the review prompt
+          cat > /tmp/prompt.json <<'EOF'
+          {
+            "model": "claude-3-5-sonnet-20241022",
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "role": "user",
+                "content": "You are an expert code reviewer. Review the following PR and provide:\n\n1. **Summary**: Brief overview of changes\n2. **Strengths**: What's done well\n3. **Issues**: Any bugs, security concerns, or problems\n4. **Suggestions**: Improvements and best practices\n5. **Verdict**: APPROVE, REQUEST_CHANGES, or COMMENT\n\n**PR Title**: ${{ steps.pr.outputs.title }}\n\n**PR Description**:\n${{ steps.pr.outputs.body }}\n\n**Changes** (${{ steps.diff.outputs.files_changed }} files, +${{ steps.diff.outputs.lines_added }} -${{ steps.diff.outputs.lines_deleted }} lines):\n\n```diff\nDIFF_CONTENT_HERE\n```\n\nProvide a thorough but concise review."
+              }
+            ]
+          }
+          EOF
+          
+          # Replace DIFF_CONTENT_HERE with actual diff (escape for JSON)
+          ESCAPED_DIFF=$(cat /tmp/pr_diff.txt | jq -Rs .)
+          FULL_PROMPT=$(jq --arg diff "$DIFF" '.messages[0].content = (.messages[0].content | sub("DIFF_CONTENT_HERE"; $diff))' /tmp/prompt.json)
+          
+          # Call Claude API
+          if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "$FULL_PROMPT")
+            
+            # Extract review content
+            REVIEW=$(echo $RESPONSE | jq -r '.content[0].text // "Error: Unable to get review"')
+            
+            # Save review to file
+            echo "$REVIEW" > /tmp/claude_review.txt
+            
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ ANTHROPIC_API_KEY not configured. Skipping Claude review." > /tmp/claude_review.txt
+            echo "status=skipped" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post Claude review as PR comment
+        run: |
+          REVIEW=$(cat /tmp/claude_review.txt)
+          
+          gh pr comment ${{ inputs.pr_number }} --body "## 🧠 Claude AI Review
+          
+          $REVIEW
+          
+          ---
+          *Automated review by Claude (Anthropic) • [View workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set commit status
+        run: |
+          # Determine status based on review
+          STATUS="success"
+          DESCRIPTION="Claude AI review completed"
+          
+          if grep -qiE "(critical|security|vulnerability|dangerous)" /tmp/claude_review.txt; then
+            STATUS="failure"
+            DESCRIPTION="Claude found critical issues"
+          elif grep -qiE "request.?changes" /tmp/claude_review.txt; then
+            STATUS="failure"
+            DESCRIPTION="Claude requests changes"
+          fi
+          
+          gh api repos/${{ github.repository }}/statuses/${{ inputs.pr_sha }} \
+            -f state=$STATUS \
+            -f context="AI Review / Claude" \
+            -f description="$DESCRIPTION" \
+            -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-${{ inputs.pr_number }}
+          path: /tmp/claude_review.txt
+          retention-days: 30

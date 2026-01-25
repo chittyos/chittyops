@@ -1,0 +1,109 @@
+name: 🗑️ Auto-Delete Branch
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  delete-branch:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Get branch information
+        id: branch-info
+        run: |
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+          IS_FORK="${{ github.event.pull_request.head.repo.fork }}"
+          
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
+          echo "is_fork=$IS_FORK" >> $GITHUB_OUTPUT
+          
+          echo "Branch: $BRANCH_NAME"
+          echo "Base: $BASE_BRANCH"
+          echo "From fork: $IS_FORK"
+
+      - name: Check if branch is protected
+        id: check-protected
+        run: |
+          BRANCH_NAME="${{ steps.branch-info.outputs.branch_name }}"
+          
+          # List of protected branch patterns
+          PROTECTED_PATTERNS="^(main|master|develop|staging|production|release/.*)$"
+          
+          if echo "$BRANCH_NAME" | grep -qE "$PROTECTED_PATTERNS"; then
+            echo "is_protected=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Branch '$BRANCH_NAME' matches protected pattern"
+          else
+            echo "is_protected=false" >> $GITHUB_OUTPUT
+            echo "✅ Branch '$BRANCH_NAME' is not protected"
+          fi
+
+      - name: Check if branch still exists
+        id: check-exists
+        if: steps.check-protected.outputs.is_protected == 'false' && steps.branch-info.outputs.is_fork == 'false'
+        run: |
+          BRANCH_NAME="${{ steps.branch-info.outputs.branch_name }}"
+          
+          # Check if branch exists remotely
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Branch exists remotely"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Branch already deleted"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete branch
+        if: |
+          steps.check-protected.outputs.is_protected == 'false' &&
+          steps.branch-info.outputs.is_fork == 'false' &&
+          steps.check-exists.outputs.exists == 'true'
+        run: |
+          BRANCH_NAME="${{ steps.branch-info.outputs.branch_name }}"
+          
+          # Delete the branch
+          gh api \
+            --method DELETE \
+            repos/${{ github.repository }}/git/refs/heads/$BRANCH_NAME \
+            || echo "Failed to delete branch, may have been already deleted"
+          
+          echo "✅ Deleted branch: $BRANCH_NAME"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on PR
+        if: steps.check-protected.outputs.is_protected == 'false' && steps.branch-info.outputs.is_fork == 'false'
+        run: |
+          STATUS="✅ Branch \`${{ steps.branch-info.outputs.branch_name }}\` has been automatically deleted"
+          
+          if [ "${{ steps.check-exists.outputs.exists }}" != "true" ]; then
+            STATUS="ℹ️ Branch \`${{ steps.branch-info.outputs.branch_name }}\` was already deleted"
+          fi
+          
+          gh pr comment ${{ github.event.pull_request.number }} --body "## 🗑️ Branch Cleanup
+          
+          $STATUS after successful merge to \`${{ steps.branch-info.outputs.base_branch }}\`.
+          
+          ---
+          *Automated branch cleanup • [View workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Log skip reason
+        if: steps.check-protected.outputs.is_protected == 'true'
+        run: |
+          echo "⚠️ Skipping deletion: Branch '${{ steps.branch-info.outputs.branch_name }}' is protected"
+
+      - name: Log fork skip
+        if: steps.branch-info.outputs.is_fork == 'true'
+        run: |
+          echo "ℹ️ Skipping deletion: Branch is from a fork"

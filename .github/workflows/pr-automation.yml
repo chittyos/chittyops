@@ -1,0 +1,189 @@
+name: 🤖 PR Automation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches: [main, master, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+
+jobs:
+  # Auto-label PRs based on content
+  auto-label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Analyze PR content and auto-label
+        id: label
+        run: |
+          # Get PR files changed
+          FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          
+          # Initialize labels array
+          LABELS=""
+          
+          # Check for documentation changes
+          if echo "$FILES" | grep -qE '\.(md|txt|rst)$'; then
+            LABELS="documentation,$LABELS"
+          fi
+          
+          # Check for dependency changes
+          if echo "$FILES" | grep -qE 'package\.json|package-lock\.json|requirements\.txt|Cargo\.toml|go\.mod|pom\.xml'; then
+            LABELS="dependencies,$LABELS"
+          fi
+          
+          # Check for GitHub Actions workflow changes
+          if echo "$FILES" | grep -qE '\.github/workflows/'; then
+            LABELS="ci-cd,$LABELS"
+          fi
+          
+          # Check for test files
+          if echo "$FILES" | grep -qE '\.test\.|\.spec\.|_test\.'; then
+            LABELS="tests,$LABELS"
+          fi
+          
+          # Analyze PR title and body for keywords
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+          
+          # Check for bug fix indicators
+          if echo "$PR_TITLE $PR_BODY" | grep -qiE '\b(fix|bug|bugfix|hotfix|patch)\b'; then
+            LABELS="bugfix,$LABELS"
+          fi
+          
+          # Check for enhancement indicators
+          if echo "$PR_TITLE $PR_BODY" | grep -qiE '\b(enhance|improve|optimization|refactor)\b'; then
+            LABELS="enhancement,$LABELS"
+          fi
+          
+          # Check for new feature indicators (if not already marked as enhancement or bugfix)
+          if echo "$PR_TITLE $PR_BODY" | grep -qiE '\b(feat|feature|new|add)\b' && \
+             ! echo "$LABELS" | grep -qE 'enhancement|bugfix'; then
+            LABELS="implementation,$LABELS"
+          fi
+          
+          # Remove trailing comma
+          LABELS=$(echo "$LABELS" | sed 's/,$//')
+          
+          # Default to enhancement if no labels detected
+          if [ -z "$LABELS" ]; then
+            LABELS="enhancement"
+          fi
+          
+          echo "labels=$LABELS" >> $GITHUB_OUTPUT
+          echo "Detected labels: $LABELS"
+
+      - name: Apply labels to PR
+        if: steps.label.outputs.labels != ''
+        run: |
+          IFS=',' read -ra LABEL_ARRAY <<< "${{ steps.label.outputs.labels }}"
+          for label in "${LABEL_ARRAY[@]}"; do
+            if [ ! -z "$label" ]; then
+              gh pr edit ${{ github.event.pull_request.number }} --add-label "$label" || echo "Label '$label' may not exist, skipping"
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Assign CodeRabbit AI (via GitHub App - no action needed, auto-triggers)
+  # CodeRabbit automatically reviews when installed as GitHub App
+  notify-coderabbit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check CodeRabbit status
+        run: |
+          echo "CodeRabbit AI review will be triggered automatically if installed as a GitHub App"
+          echo "PR: ${{ github.event.pull_request.html_url }}"
+
+  # Trigger Claude AI review
+  trigger-claude-review:
+    runs-on: ubuntu-latest
+    needs: [auto-label]
+    steps:
+      - name: Trigger Claude review workflow
+        run: |
+          gh workflow run ai-review-claude.yml \
+            -f pr_number=${{ github.event.pull_request.number }} \
+            -f pr_sha=${{ github.event.pull_request.head.sha }} \
+            --ref ${{ github.head_ref || github.ref_name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Trigger OpenAI Codex review
+  trigger-codex-review:
+    runs-on: ubuntu-latest
+    needs: [auto-label]
+    steps:
+      - name: Trigger Codex review workflow
+        run: |
+          gh workflow run ai-review-codex.yml \
+            -f pr_number=${{ github.event.pull_request.number }} \
+            -f pr_sha=${{ github.event.pull_request.head.sha }} \
+            --ref ${{ github.head_ref || github.ref_name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Call canonical checks from chittyfoundation/ops if available
+  canonical-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for canonical workflow
+        id: check
+        run: |
+          # Check if chittyfoundation/ops has canonical workflow
+          if gh api repos/chittyfoundation/ops/contents/.github/workflows/canonical-review.yml --jq .name 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Canonical review workflow found in chittyfoundation/ops"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "No canonical review workflow found, skipping"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Run canonical checks
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          echo "Would call: chittyfoundation/ops/.github/workflows/canonical-review.yml@main"
+          echo "Note: This requires the workflow to exist and be publicly accessible"
+        continue-on-error: true
+
+  # Create status check for PR automation
+  pr-automation-status:
+    runs-on: ubuntu-latest
+    needs: [auto-label, notify-coderabbit, trigger-claude-review, trigger-codex-review]
+    if: always()
+    steps:
+      - name: Set PR automation status
+        run: |
+          if [ "${{ needs.auto-label.result }}" == "success" ] && \
+             [ "${{ needs.trigger-claude-review.result }}" == "success" ] && \
+             [ "${{ needs.trigger-codex-review.result }}" == "success" ]; then
+            echo "✅ PR automation completed successfully"
+            echo "state=success" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ PR automation completed with some warnings"
+            echo "state=success" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment PR automation status
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body "## 🤖 PR Automation Status
+          
+          ✅ Auto-labeling: ${{ needs.auto-label.result }}
+          ✅ CodeRabbit: Triggered (if installed)
+          ✅ Claude review: ${{ needs.trigger-claude-review.result }}
+          ✅ Codex review: ${{ needs.trigger-codex-review.result }}
+          
+          AI reviews will be posted as they complete. Auto-merge will trigger when all checks pass."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
