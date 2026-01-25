@@ -119,20 +119,26 @@ jobs:
           
           # Check workflow files for syntax errors
           if [ -d .github/workflows ]; then
+            ERROR_COUNT=0
             for workflow in .github/workflows/*.yml .github/workflows/*.yaml; do
               if [ -f "$workflow" ]; then
                 echo "Checking $workflow..."
-                # Basic YAML validation
-                if python3 -c "import yaml; yaml.safe_load(open('$workflow'))" 2>/dev/null; then
-                  echo "✅ $workflow is valid YAML"
+                # Basic YAML validation using Python
+                if python3 -c "import yaml; yaml.safe_load(open('$workflow', 'r'))" 2>/dev/null; then
+                  echo "  OK: $workflow is valid YAML"
                 else
-                  echo "❌ $workflow has YAML syntax errors"
-                  echo "passed=false" >> $GITHUB_OUTPUT
-                  exit 1
+                  echo "  ERROR: $workflow has YAML syntax errors"
+                  ERROR_COUNT=$((ERROR_COUNT + 1))
                 fi
               fi
             done
-            echo "passed=true" >> $GITHUB_OUTPUT
+            
+            if [ $ERROR_COUNT -gt 0 ]; then
+              echo "passed=false" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "passed=true" >> $GITHUB_OUTPUT
+            fi
           else
             echo "No workflows directory found, skipping"
             echo "passed=true" >> $GITHUB_OUTPUT

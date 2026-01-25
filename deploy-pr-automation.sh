@@ -141,9 +141,9 @@ EOF
       git add .github/
       git config user.name "ChittyOps Bot"
       git config user.email "ops@chitty.cc"
-      git commit -m "Add PR automation workflows
-
-- Multi-AI review system (CodeRabbit, Claude, OpenAI)
+      
+      # Create commit with proper multi-line message
+      git commit -m "Add PR automation workflows" -m "- Multi-AI review system (CodeRabbit, Claude, OpenAI)
 - Auto-labeling based on file patterns
 - Auto-merge when all checks pass
 - Auto-delete branches after merge

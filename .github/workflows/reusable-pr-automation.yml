@@ -77,16 +77,17 @@ jobs:
         run: |
           PR_DIFF=$(cat pr-diff-limited.txt)
           
-          cat > request.json << 'EOF'
-          {
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": 4096,
-            "messages": [{
-              "role": "user",
-              "content": "Review this PR for code quality, bugs, and security:\n\n${PR_DIFF}"
-            }]
-          }
-          EOF
+          # Create API request with proper variable substitution
+          jq -n \
+            --arg diff "$PR_DIFF" \
+            '{
+              "model": "claude-3-5-sonnet-20241022",
+              "max_tokens": 4096,
+              "messages": [{
+                "role": "user",
+                "content": ("Review this PR for code quality, bugs, and security:\n\n" + $diff)
+              }]
+            }' > request.json
           
           curl -s -X POST https://api.anthropic.com/v1/messages \
             -H "x-api-key: ${ANTHROPIC_API_KEY}" \

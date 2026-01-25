@@ -265,6 +265,20 @@ jobs:
                 // PR might not be mergeable yet, enable auto-merge instead
                 console.log('PR not ready to merge yet, enabling auto-merge...');
                 
+                // Get PR node_id if available
+                let pullRequestNodeId;
+                if (context.payload.pull_request) {
+                  pullRequestNodeId = context.payload.pull_request.node_id;
+                } else {
+                  // Fetch PR to get node_id
+                  const { data: pr } = await github.rest.pulls.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber
+                  });
+                  pullRequestNodeId = pr.node_id;
+                }
+                
                 await github.graphql(`
                   mutation EnableAutoMerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
                     enablePullRequestAutoMerge(input: {
@@ -282,7 +296,7 @@ jobs:
                     }
                   }
                 `, {
-                  pullRequestId: context.payload.pull_request.node_id,
+                  pullRequestId: pullRequestNodeId,
                   mergeMethod: mergeMethod.toUpperCase()
                 });
                 

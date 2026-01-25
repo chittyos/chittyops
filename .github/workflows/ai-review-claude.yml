@@ -89,19 +89,25 @@ jobs:
           PR_DIFF=$(cat pr-diff-limited.txt)
           FILES="${{ steps.files.outputs.list }}"
           
-          # Create Claude API request
-          cat > claude-request.json << 'EOF'
-          {
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": 4096,
-            "messages": [
-              {
+          # Create Claude API request with proper variable substitution
+          # Escape for JSON
+          PR_TITLE_JSON=$(echo "$PR_TITLE" | jq -Rs .)
+          PR_DIFF_JSON=$(echo "$PR_DIFF" | jq -Rs .)
+          FILES_JSON=$(echo "$FILES" | jq -Rs .)
+          
+          # Build JSON request
+          jq -n \
+            --arg title "$PR_TITLE" \
+            --arg diff "$PR_DIFF" \
+            --arg files "$FILES" \
+            '{
+              "model": "claude-3-5-sonnet-20241022",
+              "max_tokens": 4096,
+              "messages": [{
                 "role": "user",
-                "content": "You are an expert code reviewer. Review this pull request and provide detailed feedback on:\n\n1. Code quality and best practices\n2. Potential bugs or issues\n3. Security concerns\n4. Performance implications\n5. Suggestions for improvement\n\nPull Request Title: ${PR_TITLE}\n\nChanged Files:\n${FILES}\n\nDiff:\n${PR_DIFF}\n\nProvide your review in markdown format with clear sections."
-              }
-            ]
-          }
-          EOF
+                "content": ("You are an expert code reviewer. Review this pull request and provide detailed feedback on:\n\n1. Code quality and best practices\n2. Potential bugs or issues\n3. Security concerns\n4. Performance implications\n5. Suggestions for improvement\n\nPull Request Title: " + $title + "\n\nChanged Files:\n" + $files + "\n\nDiff:\n" + $diff + "\n\nProvide your review in markdown format with clear sections.")
+              }]
+            }' > claude-request.json
           
           # Call Claude API
           RESPONSE=$(curl -s -X POST https://api.anthropic.com/v1/messages \
