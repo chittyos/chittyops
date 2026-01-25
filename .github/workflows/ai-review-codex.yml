@@ -54,8 +54,15 @@ jobs:
           # Fetch base branch
           git fetch origin $BASE_REF
           
-          # Get diff (limit to 50KB for API)
+          # Get diff (limit to 50KB to stay within API token limits)
+          # Note: Large PRs may have truncated diffs. Consider splitting large PRs.
           DIFF=$(git diff origin/$BASE_REF...HEAD | head -c 50000)
+          
+          # Check if diff was truncated
+          FULL_DIFF_SIZE=$(git diff origin/$BASE_REF...HEAD | wc -c)
+          if [ "$FULL_DIFF_SIZE" -gt 50000 ]; then
+            echo "⚠️ Warning: Diff truncated from $FULL_DIFF_SIZE bytes to 50000 bytes"
+          fi
           
           # Save diff to file
           echo "$DIFF" > /tmp/pr_diff.txt
@@ -143,8 +150,10 @@ jobs:
             ISSUES="$ISSUES\n- 📝 Added $TODO_COUNT TODO/FIXME comments"
           fi
           
-          # Check for hardcoded secrets patterns
-          if git diff origin/$(gh pr view ${{ inputs.pr_number }} --json baseRefName -q .baseRefName)...HEAD | grep -qiE '(password|secret|api.?key|token).*=.*["\047][a-zA-Z0-9]{20,}'; then
+          # Check for hardcoded secrets patterns (multiple formats)
+          # Matches: password = "...", api_key: "...", token="...", SECRET_KEY=value
+          if git diff origin/$(gh pr view ${{ inputs.pr_number }} --json baseRefName -q .baseRefName)...HEAD | \
+             grep -qiE '^\+.*(password|secret|api[_-]?key|token|private[_-]?key|access[_-]?key)["\047]?\s*[=:]\s*["\047]?[a-zA-Z0-9+/=]{16,}'; then
             ISSUES="$ISSUES\n- 🔐 CRITICAL: Possible hardcoded secrets detected"
           fi
           

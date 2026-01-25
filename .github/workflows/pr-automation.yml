@@ -34,8 +34,8 @@ jobs:
             LABELS="documentation,$LABELS"
           fi
           
-          # Check for dependency changes
-          if echo "$FILES" | grep -qE 'package\.json|package-lock\.json|requirements\.txt|Cargo\.toml|go\.mod|pom\.xml'; then
+          # Check for dependency changes (comprehensive list)
+          if echo "$FILES" | grep -qE 'package\.json|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements\.txt|Pipfile|Pipfile\.lock|poetry\.lock|Cargo\.toml|Cargo\.lock|go\.mod|go\.sum|pom\.xml|build\.gradle|composer\.json|composer\.lock|Gemfile|Gemfile\.lock'; then
             LABELS="dependencies,$LABELS"
           fi
           

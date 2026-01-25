@@ -54,8 +54,15 @@ jobs:
           # Fetch base branch
           git fetch origin $BASE_REF
           
-          # Get diff (limit to 50KB for API)
+          # Get diff (limit to 50KB to stay within API token limits)
+          # Note: Large PRs may have truncated diffs. Consider splitting large PRs.
           DIFF=$(git diff origin/$BASE_REF...HEAD | head -c 50000)
+          
+          # Check if diff was truncated
+          FULL_DIFF_SIZE=$(git diff origin/$BASE_REF...HEAD | wc -c)
+          if [ "$FULL_DIFF_SIZE" -gt 50000 ]; then
+            echo "⚠️ Warning: Diff truncated from $FULL_DIFF_SIZE bytes to 50000 bytes"
+          fi
           
           # Save diff to file for processing
           echo "$DIFF" > /tmp/pr_diff.txt

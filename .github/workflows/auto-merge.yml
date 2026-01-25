@@ -38,7 +38,8 @@ jobs:
             PR_NUMBER="${{ github.event.pull_request.number }}"
           else
             # For check_run or status events, find associated PRs
-            PR_NUMBER=$(gh pr list --json number,headRefName --jq '.[] | select(.headRefName == "${{ github.head_ref || github.ref_name }}") | .number' | head -1)
+            REF_NAME="${{ github.head_ref || github.ref_name }}"
+            PR_NUMBER=$(gh pr list --json number,headRefName --jq ".[] | select(.headRefName == \"$REF_NAME\") | .number" | head -1)
             
             if [ -z "$PR_NUMBER" ]; then
               echo "No PR found for this event, exiting"
@@ -167,6 +168,9 @@ jobs:
           fi
           
           # Check merge state (behind, blocked, etc.)
+          # CLEAN: All checks passed, ready to merge
+          # HAS_HOOKS: Has hooks (status checks) but ready
+          # UNSTABLE: Some checks pending but mergeable
           if [ "${{ steps.pr-details.outputs.merge_state }}" != "CLEAN" ] && \
              [ "${{ steps.pr-details.outputs.merge_state }}" != "HAS_HOOKS" ] && \
              [ "${{ steps.pr-details.outputs.merge_state }}" != "UNSTABLE" ]; then

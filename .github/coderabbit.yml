@@ -133,9 +133,10 @@ rules:
     
   # Check for security patterns
   - name: "No hardcoded secrets"
-    description: "Do not hardcode secrets or API keys"
+    description: "Do not hardcode secrets, API keys, tokens, or passwords"
     severity: error
-    pattern: '(password|secret|api[_-]?key|token)\s*=\s*["\047][a-zA-Z0-9]{20,}'
+    # Matches various patterns: password="...", api_key: "...", TOKEN=value, secret = '...'
+    pattern: '(password|secret|api[_-]?key|token|private[_-]?key|access[_-]?key)["\047]?\s*[=:]\s*["\047]?[a-zA-Z0-9+/=_-]{16,}'
     
   # Check for console statements
   - name: "No console in production"
