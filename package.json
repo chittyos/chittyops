@@ -1,0 +1,37 @@
+{
+  "name": "@chittyos/ops",
+  "version": "1.0.0",
+  "description": "ChittyOS operations implementation - CI/CD, hooks, terminal ops, cross-org orchestration",
+  "main": "index.js",
+  "bin": {
+    "hookify": "./terminal-ops/hookify/cli.js",
+    "chitty-ops": "./cli/chitty-ops.js",
+    "chitty-org": "./cross-org/cli.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "setup-hooks": "node terminal-ops/hooks/installer.js",
+    "sync-org": "node cross-org/sync.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chittyos/chittyops.git"
+  },
+  "keywords": [
+    "chittyos",
+    "operations",
+    "cicd",
+    "hooks",
+    "cross-org"
+  ],
+  "author": "ChittyOS",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/chittyos/chittyops/issues"
+  },
+  "homepage": "https://github.com/chittyos/chittyops#readme",
+  "dependencies": {
+    "@chittyfoundation/hookify": "github:chittyfoundation/chittyops#main",
+    "@chittyfoundation/territories": "github:chittyfoundation/chittyops#main"
+  }
+}
