@@ -1,0 +1,177 @@
+name: AI Review - Claude
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull request number'
+        required: true
+        type: string
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  claude-review:
+    name: Claude Code Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request?.number || 
+                            context.payload.inputs?.pr_number;
+            
+            if (!prNumber) {
+              throw new Error('No PR number found');
+            }
+            
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: parseInt(prNumber)
+            });
+            
+            core.setOutput('number', prNumber);
+            core.setOutput('title', pr.title);
+            core.setOutput('base', pr.base.ref);
+            core.setOutput('head', pr.head.ref);
+            return pr;
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          PR_NUMBER="${{ steps.pr.outputs.number }}"
+          git fetch origin pull/${PR_NUMBER}/head:pr-${PR_NUMBER}
+          git diff origin/${{ steps.pr.outputs.base }}...pr-${PR_NUMBER} > pr-diff.txt
+          
+          # Limit diff size to avoid API limits
+          head -c 50000 pr-diff.txt > pr-diff-limited.txt
+          
+          echo "Diff size: $(wc -c < pr-diff-limited.txt) bytes"
+
+      - name: Get changed files
+        id: files
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = ${{ steps.pr.outputs.number }};
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            const fileList = files.map(f => `${f.filename} (+${f.additions}/-${f.deletions})`).join('\n');
+            core.setOutput('list', fileList);
+            core.setOutput('count', files.length);
+            return fileList;
+
+      - name: Analyze with Claude
+        id: claude
+        if: env.ANTHROPIC_API_KEY != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          PR_TITLE="${{ steps.pr.outputs.title }}"
+          PR_DIFF=$(cat pr-diff-limited.txt)
+          FILES="${{ steps.files.outputs.list }}"
+          
+          # Create Claude API request
+          cat > claude-request.json << 'EOF'
+          {
+            "model": "claude-3-5-sonnet-20241022",
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "role": "user",
+                "content": "You are an expert code reviewer. Review this pull request and provide detailed feedback on:\n\n1. Code quality and best practices\n2. Potential bugs or issues\n3. Security concerns\n4. Performance implications\n5. Suggestions for improvement\n\nPull Request Title: ${PR_TITLE}\n\nChanged Files:\n${FILES}\n\nDiff:\n${PR_DIFF}\n\nProvide your review in markdown format with clear sections."
+              }
+            ]
+          }
+          EOF
+          
+          # Call Claude API
+          RESPONSE=$(curl -s -X POST https://api.anthropic.com/v1/messages \
+            -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d @claude-request.json)
+          
+          # Extract review content
+          echo "$RESPONSE" | jq -r '.content[0].text' > claude-review.md
+          
+          # Check if review was generated
+          if [ -s claude-review.md ]; then
+            echo "review_generated=true" >> $GITHUB_OUTPUT
+            echo "Claude review generated successfully"
+          else
+            echo "review_generated=false" >> $GITHUB_OUTPUT
+            echo "Failed to generate Claude review"
+            echo "API Response: $RESPONSE"
+          fi
+
+      - name: Post Claude review
+        if: steps.claude.outputs.review_generated == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('claude-review.md', 'utf8');
+            
+            const prNumber = ${{ steps.pr.outputs.number }};
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `## 🤖 Claude AI Review\n\n${review}\n\n---\n*Powered by Claude 3.5 Sonnet*`
+            });
+
+      - name: Create check run
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = ${{ steps.pr.outputs.number }};
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            const reviewGenerated = '${{ steps.claude.outputs.review_generated }}' === 'true';
+            
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'ai-review-claude',
+              head_sha: pr.head.sha,
+              status: 'completed',
+              conclusion: reviewGenerated ? 'success' : 'neutral',
+              output: {
+                title: reviewGenerated ? 'Claude review completed' : 'Claude review skipped',
+                summary: reviewGenerated ? 
+                  'AI code review completed successfully. Check PR comments for details.' :
+                  'Claude API key not configured. Review skipped.'
+              }
+            });
+
+      - name: Handle missing API key
+        if: env.ANTHROPIC_API_KEY == ''
+        run: |
+          echo "::warning::ANTHROPIC_API_KEY not configured. Claude review skipped."
+          echo "To enable Claude reviews, add ANTHROPIC_API_KEY to repository secrets."

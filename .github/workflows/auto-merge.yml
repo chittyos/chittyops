@@ -1,0 +1,303 @@
+name: Auto-Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  check_suite:
+    types: [completed]
+  pull_request_review:
+    types: [submitted]
+  status: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  evaluate-merge:
+    name: Evaluate Auto-Merge Conditions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load auto-merge configuration
+        id: config
+        run: |
+          if [ -f .github/auto-merge.json ]; then
+            echo "config=$(cat .github/auto-merge.json | jq -c .)" >> $GITHUB_OUTPUT
+          else
+            echo "config={\"enabled\":false}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get PR information
+        id: pr-info
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Get PR number from various event types
+            let prNumber;
+            if (context.payload.pull_request) {
+              prNumber = context.payload.pull_request.number;
+            } else if (context.payload.check_suite?.pull_requests?.length > 0) {
+              prNumber = context.payload.check_suite.pull_requests[0].number;
+            } else {
+              console.log('No PR found in event payload');
+              return null;
+            }
+            
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            core.setOutput('number', prNumber);
+            core.setOutput('sha', pr.head.sha);
+            core.setOutput('draft', pr.draft);
+            core.setOutput('mergeable', pr.mergeable);
+            core.setOutput('merged', pr.merged);
+            core.setOutput('base', pr.base.ref);
+            
+            return pr;
+
+      - name: Check if auto-merge enabled
+        id: should-proceed
+        run: |
+          CONFIG='${{ steps.config.outputs.config }}'
+          ENABLED=$(echo "$CONFIG" | jq -r '.enabled')
+          
+          if [ "$ENABLED" != "true" ]; then
+            echo "Auto-merge is disabled in configuration"
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          if [ "${{ steps.pr-info.outputs.number }}" == "" ]; then
+            echo "No PR number found"
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          if [ "${{ steps.pr-info.outputs.draft }}" == "true" ]; then
+            echo "PR is draft, skipping auto-merge"
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          if [ "${{ steps.pr-info.outputs.merged }}" == "true" ]; then
+            echo "PR already merged"
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "proceed=true" >> $GITHUB_OUTPUT
+
+      - name: Check blocking labels
+        id: check-labels
+        if: steps.should-proceed.outputs.proceed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const config = ${{ steps.config.outputs.config }};
+            const prNumber = ${{ steps.pr-info.outputs.number }};
+            
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            const blockedLabels = config.blockedLabels || ['do-not-merge', 'wip', 'work-in-progress', 'blocked'];
+            const hasBlockingLabel = pr.labels.some(label => 
+              blockedLabels.includes(label.name.toLowerCase())
+            );
+            
+            if (hasBlockingLabel) {
+              console.log('PR has blocking labels:', pr.labels.map(l => l.name).join(', '));
+              core.setOutput('blocked', 'true');
+              return false;
+            }
+            
+            core.setOutput('blocked', 'false');
+            return true;
+
+      - name: Check required checks
+        id: check-status
+        if: steps.should-proceed.outputs.proceed == 'true' && steps.check-labels.outputs.blocked == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const config = ${{ steps.config.outputs.config }};
+            const prNumber = ${{ steps.pr-info.outputs.number }};
+            const sha = '${{ steps.pr-info.outputs.sha }}';
+            
+            // Get all check runs for the PR
+            const { data: checkRuns } = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha,
+              per_page: 100
+            });
+            
+            // Get commit status
+            const { data: statuses } = await github.rest.repos.getCombinedStatusForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha
+            });
+            
+            // Check if all required checks passed
+            const requiredChecks = config.requiredChecks || [];
+            const allChecks = checkRuns.check_runs.map(c => ({
+              name: c.name,
+              status: c.status,
+              conclusion: c.conclusion
+            }));
+            
+            console.log('All checks:', JSON.stringify(allChecks, null, 2));
+            console.log('Required checks:', requiredChecks);
+            
+            // If requireAllChecks is true, all checks must pass
+            if (config.requireAllChecks) {
+              const failedChecks = checkRuns.check_runs.filter(c => 
+                c.conclusion === 'failure' || c.conclusion === 'cancelled'
+              );
+              
+              if (failedChecks.length > 0) {
+                console.log('Failed checks:', failedChecks.map(c => c.name).join(', '));
+                core.setOutput('all_passed', 'false');
+                return false;
+              }
+            }
+            
+            // Check specific required checks
+            for (const requiredCheck of requiredChecks) {
+              const check = checkRuns.check_runs.find(c => c.name === requiredCheck);
+              if (!check) {
+                console.log(`Required check "${requiredCheck}" not found or not completed`);
+                core.setOutput('all_passed', 'false');
+                return false;
+              }
+              if (check.conclusion !== 'success' && check.conclusion !== 'skipped') {
+                console.log(`Required check "${requiredCheck}" did not pass: ${check.conclusion}`);
+                core.setOutput('all_passed', 'false');
+                return false;
+              }
+            }
+            
+            // Check combined status
+            if (statuses.state !== 'success' && statuses.statuses.length > 0) {
+              console.log(`Combined status is not success: ${statuses.state}`);
+              core.setOutput('all_passed', 'false');
+              return false;
+            }
+            
+            core.setOutput('all_passed', 'true');
+            return true;
+
+      - name: Check canonical checks (chittyfoundation/ops)
+        id: check-canonical
+        if: steps.should-proceed.outputs.proceed == 'true' && steps.check-labels.outputs.blocked == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = '${{ steps.pr-info.outputs.sha }}';
+            
+            // Check for canonical-checks workflow
+            const { data: checkRuns } = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha
+            });
+            
+            const canonicalCheck = checkRuns.check_runs.find(c => 
+              c.name.includes('canonical-checks') || c.name.includes('foundation-ops')
+            );
+            
+            if (canonicalCheck) {
+              if (canonicalCheck.conclusion === 'success' || canonicalCheck.conclusion === 'skipped') {
+                console.log('Canonical checks passed');
+                core.setOutput('passed', 'true');
+              } else {
+                console.log(`Canonical checks did not pass: ${canonicalCheck.conclusion}`);
+                core.setOutput('passed', 'false');
+              }
+            } else {
+              console.log('No canonical checks found, proceeding without them');
+              core.setOutput('passed', 'true');
+            }
+
+      - name: Enable auto-merge
+        if: |
+          steps.should-proceed.outputs.proceed == 'true' &&
+          steps.check-labels.outputs.blocked == 'false' &&
+          steps.check-status.outputs.all_passed == 'true' &&
+          steps.check-canonical.outputs.passed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const config = ${{ steps.config.outputs.config }};
+            const prNumber = ${{ steps.pr-info.outputs.number }};
+            
+            const mergeMethod = config.mergeMethod || 'squash';
+            
+            console.log(`Enabling auto-merge for PR #${prNumber} with method: ${mergeMethod}`);
+            
+            try {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                merge_method: mergeMethod,
+                commit_title: `Auto-merge PR #${prNumber}`,
+                commit_message: 'Automatically merged by PR automation workflow'
+              });
+              
+              console.log(`✅ PR #${prNumber} successfully merged!`);
+            } catch (error) {
+              if (error.message.includes('405')) {
+                // PR might not be mergeable yet, enable auto-merge instead
+                console.log('PR not ready to merge yet, enabling auto-merge...');
+                
+                await github.graphql(`
+                  mutation EnableAutoMerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+                    enablePullRequestAutoMerge(input: {
+                      pullRequestId: $pullRequestId,
+                      mergeMethod: $mergeMethod
+                    }) {
+                      pullRequest {
+                        autoMergeRequest {
+                          enabledAt
+                          enabledBy {
+                            login
+                          }
+                        }
+                      }
+                    }
+                  }
+                `, {
+                  pullRequestId: context.payload.pull_request.node_id,
+                  mergeMethod: mergeMethod.toUpperCase()
+                });
+                
+                console.log('✅ Auto-merge enabled');
+              } else {
+                console.error('Failed to merge PR:', error.message);
+                throw error;
+              }
+            }
+
+      - name: Log merge status
+        if: always()
+        run: |
+          echo "Auto-merge evaluation completed"
+          echo "Proceed: ${{ steps.should-proceed.outputs.proceed }}"
+          echo "Blocked: ${{ steps.check-labels.outputs.blocked }}"
+          echo "All checks passed: ${{ steps.check-status.outputs.all_passed }}"
+          echo "Canonical checks passed: ${{ steps.check-canonical.outputs.passed }}"
