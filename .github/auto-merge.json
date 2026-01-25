@@ -1,0 +1,26 @@
+{
+  "enabled": true,
+  "mergeMethod": "squash",
+  "requireAllChecks": true,
+  "requiredChecks": [
+    "test",
+    "security",
+    "canonical-checks",
+    "ai-review-claude",
+    "ai-review-codex",
+    "coderabbit"
+  ],
+  "requiredLabels": [],
+  "blockedLabels": [
+    "do-not-merge",
+    "wip",
+    "work-in-progress",
+    "blocked"
+  ],
+  "requireUpToDate": true,
+  "requireApprovals": 0,
+  "deleteAfterMerge": true,
+  "allowDependabotAutoMerge": true,
+  "retryDelay": 300,
+  "maxRetries": 10
+}

@@ -1,0 +1,254 @@
+name: Reusable PR Automation
+
+on:
+  workflow_call:
+    inputs:
+      enable_claude:
+        description: 'Enable Claude AI review'
+        type: boolean
+        default: true
+      enable_codex:
+        description: 'Enable OpenAI Codex review'
+        type: boolean
+        default: true
+      enable_auto_merge:
+        description: 'Enable auto-merge'
+        type: boolean
+        default: true
+      enable_auto_delete:
+        description: 'Enable auto-delete branches'
+        type: boolean
+        default: true
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+        description: 'Anthropic API key for Claude'
+      OPENAI_API_KEY:
+        required: false
+        description: 'OpenAI API key for Codex'
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: write
+  statuses: write
+
+jobs:
+  auto-label:
+    name: Auto-label PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          repository: CHITTYOS/chittyops
+          sparse-checkout: |
+            .github/labeler.yml
+          path: .chittyops
+
+      - name: Apply labels
+        uses: actions/labeler@v5
+        with:
+          repo-token: ${{ github.token }}
+          configuration-path: .chittyops/.github/labeler.yml
+          sync-labels: true
+
+  claude-review:
+    name: Claude Review
+    runs-on: ubuntu-latest
+    needs: auto-label
+    if: inputs.enable_claude && github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-branch
+          git diff origin/${{ github.event.pull_request.base.ref }}...pr-branch > pr-diff.txt
+          head -c 50000 pr-diff.txt > pr-diff-limited.txt
+
+      - name: Claude Review
+        if: secrets.ANTHROPIC_API_KEY != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          PR_DIFF=$(cat pr-diff-limited.txt)
+          
+          # Create API request with proper variable substitution
+          jq -n \
+            --arg diff "$PR_DIFF" \
+            '{
+              "model": "claude-3-5-sonnet-20241022",
+              "max_tokens": 4096,
+              "messages": [{
+                "role": "user",
+                "content": ("Review this PR for code quality, bugs, and security:\n\n" + $diff)
+              }]
+            }' > request.json
+          
+          curl -s -X POST https://api.anthropic.com/v1/messages \
+            -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d @request.json | jq -r '.content[0].text' > review.md
+
+      - name: Post review
+        if: secrets.ANTHROPIC_API_KEY != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('review.md', 'utf8');
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## 🤖 Claude AI Review\n\n${review}`
+            });
+
+  codex-review:
+    name: OpenAI Review
+    runs-on: ubuntu-latest
+    needs: auto-label
+    if: inputs.enable_codex && github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        run: |
+          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-branch
+          git diff origin/${{ github.event.pull_request.base.ref }}...pr-branch > pr-diff.txt
+          head -c 40000 pr-diff.txt > pr-diff-limited.txt
+
+      - name: OpenAI Review
+        if: secrets.OPENAI_API_KEY != ''
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          PR_DIFF=$(cat pr-diff-limited.txt | jq -Rs .)
+          
+          cat > request.json << EOF
+          {
+            "model": "gpt-4-turbo-preview",
+            "messages": [{
+              "role": "system",
+              "content": "You are a security and code quality analyst."
+            }, {
+              "role": "user",
+              "content": "Analyze for security and quality issues:\n\n${PR_DIFF}"
+            }],
+            "max_tokens": 4096
+          }
+          EOF
+          
+          curl -s -X POST https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d @request.json | jq -r '.choices[0].message.content' > review.md
+
+      - name: Post review
+        if: secrets.OPENAI_API_KEY != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('review.md', 'utf8');
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## 🔍 OpenAI Security Analysis\n\n${review}`
+            });
+
+  auto-merge:
+    name: Auto-Merge
+    runs-on: ubuntu-latest
+    needs: [claude-review, codex-review]
+    if: inputs.enable_auto_merge && github.event_name == 'pull_request'
+    steps:
+      - name: Check merge conditions
+        id: check
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const pr = context.payload.pull_request;
+            
+            // Check blocking labels
+            const blockingLabels = ['do-not-merge', 'wip', 'work-in-progress', 'blocked'];
+            const hasBlockingLabel = pr.labels.some(l => 
+              blockingLabels.includes(l.name.toLowerCase())
+            );
+            
+            if (hasBlockingLabel || pr.draft || !pr.mergeable) {
+              console.log('Cannot merge: blocking conditions present');
+              return false;
+            }
+            
+            // Check status checks
+            const { data: checks } = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: pr.head.sha
+            });
+            
+            const allPassed = checks.check_runs.every(c => 
+              c.conclusion === 'success' || c.conclusion === 'skipped'
+            );
+            
+            return allPassed;
+
+      - name: Enable auto-merge
+        if: steps.check.outputs.result == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            try {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                merge_method: 'squash'
+              });
+            } catch (error) {
+              console.log('Merge attempt:', error.message);
+            }
+
+  auto-delete:
+    name: Auto-Delete Branch
+    runs-on: ubuntu-latest
+    if: inputs.enable_auto_delete && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged
+    steps:
+      - name: Delete branch
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const branch = context.payload.pull_request.head.ref;
+            const protectedBranches = ['main', 'master', 'develop', 'staging', 'production'];
+            
+            if (protectedBranches.includes(branch)) {
+              console.log('Protected branch, skipping deletion');
+              return;
+            }
+            
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `heads/${branch}`
+              });
+              console.log(`Deleted branch: ${branch}`);
+            } catch (error) {
+              console.log('Branch deletion:', error.message);
+            }
