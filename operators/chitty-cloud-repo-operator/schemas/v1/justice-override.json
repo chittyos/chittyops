@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.chitty.os/schemas/v1/justice-override.json",
+  "title": "Justice Override Event",
+  "description": "A structured record of human intervention in automated decisions. Used to retrain trust models and establish precedents on ChittyChain. Core mechanism of the Antifragile Justice Loop.",
+  "type": "object",
+  "required": [
+    "original_decision_ref",
+    "overriding_actor",
+    "justification",
+    "outcome_diff"
+  ],
+  "properties": {
+    "override_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this override event."
+    },
+    "original_decision_ref": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Pointer to the automated decision event that is being contested or corrected."
+    },
+    "original_decision_context": {
+      "type": "object",
+      "description": "Captured context of the original automated decision for audit purposes.",
+      "properties": {
+        "decision_type": {
+          "type": "string",
+          "enum": [
+            "CREDIT_DECISION",
+            "ACCESS_CONTROL",
+            "CONTRACT_PENALTY",
+            "VERIFICATION_REJECTION",
+            "RISK_ASSESSMENT",
+            "TRUST_SCORE_CALCULATION",
+            "AUTOMATED_DISPUTE_RESOLUTION"
+          ]
+        },
+        "decision_timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "affected_entity_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "original_bias_fingerprint": {
+          "$ref": "https://api.chitty.os/schemas/v1/bias-fingerprint.json"
+        }
+      }
+    },
+    "overriding_actor": {
+      "type": "object",
+      "description": "Identity and authorization of the human or authorized agent performing the override.",
+      "required": ["actor_id", "role"],
+      "properties": {
+        "actor_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ChittyID of the overriding party."
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "COMMUNITY_JUROR",
+            "CHITTY_STEWARD",
+            "LEGAL_ARBITER",
+            "FOUNDATION_TRUSTEE",
+            "EMERGENCY_ADMIN"
+          ],
+          "description": "Role granting override authority."
+        },
+        "authority_proof": {
+          "type": "string",
+          "description": "Cryptographic signature verifying the actor's right to override."
+        },
+        "delegation_chain": {
+          "type": "array",
+          "description": "If authority was delegated, the chain of delegation.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "delegator_id": { "type": "string", "format": "uuid" },
+              "delegatee_id": { "type": "string", "format": "uuid" },
+              "scope": { "type": "string" },
+              "expires_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      }
+    },
+    "justification": {
+      "type": "object",
+      "description": "Detailed reasoning for the override, used for precedent-setting and model retraining.",
+      "required": ["category", "narrative"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": [
+            "CONTEXT_MISSING",
+            "HISTORICAL_BIAS_CORRECTION",
+            "COMPASSIONATE_EXCEPTION",
+            "DATA_ERROR",
+            "POLICY_MISAPPLICATION",
+            "EMERGENT_CIRCUMSTANCE",
+            "PRECEDENT_REVISION"
+          ],
+          "description": "Classification of why the override was necessary."
+        },
+        "narrative": {
+          "type": "string",
+          "minLength": 50,
+          "maxLength": 5000,
+          "description": "Mandatory detailed explanation of the reasoning. Must be substantive for precedent value."
+        },
+        "cited_precedents": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "description": "Links to prior ChittyChain blocks supporting this decision."
+        },
+        "evidence_attachments": {
+          "type": "array",
+          "description": "Supporting documents or data submitted as evidence.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "attachment_id": { "type": "string", "format": "uuid" },
+              "attachment_type": {
+                "type": "string",
+                "enum": ["DOCUMENT", "SCREENSHOT", "API_RESPONSE", "WITNESS_STATEMENT", "EXTERNAL_VERIFICATION"]
+              },
+              "hash": {
+                "type": "string",
+                "description": "SHA-256 hash of the attachment content."
+              },
+              "storage_uri": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        },
+        "dissenting_opinions": {
+          "type": "array",
+          "description": "If multiple reviewers were involved, capture dissenting views.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "reviewer_id": { "type": "string", "format": "uuid" },
+              "opinion": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "outcome_diff": {
+      "type": "object",
+      "description": "Structured comparison of the AI result vs. the human-corrected result.",
+      "required": ["original_outcome", "corrected_outcome"],
+      "properties": {
+        "original_score": {
+          "type": "number",
+          "description": "The score or value produced by the automated system."
+        },
+        "final_score": {
+          "type": "number",
+          "description": "The corrected score or value after human override."
+        },
+        "original_outcome": {
+          "type": "string",
+          "description": "Description of what the automated decision would have resulted in."
+        },
+        "corrected_outcome": {
+          "type": "string",
+          "description": "Description of the outcome after human correction."
+        },
+        "parameter_adjustments": {
+          "type": "array",
+          "description": "Technical feedback on which model parameters were incorrect.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "parameter_name": { "type": "string" },
+              "original_weight": { "type": "number" },
+              "suggested_weight": { "type": "number" },
+              "rationale": { "type": "string" }
+            }
+          }
+        },
+        "affected_entities": {
+          "type": "array",
+          "description": "All entities whose outcomes are changed by this override.",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "learning_directive": {
+      "type": "object",
+      "description": "Instructions for the ChittyTrust model retraining system.",
+      "properties": {
+        "should_retrain": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this override should trigger model retraining."
+        },
+        "training_weight": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 10.0,
+          "default": 1.0,
+          "description": "Relative importance of this training signal (higher = more influential)."
+        },
+        "apply_retroactively": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether similar past decisions should be reviewed."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["THIS_CASE_ONLY", "SIMILAR_CASES", "SYSTEM_WIDE"],
+          "description": "How broadly this learning should be applied."
+        }
+      }
+    },
+    "ledger_commitment": {
+      "type": "object",
+      "description": "ChittyChain anchoring information after the override is committed.",
+      "properties": {
+        "block_hash": {
+          "type": "string",
+          "description": "Hash of the ChittyChain block containing this precedent."
+        },
+        "block_height": {
+          "type": "integer",
+          "description": "Block number in the ChittyChain."
+        },
+        "transaction_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "committed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "precedent_uri": {
+          "type": "string",
+          "format": "uri",
+          "description": "Permanent URI to reference this precedent in future decisions."
+        }
+      }
+    },
+    "timestamps": {
+      "type": "object",
+      "properties": {
+        "submitted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reviewed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "committed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.chitty.os/schemas/v1/merkle-proof.json",
+  "title": "Merkle Inclusion Proof",
+  "description": "Cryptographic proof structure enabling clients to verify data integrity against the ChittyChain ledger without trusting the API. Returned in Red Pill mode responses.",
+  "type": "object",
+  "required": ["root_hash", "leaf_hash", "siblings", "anchor_timestamp"],
+  "properties": {
+    "root_hash": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{64}$",
+      "description": "The Merkle root hash anchored on ChittyChain. Clients can verify this against the public ledger."
+    },
+    "leaf_hash": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{64}$",
+      "description": "SHA-256 hash of the data being proven (the data point in question)."
+    },
+    "siblings": {
+      "type": "array",
+      "description": "Ordered list of sibling hashes needed to recompute the root from the leaf.",
+      "items": {
+        "type": "object",
+        "required": ["position", "hash"],
+        "properties": {
+          "position": {
+            "type": "string",
+            "enum": ["left", "right"],
+            "description": "Position of this sibling relative to the current node in the path."
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{64}$",
+            "description": "Hash value of the sibling node."
+          }
+        }
+      },
+      "minItems": 0,
+      "maxItems": 256
+    },
+    "anchor_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp when this Merkle root was anchored to ChittyChain."
+    },
+    "anchor_block": {
+      "type": "object",
+      "description": "Reference to the ChittyChain block containing the anchor.",
+      "properties": {
+        "block_height": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Block number in the ChittyChain."
+        },
+        "block_hash": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{64}$",
+          "description": "Hash of the anchoring block."
+        },
+        "transaction_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the anchor transaction within the block."
+        }
+      }
+    },
+    "tree_metadata": {
+      "type": "object",
+      "description": "Information about the Merkle tree structure.",
+      "properties": {
+        "tree_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Identifier of the specific Merkle tree."
+        },
+        "tree_height": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Height of the Merkle tree."
+        },
+        "total_leaves": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Total number of data points in this tree."
+        },
+        "hash_algorithm": {
+          "type": "string",
+          "enum": ["SHA-256", "KECCAK-256", "BLAKE3"],
+          "default": "SHA-256",
+          "description": "Hash algorithm used to construct the tree."
+        }
+      }
+    },
+    "verification_instructions": {
+      "type": "object",
+      "description": "Instructions for client-side verification.",
+      "properties": {
+        "verification_endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "Public endpoint to verify the root hash against ChittyChain."
+        },
+        "algorithm": {
+          "type": "string",
+          "default": "standard-merkle",
+          "description": "Verification algorithm to use."
+        },
+        "client_libraries": {
+          "type": "array",
+          "description": "Links to official verification libraries.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "language": { "type": "string" },
+              "package_name": { "type": "string" },
+              "repository_url": { "type": "string", "format": "uri" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

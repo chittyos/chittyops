@@ -1,0 +1,985 @@
+openapi: 3.1.0
+info:
+  title: Chitty Cloud Repo Operator API
+  version: 1.2.0
+  description: |
+    The Chitty Cloud Repo Operator (CCRO) is the central governance gateway for the ChittyOS ecosystem.
+    It manages the ingestion of trust events, the retrieval of ChittyScores, and the execution of the Justice Protocol.
+
+    ## Key Features
+
+    - **Dual-Mode Transparency:** Supports 'Blue Pill' (Simplified) and 'Red Pill' (Audit) views via the `X-Chitty-View-Mode` header.
+    - **Antifragile Writes:** Trust events are processed to update the ChittyTrust learning models.
+    - **Immutable Logging:** All critical state changes are anchored to the ChittyChain ledger.
+    - **Justice Protocol:** Human overrides create precedents that improve algorithmic fairness over time.
+
+    ## Architecture
+
+    The CCRO sits between the user-facing ChittyOS applications (ChittyFinance, ChittyCounsel, ChittyPark, etc.)
+    and the core infrastructure services (ChittyChain, ChittyTrust, ChittyID). It validates input, attaches
+    Bias Fingerprints, and routes data to the appropriate backend services.
+
+    ## Security Model
+
+    - All service-to-service communication requires mTLS (Zero Trust architecture)
+    - User authentication via ChittyID OAuth2/OIDC flow
+    - Fine-grained scopes for different operations
+    - All actions are logged to OCSF-compliant audit trail
+  termsOfService: https://chitty.foundation/terms
+  contact:
+    name: Chitty Foundation Technical Steering Committee
+    url: https://chitty.foundation/tech
+    email: api-stewards@chitty.foundation
+  license:
+    name: Chitty Public License v1.0
+    url: https://chitty.os/license
+
+servers:
+  - url: https://api.chitty.os/repo/v1
+    description: Production Cluster (Global)
+  - url: https://api.sandbox.chitty.os/repo/v1
+    description: Integration Sandbox (TestNet Ledger)
+  - url: https://api.staging.chitty.os/repo/v1
+    description: Staging Environment
+
+tags:
+  - name: Trust
+    description: Operations related to ChittyScore retrieval, trust event ingestion, and score calculation.
+  - name: Justice
+    description: Operations related to overrides, disputes, precedent-setting, and the antifragile learning loop.
+  - name: Verification
+    description: Operations for the ChittyVerify notary service for real-time verification of documents and claims.
+  - name: Ledger
+    description: Direct access to immutable audit proofs and ChittyChain anchoring (Red Pill only).
+  - name: Health
+    description: Service health and operational status endpoints.
+
+# Default security for all endpoints (can be overridden per-operation)
+# New endpoints inherit this protection automatically
+security:
+  - ChittyID_OAuth: []
+  - ApiKey: []
+
+components:
+  securitySchemes:
+    mTLS:
+      type: mutualTLS
+      description: |
+        Required for all internal microservice communication following Zero Trust architecture.
+        Services must present valid client certificates issued by the Chitty PKI.
+
+    ChittyID_OAuth:
+      type: oauth2
+      description: Standard OIDC flow for users and authorized agents via ChittyID.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://id.chitty.os/oauth/authorize
+          tokenUrl: https://id.chitty.os/oauth/token
+          refreshUrl: https://id.chitty.os/oauth/refresh
+          scopes:
+            trust.read: Read trust scores and profiles
+            trust.write: Submit trust events and transactions
+            trust.admin: Administrative access to trust configuration
+            justice.read: View justice overrides and precedents
+            justice.override: Execute Justice Protocol overrides (High Privilege)
+            ledger.read: Read ledger entries and proofs
+            ledger.audit: Access full immutable ledger history with proofs
+            verify.submit: Submit verification requests
+            verify.notarize: Create notarized records
+
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-Chitty-Api-Key
+      description: API key for automated service integrations (rate-limited).
+
+  headers:
+    X-Chitty-View-Mode:
+      description: |
+        Controls the transparency level of the response.
+        - `BLUE_PILL`: Returns simplified, digestible values suitable for general UI.
+        - `RED_PILL`: Returns full schemas with Bias Fingerprints, Merkle Proofs, and complete provenance.
+      schema:
+        type: string
+        enum:
+          - BLUE_PILL
+          - RED_PILL
+        default: BLUE_PILL
+
+    X-Chitty-Integrity-Proof:
+      description: |
+        (Red Pill responses only) Contains the Merkle proof data proving the response's integrity on ChittyChain.
+        Clients can independently verify this against the public ledger.
+      schema:
+        type: string
+
+    X-Chitty-Request-Id:
+      description: Unique identifier for request tracing across the distributed system.
+      schema:
+        type: string
+        format: uuid
+
+    X-Chitty-Rate-Limit-Remaining:
+      description: Number of requests remaining in the current rate limit window.
+      schema:
+        type: integer
+
+    X-Chitty-Rate-Limit-Reset:
+      description: Unix timestamp when the rate limit window resets.
+      schema:
+        type: integer
+
+  parameters:
+    ViewModeHeader:
+      name: X-Chitty-View-Mode
+      in: header
+      required: false
+      schema:
+        type: string
+        enum:
+          - BLUE_PILL
+          - RED_PILL
+        default: BLUE_PILL
+      description: Controls response detail level (Blue Pill = simplified, Red Pill = full audit data).
+
+    EntityIdPath:
+      name: entityId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The ChittyID of the target entity (user, organization, or agent).
+
+  schemas:
+    # Reference to external JSON Schema files
+    BiasFingerprint:
+      $ref: '../schemas/v1/bias-fingerprint.json'
+
+    ChittyScore:
+      $ref: '../schemas/v1/chitty-score.json'
+
+    JusticeOverride:
+      $ref: '../schemas/v1/justice-override.json'
+
+    MerkleProof:
+      $ref: '../schemas/v1/merkle-proof.json'
+
+    # API-specific request/response schemas
+    TrustEventSubmission:
+      type: object
+      description: Payload for submitting trust-relevant events from ChittyOS applications.
+      required:
+        - subject_id
+        - event_type
+        - payload
+      properties:
+        subject_id:
+          type: string
+          format: uuid
+          description: ChittyID of the entity this event pertains to.
+        event_type:
+          type: string
+          enum:
+            - TRANSACTION_COMPLETED
+            - CONTRACT_SIGNED
+            - PAYMENT_RECEIVED
+            - PAYMENT_MADE
+            - DISPUTE_FILED
+            - DISPUTE_RESOLVED
+            - VERIFICATION_PASSED
+            - VERIFICATION_FAILED
+            - REVIEW_SUBMITTED
+            - PENALTY_APPLIED
+            - REWARD_GRANTED
+            - IDENTITY_UPDATE
+            - DOCUMENT_UPLOADED
+          description: Type of trust-relevant event.
+        payload:
+          type: object
+          description: Event-specific data (structure varies by event_type).
+          additionalProperties: true
+        source_metadata:
+          type: object
+          description: Client-side telemetry and context for bias fingerprinting.
+          properties:
+            app_id:
+              type: string
+              description: Identifier of the originating ChittyOS application.
+            app_version:
+              type: string
+            client_timestamp:
+              type: string
+              format: date-time
+            geo_region:
+              type: string
+            device_type:
+              type: string
+              enum:
+                - MOBILE
+                - DESKTOP
+                - IOT
+                - SERVER
+        idempotency_key:
+          type: string
+          format: uuid
+          description: Client-provided key to prevent duplicate event processing.
+
+    TrustEventResponse:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Assigned identifier for the ingested event.
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - PROCESSING
+            - PROCESSED
+            - REJECTED
+          description: Current processing status.
+        estimated_score_impact:
+          type: string
+          enum:
+            - MAJOR_POSITIVE
+            - MINOR_POSITIVE
+            - NEUTRAL
+            - MINOR_NEGATIVE
+            - MAJOR_NEGATIVE
+          description: Preliminary estimate of how this event will affect the score.
+        processing_eta:
+          type: string
+          format: date-time
+          description: Estimated time when score will reflect this event.
+        warnings:
+          type: array
+          items:
+            type: string
+          description: Any warnings about the submitted data (e.g., potential bias detected).
+
+    BluePillScore:
+      type: object
+      description: Simplified score response for general UI consumption.
+      required:
+        - entity_id
+        - score
+        - status
+      additionalProperties: false
+      properties:
+        entity_id:
+          type: string
+          format: uuid
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 85
+        status:
+          type: string
+          enum:
+            - EXCELLENT
+            - GOOD_STANDING
+            - FAIR
+            - NEEDS_ATTENTION
+            - UNDER_REVIEW
+          example: GOOD_STANDING
+        message:
+          type: string
+          example: Verified and Trusted.
+        valid_until:
+          type: string
+          format: date-time
+          description: Client should refresh after this time.
+
+    OverrideResponse:
+      type: object
+      properties:
+        override_id:
+          type: string
+          format: uuid
+        transaction_id:
+          type: string
+          format: uuid
+        ledger_block_ref:
+          type: string
+          format: uri
+          description: Permanent link to the precedent block on ChittyChain.
+        learning_feedback_status:
+          type: string
+          enum:
+            - MODEL_UPDATE_SCHEDULED
+            - MODEL_UPDATE_IN_PROGRESS
+            - MODEL_UPDATE_COMPLETE
+            - MODEL_UPDATE_SKIPPED
+          description: Status of the antifragile learning loop.
+        effective_immediately:
+          type: boolean
+          description: Whether the override is already reflected in scores.
+        affected_entities_count:
+          type: integer
+          description: Number of entities whose scores may be recalculated.
+
+    VerificationRequest:
+      type: object
+      required:
+        - target_hash
+        - claim_type
+      properties:
+        target_hash:
+          type: string
+          pattern: '^[a-fA-F0-9]{64}$'
+          description: SHA-256 hash of the document/data to verify.
+        claim_type:
+          type: string
+          enum:
+            - IDENTITY
+            - DOCUMENT
+            - CREDENTIAL
+            - TRANSACTION
+            - CONTRACT
+            - ATTESTATION
+          description: Type of claim being verified.
+        additional_context:
+          type: object
+          description: Optional context to improve verification accuracy.
+
+    VerificationResponse:
+      type: object
+      properties:
+        verification_id:
+          type: string
+          format: uuid
+        verified:
+          type: boolean
+          description: Whether the claim passed verification.
+        confidence_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Confidence level in the verification result.
+        verification_method:
+          type: string
+          description: Method used for verification.
+        bias_fingerprint:
+          $ref: '#/components/schemas/BiasFingerprint'
+        expiry:
+          type: string
+          format: date-time
+          description: When this verification result expires.
+
+    AuditLogEntry:
+      $ref: '../schemas/v1/audit-event.json'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code.
+        message:
+          type: string
+          description: Human-readable error message.
+        details:
+          type: object
+          description: Additional error context.
+        request_id:
+          type: string
+          format: uuid
+          description: Request ID for support reference.
+        documentation_url:
+          type: string
+          format: uri
+          description: Link to relevant documentation.
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - HEALTHY
+            - DEGRADED
+            - UNHEALTHY
+        version:
+          type: string
+        uptime_seconds:
+          type: integer
+        dependencies:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+              latency_ms:
+                type: integer
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters or payload.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Missing or invalid authentication.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Insufficient permissions for this operation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Requested resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        X-Chitty-Rate-Limit-Reset:
+          $ref: '#/components/headers/X-Chitty-Rate-Limit-Reset'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+paths:
+  /trust/score/{entityId}:
+    get:
+      operationId: getTrustScore
+      summary: Retrieve ChittyScore
+      description: |
+        Fetches the current trust standing of an entity. Response format changes
+        based on the `X-Chitty-View-Mode` header:
+
+        - **Blue Pill (default):** Returns simplified score with status message
+        - **Red Pill:** Returns full composite score with dimensional breakdown,
+          bias fingerprint, and Merkle proof for verification
+      tags:
+        - Trust
+      security:
+        - ChittyID_OAuth:
+            - trust.read
+        - ApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/EntityIdPath'
+        - $ref: '#/components/parameters/ViewModeHeader'
+        - name: include_trend
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include trend analysis in response (Red Pill mode only).
+        - name: dimensions
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - personal
+                - legal
+                - state
+                - ethics
+          style: form
+          explode: false
+          description: Filter to specific dimensions (Red Pill mode only).
+      responses:
+        '200':
+          description: Successful retrieval of trust score.
+          headers:
+            X-Chitty-Integrity-Proof:
+              $ref: '#/components/headers/X-Chitty-Integrity-Proof'
+            X-Chitty-Request-Id:
+              $ref: '#/components/headers/X-Chitty-Request-Id'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ChittyScore'
+                  - $ref: '#/components/schemas/BluePillScore'
+              examples:
+                bluePillResponse:
+                  summary: Blue Pill (Simplified) Response
+                  value:
+                    entity_id: "550e8400-e29b-41d4-a716-446655440000"
+                    score: 85
+                    status: "GOOD_STANDING"
+                    message: "Verified and Trusted."
+                    valid_until: "2025-01-16T12:00:00Z"
+                redPillResponse:
+                  summary: Red Pill (Audit) Response
+                  value:
+                    entity_id: "550e8400-e29b-41d4-a716-446655440000"
+                    aggregate_score: 85
+                    status: "GOOD_STANDING"
+                    dimensions:
+                      personal:
+                        value: 88
+                        confidence: 0.92
+                        data_points_count: 47
+                        primary_factors:
+                          - "Consistent payment history"
+                          - "Positive peer reviews"
+                      legal:
+                        value: 82
+                        confidence: 0.87
+                        data_points_count: 12
+                        primary_factors:
+                          - "No contract violations"
+                      state:
+                        value: 90
+                        confidence: 0.99
+                        data_points_count: 5
+                        primary_factors:
+                          - "Government ID verified"
+                      ethics:
+                        value: 80
+                        confidence: 0.78
+                        data_points_count: 23
+                        primary_factors:
+                          - "Fair dispute resolution"
+                    meta:
+                      valid_from: "2025-01-15T00:00:00Z"
+                      recalc_due_at: "2025-01-16T00:00:00Z"
+                      calculation_engine_version: "v2.4.1"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /trust/event:
+    post:
+      operationId: submitTrustEvent
+      summary: Ingest Trust Event
+      description: |
+        The primary ingestion point for ChittyOS applications ("Trojan Horse" apps like
+        ChittyPark, ChittyTax, ChittySave). Accepts raw interaction data, automatically
+        attaches a Bias Fingerprint based on source analysis, and routes to ChittyTrust
+        for score calculation.
+
+        Events are processed asynchronously. Use the returned `event_id` to track status.
+      tags:
+        - Trust
+      security:
+        - ChittyID_OAuth:
+            - trust.write
+        - mTLS: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrustEventSubmission'
+            examples:
+              parkingPayment:
+                summary: Parking Payment Event
+                value:
+                  subject_id: "550e8400-e29b-41d4-a716-446655440000"
+                  event_type: "PAYMENT_MADE"
+                  payload:
+                    amount: 12.50
+                    currency: "USD"
+                    merchant_id: "chittypark-sf-001"
+                    location: "San Francisco, CA"
+                  source_metadata:
+                    app_id: "chittypark"
+                    app_version: "2.1.0"
+                    device_type: "MOBILE"
+      responses:
+        '202':
+          description: Event accepted for processing.
+          headers:
+            X-Chitty-Request-Id:
+              $ref: '#/components/headers/X-Chitty-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustEventResponse'
+              example:
+                event_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                status: "QUEUED"
+                estimated_score_impact: "MINOR_POSITIVE"
+                processing_eta: "2025-01-15T10:05:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /trust/event/{eventId}:
+    get:
+      operationId: getTrustEventStatus
+      summary: Get Trust Event Status
+      description: Check the processing status of a previously submitted trust event.
+      tags:
+        - Trust
+      security:
+        - ChittyID_OAuth:
+            - trust.read
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The event ID returned from the submission.
+      responses:
+        '200':
+          description: Event status retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustEventResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /justice/override:
+    post:
+      operationId: executeJusticeOverride
+      summary: Execute Justice Override
+      description: |
+        High-privilege endpoint for human stewards to overturn algorithmic decisions.
+        This is the core mechanism of the Antifragile Justice Loop:
+
+        1. A human reviews the automated decision (in Red Pill mode)
+        2. They submit a structured override with justification
+        3. The Operator creates a 'Precedent Block' on ChittyChain
+        4. The ChittyTrust model is scheduled for retraining
+
+        **Required Role:** COMMUNITY_JUROR, CHITTY_STEWARD, LEGAL_ARBITER,
+        FOUNDATION_TRUSTEE, or EMERGENCY_ADMIN
+      tags:
+        - Justice
+      security:
+        - ChittyID_OAuth:
+            - justice.override
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JusticeOverride'
+            examples:
+              contextMissing:
+                summary: Override due to missing context
+                value:
+                  original_decision_ref: "8a7b6c5d-4e3f-2a1b-0c9d-8e7f6a5b4c3d"
+                  overriding_actor:
+                    actor_id: "123e4567-e89b-12d3-a456-426614174000"
+                    role: "COMMUNITY_JUROR"
+                  justification:
+                    category: "CONTEXT_MISSING"
+                    narrative: "The automated system penalized the user for late payment, but documentary evidence shows the payment was sent on time. The delay was caused by a bank processing error during a holiday weekend, which the algorithm failed to account for."
+                    cited_precedents:
+                      - "chittychain://precedent/2024/banking-delay-exception"
+                  outcome_diff:
+                    original_score: 65
+                    final_score: 82
+                    original_outcome: "Penalty applied, trust score reduced"
+                    corrected_outcome: "Penalty reversed, score restored"
+      responses:
+        '200':
+          description: Override committed and precedent established.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverrideResponse'
+              example:
+                override_id: "9f8e7d6c-5b4a-3c2d-1e0f-a9b8c7d6e5f4"
+                transaction_id: "1a2b3c4d-5e6f-7a8b-9c0d-e1f2a3b4c5d6"
+                ledger_block_ref: "chittychain://block/1234567/tx/89"
+                learning_feedback_status: "MODEL_UPDATE_SCHEDULED"
+                effective_immediately: true
+                affected_entities_count: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /justice/precedents:
+    get:
+      operationId: listPrecedents
+      summary: List Justice Precedents
+      description: |
+        Retrieve historical justice overrides that have been committed to ChittyChain.
+        Useful for research, training, and citing in new override justifications.
+      tags:
+        - Justice
+      security:
+        - ChittyID_OAuth:
+            - justice.read
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum:
+              - CONTEXT_MISSING
+              - HISTORICAL_BIAS_CORRECTION
+              - COMPASSIONATE_EXCEPTION
+              - DATA_ERROR
+              - POLICY_MISAPPLICATION
+          description: Filter by justification category.
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Start date for precedent search.
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: End date for precedent search.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Maximum number of results.
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Pagination offset.
+      responses:
+        '200':
+          description: List of precedents.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  precedents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JusticeOverride'
+                  total_count:
+                    type: integer
+                  has_more:
+                    type: boolean
+
+  /verify/notary:
+    post:
+      operationId: verifyDocument
+      summary: ChittyVerify Notary Service
+      description: |
+        Real-time verification of documents, claims, or identities. Integrates with
+        the Bias Fingerprint system to return a confidence score alongside the
+        boolean verification result.
+
+        The service cross-references multiple data sources and reports any detected
+        biases in the verification methodology.
+      tags:
+        - Verification
+      security:
+        - ChittyID_OAuth:
+            - verify.submit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationRequest'
+            examples:
+              identityVerification:
+                summary: Identity Document Verification
+                value:
+                  target_hash: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+                  claim_type: "IDENTITY"
+                  additional_context:
+                    document_type: "PASSPORT"
+                    issuing_country: "US"
+      responses:
+        '200':
+          description: Verification completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResponse'
+              example:
+                verification_id: "v-123e4567-e89b-12d3-a456-426614174000"
+                verified: true
+                confidence_score: 0.97
+                verification_method: "MULTI_SOURCE_CROSS_REFERENCE"
+                expiry: "2025-01-22T10:00:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /ledger/proof/{dataHash}:
+    get:
+      operationId: getMerkleProof
+      summary: Get Merkle Proof for Data
+      description: |
+        Retrieve the cryptographic proof that a specific piece of data has been
+        anchored to ChittyChain. Clients can independently verify this proof
+        against the public ledger without trusting the API.
+
+        **Red Pill Mode Only:** This endpoint is designed for audit purposes.
+      tags:
+        - Ledger
+      security:
+        - ChittyID_OAuth:
+            - ledger.audit
+      parameters:
+        - name: dataHash
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-fA-F0-9]{64}$'
+          description: SHA-256 hash of the data to prove.
+      responses:
+        '200':
+          description: Merkle proof retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerkleProof'
+        '404':
+          description: No proof found for this hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /ledger/audit:
+    get:
+      operationId: getAuditLog
+      summary: Get Audit Log
+      description: |
+        Retrieve OCSF-compliant audit log entries for the current authenticated entity.
+        Supports filtering by operation type, time range, and status.
+      tags:
+        - Ledger
+      security:
+        - ChittyID_OAuth:
+            - ledger.audit
+      parameters:
+        - name: operation_type
+          in: query
+          schema:
+            type: string
+            enum:
+              - TRUST_SCORE_UPDATE
+              - JUSTICE_OVERRIDE
+              - IDENTITY_VERIFICATION
+              - LEDGER_COMMIT
+          description: Filter by operation type.
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Start of time range.
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: End of time range.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: continuation_token
+          in: query
+          schema:
+            type: string
+          description: Cursor for pagination, returned from previous response.
+      responses:
+        '200':
+          description: Audit log entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLogEntry'
+                  continuation_token:
+                    type: string
+
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health Check
+      description: Check the operational status of the CCRO service and its dependencies.
+      tags:
+        - Health
+      security: []
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              example:
+                status: "HEALTHY"
+                version: "1.2.0"
+                uptime_seconds: 86400
+                dependencies:
+                  chitty_trust:
+                    status: "HEALTHY"
+                    latency_ms: 12
+                  chitty_chain:
+                    status: "HEALTHY"
+                    latency_ms: 45
+                  chitty_id:
+                    status: "HEALTHY"
+                    latency_ms: 8
+        '503':
+          description: Service is unhealthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /health/ready:
+    get:
+      operationId: getReadiness
+      summary: Readiness Check
+      description: Check if the service is ready to accept traffic (for Kubernetes probes).
+      tags:
+        - Health
+      security: []
+      responses:
+        '200':
+          description: Service is ready.
+        '503':
+          description: Service is not ready.

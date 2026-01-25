@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.chitty.os/schemas/v1/bias-fingerprint.json",
+  "title": "Bias Fingerprint Metadata Envelope",
+  "description": "A standardized metadata structure for capturing the provenance, algorithmic lineage, and ethical alignment of a data point within the ChittyOS ecosystem.",
+  "type": "object",
+  "required": [
+    "provenance_id",
+    "timestamp",
+    "source_integrity",
+    "justice_alignment"
+  ],
+  "properties": {
+    "provenance_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "A globally unique identifier tracking the genesis of this data point across the ChittyOS ecosystem."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The ISO 8601 timestamp (UTC) indicating precisely when the data was ingested or generated."
+    },
+    "source_integrity": {
+      "type": "object",
+      "description": "Metrics regarding the reliability and origin of the data source.",
+      "required": ["origin_type", "source_authority_score"],
+      "properties": {
+        "origin_type": {
+          "type": "string",
+          "enum": [
+            "GOVERNMENT_RECORD",
+            "FINANCIAL_INSTITUTION",
+            "VERIFIED_USER_INPUT",
+            "SOCIAL_MEDIA_SENTIMENT",
+            "IOT_SENSOR_DATA",
+            "THIRD_PARTY_API",
+            "PEER_ATTESTATION",
+            "BLOCKCHAIN_ORACLE",
+            "INTERNAL_COMPUTATION"
+          ],
+          "description": "Categorical classification of the data source."
+        },
+        "source_authority_score": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "A dynamic 0-1 float representing the system's current trust level in this specific source."
+        },
+        "channel_noise_rating": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Quantification of potential signal degradation or bias introduced by the transmission channel (e.g., hearsay vs. direct cryptographic proof)."
+        },
+        "source_id": {
+          "type": "string",
+          "description": "Unique identifier of the specific source within its category."
+        },
+        "verification_method": {
+          "type": "string",
+          "enum": [
+            "CRYPTOGRAPHIC_SIGNATURE",
+            "MTLS_VERIFIED",
+            "API_KEY_AUTHENTICATED",
+            "OAUTH_TOKEN",
+            "HUMAN_ATTESTED",
+            "UNVERIFIED"
+          ],
+          "description": "The method used to verify the authenticity of this data source."
+        }
+      }
+    },
+    "known_biases": {
+      "type": "array",
+      "description": "A systematic list of potential biases identified in the source data or methodology.",
+      "items": {
+        "type": "object",
+        "required": ["bias_code", "severity"],
+        "properties": {
+          "bias_code": {
+            "type": "string",
+            "pattern": "^BIAS-[0-9]{3}$",
+            "description": "Reference code to the Chitty Foundation Bias Registry (e.g., BIAS-004: Temporal Lag)."
+          },
+          "bias_name": {
+            "type": "string",
+            "description": "Human-readable name of the bias type."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+            "description": "The impact level of this bias on the decision-making process."
+          },
+          "mitigation_strategy": {
+            "type": "string",
+            "description": "Description of any algorithmic weighting applied to counteract this bias."
+          },
+          "mitigation_effectiveness": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Estimated effectiveness of the mitigation (0 = no effect, 1 = fully mitigated)."
+          }
+        }
+      }
+    },
+    "algorithmic_context": {
+      "type": "object",
+      "description": "If the data was processed by an AI/ML model, this object captures the model parameters.",
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "description": "Unique identifier of the model used for processing."
+        },
+        "model_version": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "Semantic version of the model."
+        },
+        "confidence_interval": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "The model's reported confidence in its output."
+        },
+        "training_cutoff_date": {
+          "type": "string",
+          "format": "date",
+          "description": "The date up to which training data was included."
+        },
+        "feature_importance": {
+          "type": "array",
+          "description": "Ordered list of features that most influenced this decision.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "feature_name": { "type": "string" },
+              "importance_weight": { "type": "number" }
+            }
+          }
+        },
+        "explainability_report_uri": {
+          "type": "string",
+          "format": "uri",
+          "description": "Link to detailed model explainability documentation."
+        }
+      }
+    },
+    "justice_alignment": {
+      "type": "object",
+      "description": "The ethical evaluation of the data point against Chitty Foundation guidelines.",
+      "required": ["score"],
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "The Chitty Ethics Alignment Score (0-100). Higher scores indicate better alignment with justice principles."
+        },
+        "precedent_ref": {
+          "type": "string",
+          "format": "uri",
+          "description": "A ChittyChain link (URI) to a historical precedent that validates this alignment."
+        },
+        "evaluation_criteria": {
+          "type": "array",
+          "description": "List of ethical criteria evaluated.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "criterion_id": { "type": "string" },
+              "criterion_name": { "type": "string" },
+              "passed": { "type": "boolean" },
+              "weight": { "type": "number" }
+            }
+          }
+        },
+        "human_review_required": {
+          "type": "boolean",
+          "default": false,
+          "description": "Flag indicating if this data point requires human review due to low alignment score."
+        },
+        "review_priority": {
+          "type": "string",
+          "enum": ["LOW", "MEDIUM", "HIGH", "URGENT"],
+          "description": "Priority level for human review queue."
+        }
+      }
+    },
+    "chain_of_custody": {
+      "type": "array",
+      "description": "Ordered list of systems that have processed this data point.",
+      "items": {
+        "type": "object",
+        "required": ["system_id", "timestamp", "action"],
+        "properties": {
+          "system_id": {
+            "type": "string",
+            "description": "Identifier of the processing system."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["INGESTED", "TRANSFORMED", "ENRICHED", "VALIDATED", "FORWARDED"]
+          },
+          "signature": {
+            "type": "string",
+            "description": "Cryptographic signature proving this custody step."
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
