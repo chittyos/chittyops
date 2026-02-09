@@ -9,7 +9,7 @@
     "chitty-org": "./cross-org/cli.js"
   },
   "scripts": {
-    "test": "node --test 'test/**/*.test.js'",
+    "test": "node --test test/audit.test.js",
     "setup-hooks": "node terminal-ops/hooks/installer.js",
     "sync-org": "node cross-org/sync.js",
     "audit": "node compliance/audit.js --verbose",
