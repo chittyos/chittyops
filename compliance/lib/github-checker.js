@@ -8,6 +8,44 @@ class GitHubChecker {
   constructor(options = {}) {
     this.cache = new Map();
     this.rateLimitDelay = options.rateLimitDelay || 100;
+    this.maxRetries = options.maxRetries || 2;
+    this._callCount = 0;
+  }
+
+  /**
+   * Throttle API calls to avoid secondary rate limits
+   */
+  _throttle() {
+    this._callCount++;
+    if (this._callCount % 10 === 0 && this.rateLimitDelay > 0) {
+      const { execSync } = require('child_process');
+      execSync(`sleep ${this.rateLimitDelay / 1000}`);
+    }
+  }
+
+  /**
+   * Execute gh command with retry on failure
+   */
+  _exec(args, options = {}) {
+    const timeout = options.timeout || 15000;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        this._throttle();
+        return execFileSync('gh', args, {
+          encoding: 'utf8',
+          timeout,
+          stdio: ['pipe', 'pipe', 'ignore'],
+        });
+      } catch (err) {
+        if (attempt < this.maxRetries) {
+          const backoff = (attempt + 1) * 1000;
+          const { execSync } = require('child_process');
+          execSync(`sleep ${backoff / 1000}`);
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   /**
@@ -18,11 +56,7 @@ class GitHubChecker {
     if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
 
     try {
-      const result = execFileSync('gh', ['api', path, '--paginate'], {
-        encoding: 'utf8',
-        timeout: 15000,
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
+      const result = this._exec(['api', path, '--paginate']);
       const parsed = JSON.parse(result);
       this.cache.set(cacheKey, parsed);
       return parsed;
@@ -36,11 +70,7 @@ class GitHubChecker {
    */
   fileExists(repo, filePath) {
     try {
-      execFileSync('gh', ['api', `repos/${repo}/contents/${filePath}`, '--jq', '.name'], {
-        encoding: 'utf8',
-        timeout: 10000,
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
+      this._exec(['api', `repos/${repo}/contents/${filePath}`, '--jq', '.name'], { timeout: 10000 });
       return true;
     } catch {
       return false;
@@ -52,11 +82,10 @@ class GitHubChecker {
    */
   getFileContent(repo, filePath) {
     try {
-      const b64 = execFileSync('gh', ['api', `repos/${repo}/contents/${filePath}`, '--jq', '.content'], {
-        encoding: 'utf8',
-        timeout: 10000,
-        stdio: ['pipe', 'pipe', 'ignore'],
-      }).trim();
+      const b64 = this._exec(
+        ['api', `repos/${repo}/contents/${filePath}`, '--jq', '.content'],
+        { timeout: 10000 }
+      ).trim();
       return Buffer.from(b64, 'base64').toString('utf8');
     } catch {
       return null;
@@ -68,11 +97,10 @@ class GitHubChecker {
    */
   listWorkflows(repo) {
     try {
-      const result = execFileSync('gh', ['api', `repos/${repo}/actions/workflows`, '--jq', '.workflows[].path'], {
-        encoding: 'utf8',
-        timeout: 10000,
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
+      const result = this._exec(
+        ['api', `repos/${repo}/actions/workflows`, '--jq', '.workflows[].path'],
+        { timeout: 10000 }
+      );
       return result.trim().split('\n').filter(Boolean);
     } catch {
       return [];
@@ -84,14 +112,10 @@ class GitHubChecker {
    */
   getWorkflowNames(repo) {
     try {
-      const result = execFileSync('gh', [
+      const result = this._exec([
         'api', `repos/${repo}/actions/workflows`,
         '--jq', '.workflows[] | "\\(.path):\\(.name)"',
-      ], {
-        encoding: 'utf8',
-        timeout: 10000,
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
+      ], { timeout: 10000 });
       return result.trim().split('\n').filter(Boolean);
     } catch {
       return [];
@@ -112,11 +136,10 @@ class GitHubChecker {
    */
   getBranchProtection(repo, branch = 'main') {
     try {
-      const result = execFileSync('gh', ['api', `repos/${repo}/branches/${branch}/protection`], {
-        encoding: 'utf8',
-        timeout: 10000,
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
+      const result = this._exec(
+        ['api', `repos/${repo}/branches/${branch}/protection`],
+        { timeout: 10000 }
+      );
       const protection = JSON.parse(result);
       return {
         enabled: true,
@@ -135,15 +158,11 @@ class GitHubChecker {
    */
   getRecentRuns(repo, limit = 5) {
     try {
-      const result = execFileSync('gh', [
+      const result = this._exec([
         'run', 'list', '-R', repo,
         '--limit', String(limit),
         '--json', 'workflowName,conclusion,status,createdAt',
-      ], {
-        encoding: 'utf8',
-        timeout: 15000,
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
+      ]);
       return JSON.parse(result);
     } catch {
       return [];
