@@ -2,7 +2,7 @@
  * GitHub API wrapper for compliance auditing
  * Uses `gh api` CLI for authenticated access across orgs
  */
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 class GitHubChecker {
   constructor(options = {}) {
@@ -18,8 +18,11 @@ class GitHubChecker {
     if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
 
     try {
-      const cmd = `gh api "${path}" --paginate 2>/dev/null`;
-      const result = execSync(cmd, { encoding: 'utf8', timeout: 15000 });
+      const result = execFileSync('gh', ['api', path, '--paginate'], {
+        encoding: 'utf8',
+        timeout: 15000,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       const parsed = JSON.parse(result);
       this.cache.set(cacheKey, parsed);
       return parsed;
@@ -33,8 +36,11 @@ class GitHubChecker {
    */
   fileExists(repo, filePath) {
     try {
-      const cmd = `gh api "repos/${repo}/contents/${filePath}" --jq '.name' 2>/dev/null`;
-      execSync(cmd, { encoding: 'utf8', timeout: 10000 });
+      execFileSync('gh', ['api', `repos/${repo}/contents/${filePath}`, '--jq', '.name'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       return true;
     } catch {
       return false;
@@ -46,8 +52,11 @@ class GitHubChecker {
    */
   getFileContent(repo, filePath) {
     try {
-      const cmd = `gh api "repos/${repo}/contents/${filePath}" --jq '.content' 2>/dev/null`;
-      const b64 = execSync(cmd, { encoding: 'utf8', timeout: 10000 }).trim();
+      const b64 = execFileSync('gh', ['api', `repos/${repo}/contents/${filePath}`, '--jq', '.content'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      }).trim();
       return Buffer.from(b64, 'base64').toString('utf8');
     } catch {
       return null;
@@ -59,8 +68,11 @@ class GitHubChecker {
    */
   listWorkflows(repo) {
     try {
-      const cmd = `gh api "repos/${repo}/actions/workflows" --jq '.workflows[].path' 2>/dev/null`;
-      const result = execSync(cmd, { encoding: 'utf8', timeout: 10000 });
+      const result = execFileSync('gh', ['api', `repos/${repo}/actions/workflows`, '--jq', '.workflows[].path'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       return result.trim().split('\n').filter(Boolean);
     } catch {
       return [];
@@ -72,8 +84,14 @@ class GitHubChecker {
    */
   getWorkflowNames(repo) {
     try {
-      const cmd = `gh api "repos/${repo}/actions/workflows" --jq '.workflows[] | "\\(.path):\\(.name)"' 2>/dev/null`;
-      const result = execSync(cmd, { encoding: 'utf8', timeout: 10000 });
+      const result = execFileSync('gh', [
+        'api', `repos/${repo}/actions/workflows`,
+        '--jq', '.workflows[] | "\\(.path):\\(.name)"',
+      ], {
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       return result.trim().split('\n').filter(Boolean);
     } catch {
       return [];
@@ -94,8 +112,11 @@ class GitHubChecker {
    */
   getBranchProtection(repo, branch = 'main') {
     try {
-      const cmd = `gh api "repos/${repo}/branches/${branch}/protection" 2>/dev/null`;
-      const result = execSync(cmd, { encoding: 'utf8', timeout: 10000 });
+      const result = execFileSync('gh', ['api', `repos/${repo}/branches/${branch}/protection`], {
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       const protection = JSON.parse(result);
       return {
         enabled: true,
@@ -114,8 +135,15 @@ class GitHubChecker {
    */
   getRecentRuns(repo, limit = 5) {
     try {
-      const cmd = `gh run list -R "${repo}" --limit ${limit} --json workflowName,conclusion,status,createdAt 2>/dev/null`;
-      const result = execSync(cmd, { encoding: 'utf8', timeout: 15000 });
+      const result = execFileSync('gh', [
+        'run', 'list', '-R', repo,
+        '--limit', String(limit),
+        '--json', 'workflowName,conclusion,status,createdAt',
+      ], {
+        encoding: 'utf8',
+        timeout: 15000,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       return JSON.parse(result);
     } catch {
       return [];

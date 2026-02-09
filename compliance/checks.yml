@@ -1,6 +1,7 @@
-# ChittyOS Compliance Check Definitions
-# Defines the 7 compliance dimensions and their verification criteria
-# Used by compliance/audit.js to evaluate each service
+# ChittyOS Compliance Check Definitions (Reference)
+# Documents the 7 compliance dimensions and their verification criteria.
+# NOTE: This is a reference document. The actual check logic lives in
+# audit.js (ComplianceAuditor class methods). Keep both in sync.
 schema_version: "1.0"
 
 checks:

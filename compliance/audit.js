@@ -22,30 +22,34 @@ const { GitHubChecker } = require('./lib/github-checker');
 const { RuntimeChecker } = require('./lib/runtime-checker');
 const { generateMarkdown } = require('./lib/report-generator');
 
-// Simple YAML parser for the subset we use (avoids js-yaml dependency)
-function parseSimpleYaml(text) {
-  // Use js-yaml if available, otherwise fall back
-  try {
-    const yaml = require('js-yaml');
-    return yaml.load(text);
-  } catch {
-    // Minimal fallback: parse enough to get service registry
-    console.error('Warning: js-yaml not available, using JSON fallback');
-    return null;
-  }
-}
+const yaml = require('js-yaml');
 
 function loadYaml(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
-  return parseSimpleYaml(content);
+  return yaml.load(content);
 }
 
 function parseArgs(argv) {
-  const args = {};
-  for (const arg of argv.slice(2)) {
+  const args = { _positional: [] };
+  const rawArgs = argv.slice(2);
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
     if (arg.startsWith('--')) {
-      const [key, val] = arg.slice(2).split('=');
-      args[key] = val ?? true;
+      const eqIndex = arg.indexOf('=');
+      if (eqIndex !== -1) {
+        args[arg.slice(2, eqIndex)] = arg.slice(eqIndex + 1);
+      } else {
+        // Check if next arg is the value (not another flag)
+        const key = arg.slice(2);
+        if (i + 1 < rawArgs.length && !rawArgs[i + 1].startsWith('--')) {
+          args[key] = rawArgs[i + 1];
+          i++;
+        } else {
+          args[key] = true;
+        }
+      }
+    } else {
+      args._positional.push(arg);
     }
   }
   return args;
@@ -59,8 +63,6 @@ class ComplianceAuditor {
     this.skipRuntime = options.skipRuntime || false;
     this.registryPath = options.registryPath ||
       path.join(__dirname, 'service-registry.yml');
-    this.checksPath = options.checksPath ||
-      path.join(__dirname, 'checks.yml');
   }
 
   log(msg) {
@@ -74,15 +76,6 @@ class ComplianceAuditor {
     const registry = loadYaml(this.registryPath);
     if (!registry) throw new Error('Failed to parse service-registry.yml');
     return registry;
-  }
-
-  /**
-   * Load check definitions
-   */
-  loadChecks() {
-    const checks = loadYaml(this.checksPath);
-    if (!checks) throw new Error('Failed to parse checks.yml');
-    return checks;
   }
 
   /**

@@ -14,7 +14,7 @@
  */
 
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -83,19 +83,21 @@ function buildIssueBody(svcName, svcData) {
 }
 
 function createIssue(repo, title, body, label) {
+  const tmpFile = `/tmp/compliance-issue-${Date.now()}.md`;
   try {
-    const cmd = `gh issue create -R "${repo}" --title "${title}" --body "$(cat <<'EOFBODY'\n${body}\nEOFBODY\n)" --label "${label}" 2>&1`;
-    // Use a simpler approach to avoid heredoc issues
-    const tmpFile = `/tmp/compliance-issue-${Date.now()}.md`;
     fs.writeFileSync(tmpFile, body);
-    const result = execSync(
-      `gh issue create -R "${repo}" --title "${title}" --body-file "${tmpFile}" --label "${label}" 2>&1`,
-      { encoding: 'utf8', timeout: 15000 }
-    );
-    fs.unlinkSync(tmpFile);
+    const result = execFileSync('gh', [
+      'issue', 'create',
+      '-R', repo,
+      '--title', title,
+      '--body-file', tmpFile,
+      '--label', label,
+    ], { encoding: 'utf8', timeout: 15000 });
     return result.trim();
   } catch (err) {
     return `ERROR: ${err.message}`;
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
   }
 }
 

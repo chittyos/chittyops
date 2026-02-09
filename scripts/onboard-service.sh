@@ -86,12 +86,40 @@ if grep -q "^      ${SERVICE_NAME}:" "$REGISTRY_FILE" 2>/dev/null; then
   echo "  Already in registry, skipping"
 else
   if ! $DRY_RUN; then
-    # Find the right org section and append
     echo "  Adding $SERVICE_NAME to $ORG in service-registry.yml"
-    echo "  NOTE: Manual verification recommended after auto-insert"
-    # Simple append approach -- inserts before the next org or at end of file
-    cat >> "$REGISTRY_FILE" << REGEOF
-
+    # Build the entry block
+    ENTRY="\\
+      # Added by onboard-service.sh $(date +%Y-%m-%d)\\
+      ${SERVICE_NAME}:\\
+        repo: ${ORG}/${SERVICE_NAME}\\
+        tier: ${TIER}\\
+        type: ${SERVICE_TYPE}\\
+        domain: ${DOMAIN:-null}\\
+        territory: operations\\
+        active: true\\
+        description: \"Onboarded service\""
+    # Find the last service entry under the target org's services: section
+    # and insert the new entry after it
+    if grep -q "^  ${ORG}:" "$REGISTRY_FILE" 2>/dev/null; then
+      # Use python for reliable YAML-aware insertion
+      python3 -c "
+import sys
+lines = open('$REGISTRY_FILE').readlines()
+org_found = False
+insert_idx = None
+for i, line in enumerate(lines):
+    if line.strip() == '${ORG}:':
+        org_found = True
+    elif org_found and line.strip() and not line.startswith(' ') and not line.startswith('#'):
+        # Hit next top-level key after our org
+        insert_idx = i
+        break
+    elif org_found and line.strip().endswith(':') and not line.strip().startswith('#'):
+        # Track last entry under this org
+        insert_idx = None  # keep scanning
+if insert_idx is None:
+    insert_idx = len(lines)
+entry = '''
       # Added by onboard-service.sh $(date +%Y-%m-%d)
       ${SERVICE_NAME}:
         repo: ${ORG}/${SERVICE_NAME}
@@ -100,9 +128,15 @@ else
         domain: ${DOMAIN:-null}
         territory: operations
         active: true
-        description: "Onboarded service"
-REGEOF
-    echo "  Added to registry (verify placement in YAML)"
+        description: Onboarded service
+'''
+lines.insert(insert_idx, entry)
+open('$REGISTRY_FILE', 'w').writelines(lines)
+"
+      echo "  Added to registry under $ORG section"
+    else
+      echo -e "${RED}  ERROR: Org '$ORG' not found in registry. Add manually.${NC}"
+    fi
   else
     echo -e "${YELLOW}  [DRY RUN] Would add $SERVICE_NAME to registry${NC}"
   fi

@@ -30,10 +30,19 @@ WORKFLOW_TEMPLATE_DIR="$SCRIPT_DIR/.github/workflows"
 REGISTRY_FILE="$SCRIPT_DIR/compliance/service-registry.yml"
 WORKFLOW_DIR=".github/workflows"
 BEACON_PACKAGE="@chittycorp/app-beacon"
+WORK_DIR="/tmp/chittyops-setup"
 DRY_RUN=false
 TARGET_REPO=""
 TARGET_ORG=""
 VERBOSE=false
+
+# Cleanup cloned repos on exit
+cleanup() {
+  if [ -d "$WORK_DIR" ]; then
+    rm -rf "$WORK_DIR"
+  fi
+}
+trap cleanup EXIT
 
 # Parse arguments
 for arg in "$@"; do
@@ -153,7 +162,7 @@ deploy_file() {
 
   if [ -f "$target_path" ]; then
     info "$description: already exists, skipping"
-    return 0
+    return 1  # skipped, no change
   fi
 
   if $DRY_RUN; then
@@ -163,7 +172,7 @@ deploy_file() {
     echo "$content" > "$target_path"
     info "Created: $target_path"
   fi
-  return 1  # indicates file was created (for change tracking)
+  return 0  # file created/would be created
 }
 
 # ── Deploy template file if missing ───────────────────────────────
@@ -180,7 +189,7 @@ deploy_template() {
 
   if [ -f "$target_path" ]; then
     info "$description: already exists, skipping"
-    return 0
+    return 1  # skipped, no change
   fi
 
   local rendered
@@ -193,7 +202,7 @@ deploy_template() {
     echo "$rendered" > "$target_path"
     info "Created: $target_path"
   fi
-  return 1
+  return 0  # file created/would be created
 }
 
 # ── Copy workflow if missing ──────────────────────────────────────
@@ -204,7 +213,7 @@ deploy_workflow() {
 
   if [ -f "$target_path" ]; then
     info "$description: already exists, skipping"
-    return 0
+    return 1  # skipped, no change
   fi
 
   if $DRY_RUN; then
@@ -214,7 +223,7 @@ deploy_workflow() {
     cp "$source_file" "$target_path"
     info "Created: $target_path"
   fi
-  return 1
+  return 0  # file created/would be created
 }
 
 # ── Setup a single repository ─────────────────────────────────────
@@ -232,7 +241,7 @@ setup_repo() {
   log "\n  Processing: $org/$repo (tier=$tier, type=$service_type)"
 
   # Clone or update
-  local repo_dir="/tmp/chittyops-setup/$org/$repo"
+  local repo_dir="$WORK_DIR/$org/$repo"
   if [ -d "$repo_dir" ]; then
     cd "$repo_dir"
     git fetch origin 2>/dev/null || true
@@ -253,27 +262,27 @@ setup_repo() {
 
   # CLAUDE.md
   deploy_template "$TEMPLATE_DIR/CLAUDE.md.tmpl" "CLAUDE.md" \
-    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" "CLAUDE.md" || changes=$((changes+1))
+    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" "CLAUDE.md" && changes=$((changes+1))
 
   # CHARTER.md
   deploy_template "$TEMPLATE_DIR/CHARTER.md.tmpl" "CHARTER.md" \
-    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" "CHARTER.md" || changes=$((changes+1))
+    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" "CHARTER.md" && changes=$((changes+1))
 
   # CODEOWNERS
   deploy_template "$TEMPLATE_DIR/CODEOWNERS.tmpl" "CODEOWNERS" \
-    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" "CODEOWNERS" || changes=$((changes+1))
+    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" "CODEOWNERS" && changes=$((changes+1))
 
   # ── 2. ChittyConnect config ──
   deploy_template "$TEMPLATE_DIR/chittyconnect.yml.tmpl" ".chittyconnect.yml" \
-    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" ".chittyconnect.yml" || changes=$((changes+1))
+    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" ".chittyconnect.yml" && changes=$((changes+1))
 
   # ── 3. ChittyConnect sync workflow ──
   deploy_workflow "$TEMPLATE_DIR/chittyconnect-sync.yml.tmpl" "$WORKFLOW_DIR/chittyconnect-sync.yml" \
-    "ChittyConnect Sync workflow" || changes=$((changes+1))
+    "ChittyConnect Sync workflow" && changes=$((changes+1))
 
   # ── 4. Compliance self-check workflow ──
   deploy_template "$TEMPLATE_DIR/self-check.yml" "$WORKFLOW_DIR/compliance-check.yml" \
-    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" "Compliance self-check workflow" || changes=$((changes+1))
+    "$service_name" "$display_name" "$tier" "$domain" "$org" "$service_type" "Compliance self-check workflow" && changes=$((changes+1))
 
   # ── 5. ChittyBeacon integration ──
   local detected_type
