@@ -1,0 +1,42 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Repository Overview
+
+**{{DISPLAY_NAME}}** - {{DESCRIPTION}}
+
+- **Tier**: {{TIER}}
+- **Organization**: {{ORG}}
+- **Domain**: {{DOMAIN}}
+
+## Common Commands
+
+```bash
+npm ci              # Install dependencies
+npm test            # Run tests
+npm run build       # Build
+npm run dev         # Development mode
+```
+
+### Deployment
+
+Deployments use ChittyConnect for ephemeral credentials:
+```bash
+# Via reusable workflow (preferred)
+gh workflow run deploy.yml
+
+# Manual (requires credentials)
+npx wrangler deploy --env production
+curl -s https://{{DOMAIN}}/health | jq .
+```
+
+## Architecture
+
+This service is part of the ChittyOS ecosystem. See the [chittyops CLAUDE.md](https://github.com/CHITTYOS/chittyops/blob/main/CLAUDE.md) for ecosystem-wide patterns.
+
+### Key Patterns
+- Credentials flow through ChittyConnect (`CHITTYCONNECT_API_KEY`)
+- LLM/AI functions route through ChittyGateway
+- Health endpoint at `/health` returns `{"status":"ok","service":"{{SERVICE_NAME}}"}`
+- ChittyBeacon heartbeat every 5 minutes

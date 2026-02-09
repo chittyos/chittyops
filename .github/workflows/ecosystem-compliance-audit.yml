@@ -1,0 +1,74 @@
+name: Ecosystem Compliance Audit
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Weekly Monday 6 AM UTC
+  workflow_dispatch:
+    inputs:
+      org:
+        description: 'Organization to audit (CHITTYOS, ChittyCorp, or all)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - CHITTYOS
+          - ChittyCorp
+      skip_runtime:
+        description: 'Skip runtime checks (health, registry, router endpoints)'
+        required: false
+        type: boolean
+        default: false
+      fix_mode:
+        description: 'Create issues on non-compliant repos'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run compliance audit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ARGS="--org=${{ inputs.org || 'all' }} --output=compliance-report.json --markdown=compliance-report.md --verbose"
+          if [ "${{ inputs.skip_runtime }}" = "true" ]; then
+            ARGS="$ARGS --skip-runtime"
+          fi
+          node compliance/audit.js $ARGS
+
+      - name: Upload compliance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-report-${{ github.run_number }}
+          path: |
+            compliance-report.json
+            compliance-report.md
+          retention-days: 90
+
+      - name: Post report summary
+        run: |
+          echo "## Ecosystem Compliance Audit Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat compliance-report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Create remediation issues
+        if: inputs.fix_mode == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node compliance/remediate.js compliance-report.json --mode=issues --label=compliance

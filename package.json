@@ -11,7 +11,11 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "setup-hooks": "node terminal-ops/hooks/installer.js",
-    "sync-org": "node cross-org/sync.js"
+    "sync-org": "node cross-org/sync.js",
+    "audit": "node compliance/audit.js --verbose",
+    "audit:json": "node compliance/audit.js --output=compliance-report.json --markdown=compliance-report.md --verbose",
+    "audit:service": "node compliance/audit.js --verbose --service",
+    "remediate": "node compliance/remediate.js compliance-report.json --mode=report"
   },
   "repository": {
     "type": "git",
@@ -32,6 +36,7 @@
   "homepage": "https://github.com/chittyos/chittyops#readme",
   "dependencies": {
     "@chittyfoundation/hookify": "github:chittyfoundation/chittyops#main",
-    "@chittyfoundation/territories": "github:chittyfoundation/chittyops#main"
+    "@chittyfoundation/territories": "github:chittyfoundation/chittyops#main",
+    "js-yaml": "^4.1.1"
   }
 }

@@ -1,0 +1,621 @@
+# ChittyOS Ecosystem Service Registry
+# Machine-readable inventory of all services and their compliance profiles
+# Used by compliance/audit.js to determine expected state
+schema_version: "1.0"
+last_updated: "2026-02-09"
+
+# Compliance profiles define which dimensions apply per service type
+compliance_profiles:
+  cloudflare-worker:
+    chittyconnect: required
+    chittybeacon: required
+    chittycanon: required
+    chittyregister: required
+    chittyrouter: required
+    chittytrust: required
+    health_endpoint: required
+  npm-package:
+    chittyconnect: required
+    chittybeacon: optional
+    chittycanon: required
+    chittyregister: optional
+    chittyrouter: not_applicable
+    chittytrust: optional
+    health_endpoint: not_applicable
+  tool:
+    chittyconnect: required
+    chittybeacon: optional
+    chittycanon: required
+    chittyregister: optional
+    chittyrouter: not_applicable
+    chittytrust: optional
+    health_endpoint: not_applicable
+  documentation:
+    chittyconnect: optional
+    chittybeacon: not_applicable
+    chittycanon: required
+    chittyregister: not_applicable
+    chittyrouter: not_applicable
+    chittytrust: not_applicable
+    health_endpoint: not_applicable
+  org-config:
+    chittyconnect: optional
+    chittybeacon: not_applicable
+    chittycanon: required
+    chittyregister: not_applicable
+    chittyrouter: not_applicable
+    chittytrust: not_applicable
+    health_endpoint: not_applicable
+  client-sdk:
+    chittyconnect: required
+    chittybeacon: optional
+    chittycanon: required
+    chittyregister: optional
+    chittyrouter: not_applicable
+    chittytrust: optional
+    health_endpoint: not_applicable
+
+organizations:
+  CHITTYOS:
+    services:
+      # ── Tier 0: Trust Anchors ──────────────────────────
+      chittycore:
+        repo: CHITTYOS/chittycore
+        tier: 0
+        type: npm-package
+        domain: null
+        territory: operations
+        active: true
+        description: "Core foundation package with ID, auth, verification, beacon, canon, registry"
+
+      # ── Tier 1: Core Identity ──────────────────────────
+      chittyverify:
+        repo: CHITTYOS/chittyverify
+        tier: 1
+        type: cloudflare-worker
+        domain: verify.chitty.cc
+        territory: identity
+        active: true
+        description: "Document and identity verification service"
+
+      chittyregistry:
+        repo: CHITTYOS/chittyregistry
+        tier: 1
+        type: cloudflare-worker
+        domain: registry.chitty.cc
+        territory: identity
+        active: true
+        description: "Universal tool/script registry"
+
+      # ── Tier 2: Platform ───────────────────────────────
+      chittyconnect:
+        repo: CHITTYOS/chittyconnect
+        tier: 2
+        type: cloudflare-worker
+        domain: connect.chitty.cc
+        territory: operations
+        active: true
+        description: "Universal context management, ephemeral credentials"
+
+      chittyrouter:
+        repo: CHITTYOS/chittyrouter
+        tier: 2
+        type: cloudflare-worker
+        domain: router.chitty.cc
+        territory: operations
+        active: true
+        description: "AI Gateway - Intelligent routing service"
+
+      chittyapi:
+        repo: CHITTYOS/chittyapi
+        tier: 2
+        type: cloudflare-worker
+        domain: api.chitty.cc
+        territory: operations
+        active: true
+        description: "Unified ChatGPT Actions API"
+
+      chittygateway:
+        repo: CHITTYOS/chittygateway
+        tier: 2
+        type: cloudflare-worker
+        domain: gateway.chitty.cc
+        territory: operations
+        active: true
+        description: "Unified Cloudflare Worker - consolidated services"
+
+      # ── Tier 3: Operational ────────────────────────────
+      chittymonitor:
+        repo: CHITTYOS/chittymonitor
+        tier: 3
+        type: cloudflare-worker
+        domain: monitor.chitty.cc
+        territory: operations
+        active: true
+        description: "System monitoring and performance tracking"
+
+      chittydiscovery:
+        repo: CHITTYOS/chittydiscovery
+        tier: 3
+        type: cloudflare-worker
+        domain: discovery.chitty.cc
+        territory: operations
+        active: true
+        description: "Service discovery"
+
+      chittybeacon:
+        repo: CHITTYOS/chittybeacon
+        tier: 3
+        type: cloudflare-worker
+        domain: beacon.cloudeto.com
+        territory: operations
+        active: true
+        description: "Service discovery and health monitoring"
+
+      chittyops:
+        repo: CHITTYOS/chittyops
+        tier: 3
+        type: tool
+        domain: ops.chitty.cc
+        territory: operations
+        active: true
+        description: "CI/CD workflows, compliance engine, deployment automation"
+
+      chittystandard:
+        repo: CHITTYOS/chittystandard
+        tier: 3
+        type: npm-package
+        domain: null
+        territory: operations
+        active: true
+        description: "Standard Framework Installer"
+
+      chittymcp:
+        repo: CHITTYOS/chittymcp
+        tier: 3
+        type: cloudflare-worker
+        domain: mcp.chitty.cc
+        territory: operations
+        active: true
+        description: "Multi-Tenant MCP Server with OAuth, rate limiting, 44+ tools"
+
+      chittycontext:
+        repo: CHITTYOS/chittycontext
+        tier: 3
+        type: cloudflare-worker
+        domain: context.chitty.cc
+        territory: operations
+        active: true
+        description: "Context management"
+
+      # ── Tier 4: Domain ─────────────────────────────────
+      chittyscore:
+        repo: CHITTYOS/chittyscore
+        tier: 4
+        type: cloudflare-worker
+        domain: score.chitty.cc
+        territory: operations
+        active: true
+        description: "6D Behavioral Trust Scoring Engine"
+
+      chittyintel:
+        repo: CHITTYOS/chittyintel
+        tier: 4
+        type: cloudflare-worker
+        domain: intel.chitty.cc
+        territory: operations
+        active: true
+        description: "AI-powered legal fact extraction, contradiction detection"
+
+      chittychronicle:
+        repo: CHITTYOS/chittychronicle
+        tier: 4
+        type: cloudflare-worker
+        domain: chronicle.chitty.cc
+        territory: operations
+        active: true
+        description: "Legal timeline management"
+
+      chittyledger:
+        repo: CHITTYOS/chittyledger
+        tier: 4
+        type: cloudflare-worker
+        domain: ledger.chitty.cc
+        territory: operations
+        active: true
+        description: "Distributed ledger for transaction tracking"
+
+      chittyevidence-db:
+        repo: CHITTYOS/chittyevidence-db
+        tier: 4
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Evidence database"
+
+      # ── Tier 5: Application ────────────────────────────
+      chittycan:
+        repo: CHITTYOS/chittycan
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Autonomous network CLI with natural language commands"
+
+      chittyos-cli:
+        repo: CHITTYOS/chittyos-cli
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Unified CLI with AI intelligence"
+
+      chittyagent:
+        repo: CHITTYOS/chittyagent
+        tier: 5
+        type: cloudflare-worker
+        domain: agent.chitty.cc
+        territory: operations
+        active: true
+        description: "Agent framework"
+
+      chittyassets:
+        repo: CHITTYOS/chittyassets
+        tier: 5
+        type: cloudflare-worker
+        domain: assets.chitty.cc
+        territory: operations
+        active: true
+        description: "Blockchain-integrated asset management"
+
+      chittyswarm:
+        repo: CHITTYOS/chittyswarm
+        tier: 5
+        type: cloudflare-worker
+        domain: swarm.chitty.cc
+        territory: operations
+        active: true
+        description: "Swarm Neural Network"
+
+      chittysync:
+        repo: CHITTYOS/chittysync
+        tier: 5
+        type: cloudflare-worker
+        domain: sync.chitty.cc
+        territory: operations
+        active: true
+        description: "Sync service"
+
+      chittystorage:
+        repo: CHITTYOS/chittystorage
+        tier: 5
+        type: cloudflare-worker
+        domain: storage.chitty.cc
+        territory: operations
+        active: true
+        description: "Storage service"
+
+      chittycommand:
+        repo: CHITTYOS/chittycommand
+        tier: 5
+        type: cloudflare-worker
+        domain: command.chitty.cc
+        territory: operations
+        active: true
+        description: "Unified life management & action dashboard"
+
+      chittyconcierge:
+        repo: CHITTYOS/chittyconcierge
+        tier: 5
+        type: cloudflare-worker
+        domain: concierge.chitty.cc
+        territory: operations
+        active: true
+        description: "AI-powered communication orchestrator"
+
+      chittyhelper:
+        repo: CHITTYOS/chittyhelper
+        tier: 5
+        type: cloudflare-worker
+        domain: helper.chitty.cc
+        territory: operations
+        active: true
+        description: "Architectural navigation helper"
+
+      get-chitty:
+        repo: CHITTYOS/get-chitty
+        tier: 5
+        type: cloudflare-worker
+        domain: get.chitty.cc
+        territory: operations
+        active: true
+        description: "Multi-model AI gateway"
+
+      chittyconnect-finance:
+        repo: CHITTYOS/chittyconnect-finance
+        tier: 5
+        type: cloudflare-worker
+        domain: finance.chitty.cc
+        territory: operations
+        active: true
+        description: "Mercury API middleware for ARIBIA LLC CFO operations"
+
+      sessionsync:
+        repo: CHITTYOS/sessionsync
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "AI cross-session coordination"
+
+      chittymac:
+        repo: CHITTYOS/chittymac
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Apple-native MCP server for iMessage, Notes, Reminders"
+
+      chittyserv:
+        repo: CHITTYOS/chittyserv
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: false
+        description: "Distributed messaging (homelab cluster)"
+
+      # ── Client/SDK ─────────────────────────────────────
+      chitty-desktop-connector:
+        repo: CHITTYOS/chitty-desktop-connector
+        tier: 5
+        type: client-sdk
+        domain: null
+        territory: operations
+        active: true
+        description: "Claude Desktop integration connector"
+
+      chitty-mobile-connector:
+        repo: CHITTYOS/chitty-mobile-connector
+        tier: 5
+        type: client-sdk
+        domain: null
+        territory: operations
+        active: true
+        description: "Mobile platform connector"
+
+      chittycli:
+        repo: CHITTYOS/chittycli
+        tier: 5
+        type: client-sdk
+        domain: null
+        territory: operations
+        active: true
+        description: "Command-line interface"
+
+      chittymcp-github:
+        repo: CHITTYOS/chittymcp-github
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "MCP GitHub integration"
+
+      shell-plugins:
+        repo: CHITTYOS/shell-plugins
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Terminal authentication plugins"
+
+      op-shell-plugins:
+        repo: CHITTYOS/op-shell-plugins
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "1Password terminal authentication plugins"
+
+      chitty-issue-resolver:
+        repo: CHITTYOS/chitty-issue-resolver
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Automated issue resolution"
+
+      chittyagent-local:
+        repo: CHITTYOS/chittyagent-local
+        tier: 5
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Local system agents for macOS"
+
+      # ── Org/Infra ──────────────────────────────────────
+      .github:
+        repo: CHITTYOS/.github
+        tier: null
+        type: org-config
+        domain: null
+        territory: operations
+        active: true
+        description: "Organization-wide GitHub configuration"
+
+      .claude:
+        repo: CHITTYOS/.claude
+        tier: null
+        type: org-config
+        domain: null
+        territory: operations
+        active: true
+        description: "Distributed AI Consciousness System"
+
+      chittyos-workspace:
+        repo: CHITTYOS/chittyos-workspace
+        tier: null
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Multi-service development environment"
+
+      shared:
+        repo: CHITTYOS/shared
+        tier: null
+        type: npm-package
+        domain: null
+        territory: operations
+        active: true
+        description: "Shared dependencies framework"
+
+      docs:
+        repo: CHITTYOS/docs
+        tier: null
+        type: documentation
+        domain: null
+        territory: operations
+        active: true
+        description: "Official documentation and guides"
+
+      legal-cases:
+        repo: CHITTYOS/legal-cases
+        tier: null
+        type: documentation
+        domain: null
+        territory: operations
+        active: true
+        description: "Legal case management with ChittyStorage integration"
+
+      mcp-cloudflare-authless:
+        repo: CHITTYOS/mcp-cloudflare-authless
+        tier: null
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Authless MCP Cloudflare integration"
+
+      # ── Archived (excluded from compliance) ────────────
+      -chittyos:
+        repo: CHITTYOS/-chittyos
+        tier: null
+        type: tool
+        domain: null
+        territory: operations
+        active: false
+        description: "Archived"
+      demo-repository:
+        repo: CHITTYOS/demo-repository
+        tier: null
+        type: documentation
+        domain: null
+        territory: operations
+        active: false
+        description: "Archived demo"
+      chittycleaner:
+        repo: CHITTYOS/chittycleaner
+        tier: null
+        type: tool
+        domain: null
+        territory: operations
+        active: false
+        description: "Archived - storage management daemon"
+      email-worker:
+        repo: CHITTYOS/email-worker
+        tier: null
+        type: cloudflare-worker
+        domain: null
+        territory: operations
+        active: false
+        description: "Archived - replaced by chitty-email-workers"
+      chitty-email-workers:
+        repo: CHITTYOS/chitty-email-workers
+        tier: null
+        type: cloudflare-worker
+        domain: null
+        territory: operations
+        active: false
+        description: "Archived"
+      mcp:
+        repo: CHITTYOS/mcp
+        tier: null
+        type: cloudflare-worker
+        domain: null
+        territory: operations
+        active: false
+        description: "Archived - replaced by chittymcp"
+      chittyagent-cleaner:
+        repo: CHITTYOS/chittyagent-cleaner
+        tier: null
+        type: tool
+        domain: null
+        territory: operations
+        active: false
+        description: "Archived"
+      vite-react-template:
+        repo: CHITTYOS/vite-react-template
+        tier: null
+        type: tool
+        domain: null
+        territory: operations
+        active: false
+        description: "Archived template"
+
+  ChittyCorp:
+    services:
+      chittyforce:
+        repo: ChittyCorp/chittyforce
+        tier: 4
+        type: cloudflare-worker
+        domain: force.chitty.cc
+        territory: operations
+        active: true
+        description: "AI executive, AI x Human, AI Agent and AI worker services"
+
+      chittyentry:
+        repo: ChittyCorp/chittyentry
+        tier: 4
+        type: cloudflare-worker
+        domain: entry.chitty.cc
+        territory: operations
+        active: true
+        description: "Enterprise access control and authentication"
+
+      chittyreception:
+        repo: ChittyCorp/chittyreception
+        tier: 4
+        type: cloudflare-worker
+        domain: reception.chitty.cc
+        territory: operations
+        active: true
+        description: "Answering and orchestration with OpenPhone/Twilio"
+
+      chittychronicle-corp:
+        repo: ChittyCorp/chittychronicle
+        tier: 4
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "ARIBIA LLC litigation timeline management"
+
+      .github:
+        repo: ChittyCorp/.github
+        tier: null
+        type: org-config
+        domain: null
+        territory: operations
+        active: true
+        description: "Organization-wide GitHub configuration"
