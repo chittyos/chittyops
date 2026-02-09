@@ -10,6 +10,10 @@
 /CODEOWNERS @nickbianchi
 /.github/ @nickbianchi @ChittyOS/cicd-admins
 
+# Protect compliance engine and templates
+/compliance/ @nickbianchi @ChittyOS/cicd-admins
+/templates/compliance/ @nickbianchi @ChittyOS/cicd-admins
+
 # Protect SOP documentation
 /ChittyOS-CICD-SOPs.md @nickbianchi @ChittyOS/sop-reviewers
 /CICD-Quick-Reference.md @nickbianchi @ChittyOS/sop-reviewers

@@ -1,0 +1,152 @@
+name: Reusable Compliance Check
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 'Service name (e.g., chittyconnect)'
+        required: true
+        type: string
+      tier:
+        description: 'Service tier (0-5)'
+        required: false
+        type: number
+        default: 5
+      check_health:
+        description: 'Probe the health endpoint'
+        required: false
+        type: boolean
+        default: false
+      domain:
+        description: 'Service domain (e.g., connect.chitty.cc)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── ChittyCanon: Required files ──
+      - name: Check canonical files
+        id: canon
+        run: |
+          SCORE=0
+          TOTAL=3
+          DETAILS=""
+          if [ -f "CLAUDE.md" ]; then SCORE=$((SCORE+1)); else DETAILS="$DETAILS Missing CLAUDE.md;"; fi
+          if [ -f "CODEOWNERS" ]; then SCORE=$((SCORE+1)); else DETAILS="$DETAILS Missing CODEOWNERS;"; fi
+          if [ -f "CHARTER.md" ]; then SCORE=$((SCORE+1)); else DETAILS="$DETAILS Missing CHARTER.md;"; fi
+          echo "score=${SCORE}/${TOTAL}" >> $GITHUB_OUTPUT
+          if [ $SCORE -eq $TOTAL ]; then
+            echo "status=pass" >> $GITHUB_OUTPUT
+          else
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "::warning::ChittyCanon: $DETAILS"
+          fi
+
+      # ── ChittyConnect: Config file ──
+      - name: Check ChittyConnect config
+        id: connect
+        run: |
+          if [ -f ".chittyconnect.yml" ]; then
+            echo "status=pass" >> $GITHUB_OUTPUT
+          else
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "::warning::Missing .chittyconnect.yml"
+          fi
+
+      # ── ChittyConnect: Sync workflow ──
+      - name: Check ChittyConnect Sync workflow
+        id: sync
+        run: |
+          if ls .github/workflows/*connect* .github/workflows/*sync* 2>/dev/null | grep -qi connect; then
+            echo "status=pass" >> $GITHUB_OUTPUT
+          else
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "::warning::Missing ChittyConnect sync workflow"
+          fi
+
+      # ── ChittyBeacon: Dependency ──
+      - name: Check ChittyBeacon
+        id: beacon
+        run: |
+          if [ -f "package.json" ]; then
+            if grep -q "@chittycorp/app-beacon" package.json; then
+              echo "status=pass" >> $GITHUB_OUTPUT
+            else
+              echo "status=fail" >> $GITHUB_OUTPUT
+              echo "::warning::Missing @chittycorp/app-beacon in package.json"
+            fi
+          elif [ -f "chittybeacon.py" ] || [ -f "chittybeacon/__init__.py" ]; then
+            echo "status=pass" >> $GITHUB_OUTPUT
+          else
+            echo "status=na" >> $GITHUB_OUTPUT
+          fi
+
+      # ── ChittyTrust: Onboarding provisions ──
+      - name: Check ChittyTrust chain
+        id: trust
+        run: |
+          if [ -f ".chittyconnect.yml" ]; then
+            MISSING=""
+            grep -q "chitty_id" .chittyconnect.yml || MISSING="$MISSING chitty_id"
+            grep -q "service_token" .chittyconnect.yml || MISSING="$MISSING service_token"
+            grep -q "certificate" .chittyconnect.yml || MISSING="$MISSING certificate"
+            grep -q "trust_chain" .chittyconnect.yml || MISSING="$MISSING trust_chain"
+            if [ -z "$MISSING" ]; then
+              echo "status=pass" >> $GITHUB_OUTPUT
+            else
+              echo "status=fail" >> $GITHUB_OUTPUT
+              echo "::warning::Trust chain missing:$MISSING"
+            fi
+          else
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "::warning::No .chittyconnect.yml for trust chain verification"
+          fi
+
+      # ── Health Endpoint ──
+      - name: Check health endpoint
+        if: inputs.check_health && inputs.domain != ''
+        id: health
+        run: |
+          RESPONSE=$(curl -sf --max-time 5 "https://${{ inputs.domain }}/health" 2>/dev/null || echo "FAIL")
+          if echo "$RESPONSE" | jq -e '.status == "ok"' > /dev/null 2>&1; then
+            echo "status=pass" >> $GITHUB_OUTPUT
+          else
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "::warning::Health check failed for ${{ inputs.domain }}"
+          fi
+
+      # ── ChittyGateway: AI routing ──
+      - name: Check ChittyGateway reference
+        id: gateway
+        run: |
+          if [ -f ".chittyconnect.yml" ]; then
+            if grep -q "chittygateway\|gateway.chitty.cc" .chittyconnect.yml; then
+              echo "status=pass" >> $GITHUB_OUTPUT
+            else
+              echo "status=info" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "status=na" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Summary ──
+      - name: Compliance summary
+        run: |
+          echo "## Compliance Report: ${{ inputs.service_name }} (Tier ${{ inputs.tier }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Dimension | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ChittyCanon (files) | ${{ steps.canon.outputs.status }} (${{ steps.canon.outputs.score }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| ChittyConnect (config) | ${{ steps.connect.outputs.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ChittyConnect (sync) | ${{ steps.sync.outputs.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ChittyBeacon | ${{ steps.beacon.outputs.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ChittyTrust chain | ${{ steps.trust.outputs.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ChittyGateway ref | ${{ steps.gateway.outputs.status }} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.check_health }}" = "true" ] && [ -n "${{ inputs.domain }}" ]; then
+            echo "| Health endpoint | ${{ steps.health.outputs.status || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          fi

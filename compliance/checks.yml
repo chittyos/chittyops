@@ -1,0 +1,131 @@
+# ChittyOS Compliance Check Definitions (Reference)
+# canonical_uri: chittycanon://chittyos/compliance/checks
+# namespace: chittyos.operations.compliance
+# type: compliance-reference
+# status: CERTIFIED
+# registered_with: chittycanon://core/services/canon
+# NOTE: This is a reference document. The actual check logic lives in
+# audit.js (ComplianceAuditor class methods). Keep both in sync.
+schema_version: "1.0"
+
+checks:
+  chittyconnect:
+    name: "ChittyConnect Integration"
+    description: "Ephemeral credential provisioning and service sync"
+    file_checks:
+      - path: ".chittyconnect.yml"
+        required: true
+        description: "Service configuration for ChittyConnect"
+    workflow_checks:
+      - pattern: "chittyconnect-sync|connect.*sync|ChittyConnect Sync"
+        description: "ChittyConnect sync workflow (6-hourly sync)"
+    config_checks:
+      - field: "service.name"
+        in_file: ".chittyconnect.yml"
+        description: "Service name declared in connect config"
+      - field: "onboarding.endpoint"
+        in_file: ".chittyconnect.yml"
+        description: "Onboarding endpoint configured"
+
+  chittybeacon:
+    name: "ChittyBeacon Monitoring"
+    description: "Application-level monitoring with 5-minute heartbeat"
+    node_checks:
+      - dependency: "@chittycorp/app-beacon"
+        in_files: ["package.json"]
+        fields: ["dependencies", "devDependencies"]
+        description: "ChittyBeacon npm package installed"
+    python_checks:
+      - file: "chittybeacon.py"
+        description: "Python beacon module present"
+      - file: "chittybeacon/__init__.py"
+        description: "Python beacon package present"
+    workflow_checks:
+      - pattern: "beacon|ChittyBeacon"
+        in_any_workflow: true
+        description: "Beacon referenced in at least one workflow"
+
+  chittycanon:
+    name: "ChittyCanon Compliance"
+    description: "Canonical files, naming conventions, and governance"
+    file_checks:
+      - path: "CLAUDE.md"
+        required: true
+        description: "Claude Code development guide"
+      - path: "CODEOWNERS"
+        required: true
+        description: "Code ownership and review requirements"
+      - path: "CHARTER.md"
+        required: true
+        description: "Service charter with tier, scope, dependencies"
+    branch_protection:
+      required: true
+      branch: "main"
+      checks:
+        - "Required status checks"
+        - "Required reviews"
+        - "No force pushes"
+      description: "Branch protection rules on main"
+
+  chittyregister:
+    name: "ChittyRegister Service Registration"
+    description: "Service registered with registry.chitty.cc"
+    workflow_checks:
+      - pattern: "registry\\.chitty\\.cc|ChittyRegistry|Register"
+        in_deploy_workflow: true
+        description: "Registry heartbeat in deploy workflow"
+    runtime_checks:
+      - endpoint: "https://registry.chitty.cc/api/services/{service_name}"
+        method: "GET"
+        expected_status: 200
+        description: "Service is registered in central registry"
+
+  chittyrouter:
+    name: "ChittyRouter Route Registration"
+    description: "Service routes registered for external endpoints"
+    applicable_when:
+      field: "domain"
+      condition: "is_not_null"
+    runtime_checks:
+      - endpoint: "https://router.chitty.cc/api/routes/{domain}"
+        method: "GET"
+        expected_status: 200
+        description: "Route registered in ChittyRouter"
+    config_checks:
+      - field: "service.domains.production"
+        in_file: ".chittyconnect.yml"
+        description: "Production domain declared"
+
+  chittytrust:
+    name: "ChittyTrust/ChittyCert Chain"
+    description: "Trust chain and service token provisioned via onboarding"
+    config_checks:
+      - field: "onboarding.provisions"
+        in_file: ".chittyconnect.yml"
+        expected_contains:
+          - "chitty_id"
+          - "service_token"
+          - "certificate"
+          - "trust_chain"
+        description: "Onboarding provisions include trust chain"
+      - field: "auth.provider"
+        in_file: ".chittyconnect.yml"
+        expected_value: "chittyauth"
+        description: "Auth provider is chittyauth"
+
+  health_endpoint:
+    name: "Health Endpoint"
+    description: "Standard /health endpoint returning status ok"
+    applicable_when:
+      field: "type"
+      condition: "equals"
+      value: "cloudflare-worker"
+    runtime_checks:
+      - endpoint: "https://{domain}/health"
+        method: "GET"
+        expected_status: 200
+        expected_body:
+          field: "status"
+          value: "ok"
+        timeout_ms: 5000
+        description: "Health endpoint returns {status: ok}"
