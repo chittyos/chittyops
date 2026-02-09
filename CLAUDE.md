@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is the ChittyOps CI/CD repository - a centralized system for managing standardized CI/CD workflows across all ChittyOS, ChittyCorp, and nevershitty organization repositories. It provides automated testing, deployment, security scanning, and ChittyBeacon monitoring integration.
+This is the ChittyOps CI/CD and compliance repository — the centralized engine for managing ecosystem compliance, CI/CD workflows, and service onboarding across CHITTYOS and ChittyCorp organizations. It provides a compliance audit engine (7 dimensions, 62 services), automated remediation, reusable workflow templates, and Copilot coding agent definitions.
 
 **Architecture:**
 - **Foundation Layer:** [chittyfoundation/chittyops](https://github.com/chittyfoundation/chittyops) - Governance primitives, hook contracts, territory definitions
@@ -13,9 +13,42 @@ This is the ChittyOps CI/CD repository - a centralized system for managing stand
 
 ## Common Commands
 
+### Compliance Engine
+```bash
+# Run full ecosystem audit (all orgs, skip runtime probes)
+npm run audit
+
+# Audit with JSON + Markdown output
+npm run audit:json
+
+# Audit a single service
+npm run audit:service -- chittyconnect
+
+# Generate remediation report (dry run)
+npm run remediate
+
+# Create GitHub issues on non-compliant repos
+node compliance/remediate.js compliance-report.json --mode=issues
+
+# Run tests
+npm test
+```
+
+### Service Onboarding
+```bash
+# Onboard a new service end-to-end
+./scripts/onboard-service.sh chittywidget CHITTYOS --tier=4 --domain=widget.chitty.cc
+
+# Deploy compliance files to a specific repo
+./setup-org-workflows.sh --repo=CHITTYOS/chittywidget
+
+# Dry run first
+./setup-org-workflows.sh --repo=CHITTYOS/chittywidget --dry-run
+```
+
 ### CI/CD Setup and Management
 ```bash
-# One-time setup for all organization repos
+# Full compliance provisioning across all repos
 ./setup-org-workflows.sh
 
 # Lock workflows and add protection (requires admin)
@@ -24,24 +57,6 @@ This is the ChittyOps CI/CD repository - a centralized system for managing stand
 # Check workflow status
 gh run list --limit 10
 gh run list --status=failure
-
-# View and rerun workflows
-gh run view --log [RUN_ID]
-gh run rerun --failed [RUN_ID]
-
-# Manual deployment trigger
-gh workflow run deploy.yml --ref main
-```
-
-### Platform-Specific Deployments
-```bash
-# Vercel
-vercel --prod
-vercel rollback [DEPLOYMENT_URL]
-
-# Cloudflare Workers
-npx wrangler publish
-npx wrangler rollback
 ```
 
 ### Security and Monitoring
@@ -57,11 +72,20 @@ gh pr list --label="dependencies"
 ## Architecture
 
 ### Repository Structure
-- `setup-org-workflows.sh` - Main script to deploy CI/CD across all organization repos
-- `lock-workflows.sh` - Implements workflow protection and branch rules
-- `ChittyOS-CICD-SOPs.md` - Comprehensive standard operating procedures
-- `CICD-Quick-Reference.md` - Quick reference guide for common operations
-- `CODEOWNERS` - Defines code ownership and review requirements
+- `compliance/` - Ecosystem compliance engine
+  - `service-registry.yml` - 62-service inventory (canonical URI: `chittycanon://chittyos/registry/services`)
+  - `checks.yml` - 7 compliance dimension definitions (reference)
+  - `audit.js` - Main audit engine (GitHub API + runtime probes)
+  - `remediate.js` - Auto-creates issues on non-compliant repos
+  - `lib/` - GitHub checker, runtime checker, report generator
+  - `README.md` - Compliance engine documentation
+- `templates/compliance/` - 6 canonical file templates (.chittyconnect.yml, CHARTER.md, CODEOWNERS, CLAUDE.md, self-check, sync workflow)
+- `scripts/onboard-service.sh` - Single-command service onboarding
+- `setup-org-workflows.sh` - Full compliance provisioning across all repos
+- `.github/workflows/` - CI, reusable workflows, ecosystem audit
+- `.github/copilot/` - Copilot coding agent definitions (compliance + onboarding)
+- `test/` - Automated test suite (19 tests)
+- `CODEOWNERS` - Code ownership and review requirements
 
 ### Workflow System Components
 
@@ -141,9 +165,9 @@ The following secrets are deprecated. Use ChittyConnect instead:
 | `SNYK_TOKEN` | Still used | Security scanning |
 
 ### Organizations Managed
-- ChittyOS
-- ChittyCorp
-- nevershitty
+- **CHITTYOS** — 57 services (active compliance scope)
+- **ChittyCorp** — 5 services (active compliance scope)
+- **NeverShitty** — Legacy/archived (excluded from compliance scope)
 
 ## Key SOPs
 

@@ -1,5 +1,9 @@
 # ChittyOS Compliance Check Definitions (Reference)
-# Documents the 7 compliance dimensions and their verification criteria.
+# canonical_uri: chittycanon://chittyos/compliance/checks
+# namespace: chittyos.operations.compliance
+# type: compliance-reference
+# status: CERTIFIED
+# registered_with: chittycanon://core/services/canon
 # NOTE: This is a reference document. The actual check logic lives in
 # audit.js (ComplianceAuditor class methods). Keep both in sync.
 schema_version: "1.0"

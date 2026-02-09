@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Sync with ChittyConnect
         run: |
-          curl -sf -X POST "https://get.chitty.cc/api/sync" \
+          curl -sf -X POST "https://connect.chitty.cc/api/github/sync" \
             -H "Authorization: Bearer ${{ secrets.CHITTYCONNECT_API_KEY }}" \
             -H "Content-Type: application/json" \
             -d @.chittyconnect.yml

@@ -1,6 +1,9 @@
 # ChittyOS Ecosystem Service Registry
-# Machine-readable inventory of all services and their compliance profiles
-# Used by compliance/audit.js to determine expected state
+# canonical_uri: chittycanon://chittyos/registry/services
+# namespace: chittyos.operations.registry
+# type: service-registry
+# status: CERTIFIED
+# registered_with: chittycanon://core/services/canon
 schema_version: "1.0"
 last_updated: "2026-02-09"
 
@@ -203,7 +206,7 @@ organizations:
         tier: 4
         type: cloudflare-worker
         domain: intel.chitty.cc
-        territory: operations
+        territory: legal
         active: true
         description: "AI-powered legal fact extraction, contradiction detection"
 
@@ -212,7 +215,7 @@ organizations:
         tier: 4
         type: cloudflare-worker
         domain: chronicle.chitty.cc
-        territory: operations
+        territory: legal
         active: true
         description: "Legal timeline management"
 
@@ -221,7 +224,7 @@ organizations:
         tier: 4
         type: cloudflare-worker
         domain: ledger.chitty.cc
-        territory: operations
+        territory: legal
         active: true
         description: "Distributed ledger for transaction tracking"
 
@@ -230,7 +233,7 @@ organizations:
         tier: 4
         type: tool
         domain: null
-        territory: operations
+        territory: legal
         active: true
         description: "Evidence database"
 
@@ -494,7 +497,7 @@ organizations:
         tier: null
         type: documentation
         domain: null
-        territory: operations
+        territory: legal
         active: true
         description: "Legal case management with ChittyStorage integration"
 
