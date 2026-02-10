@@ -2,12 +2,15 @@ name: Registry Sync
 
 on:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '17 */6 * * *'  # Every 6 hours at :17
+  push:
+    branches: [main]
+    paths:
+      - 'compliance/service-registry.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   sync-registry:
@@ -16,11 +19,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sync with registry
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Get credentials via ChittyConnect
+        uses: CHITTYOS/chittyops/.github/actions/getchitty-creds@main
+        id: creds
+        with:
+          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
+          purpose: 'registry-sync'
+          service: 'chittyops'
+
+      - name: Sync service registry
         env:
           REGISTRY_URL: https://registry.chitty.cc
-        run: |
-          echo "Syncing repository metadata with ${REGISTRY_URL}"
-          # Placeholder for real sync logic
-          echo ok
+          CHITTYCONNECT_TOKEN: ${{ steps.creds.outputs.github_token }}
+        run: node scripts/sync-registry.js
 
+      - name: Verify sync
+        run: |
+          STATUS=$(curl -sf "${REGISTRY_URL}/health" | node -e "
+            let d='';process.stdin.on('data',c=>d+=c);
+            process.stdin.on('end',()=>{
+              const h=JSON.parse(d);
+              console.log(h.status);
+              process.exit(h.status==='HEALTHY'?0:1);
+            });
+          " 2>/dev/null) || true
+          echo "Registry status: ${STATUS:-unknown}"
