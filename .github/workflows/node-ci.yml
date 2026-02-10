@@ -18,8 +18,13 @@ jobs:
         with:
           node-version: '20.x'
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Install dependencies
-        run: npm install
+        run: pnpm install --frozen-lockfile
 
       - name: Syntax check JS files
         run: |
@@ -52,7 +57,7 @@ jobs:
           "
 
       - name: Run tests
-        run: npm test
+        run: pnpm test
 
   shellcheck:
     runs-on: ubuntu-latest

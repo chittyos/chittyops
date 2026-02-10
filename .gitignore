@@ -1,9 +1,8 @@
 # OS-specific
 .DS_Store
 
-# Node/Yarn/PNPM (if present)
+# Node
 node_modules/
-pnpm-lock.yaml
 package-lock.json
 yarn.lock
 
