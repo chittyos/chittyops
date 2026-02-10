@@ -25,29 +25,63 @@ outputs:
   account_id:
     description: 'Cloudflare Account ID'
     value: ${{ steps.fetch.outputs.account_id }}
+  neon_token:
+    description: 'Ephemeral Neon API key'
+    value: ${{ steps.fetch.outputs.neon_token }}
+  register_token:
+    description: 'Ephemeral ChittyRegister token'
+    value: ${{ steps.fetch.outputs.register_token }}
 runs:
   using: 'composite'
   steps:
     - name: Fetch ephemeral credentials
       id: fetch
       shell: bash
+      env:
+        CHITTYCONNECT_API_KEY: ${{ inputs.api_key }}
+        CRED_PURPOSE: ${{ inputs.purpose }}
+        CRED_SERVICE: ${{ inputs.service }}
+        GITHUB_REPO: ${{ github.repository }}
+        GITHUB_RUN: ${{ github.run_id }}
       run: |
-        RESPONSE=$(curl -sf https://connect.chitty.cc/credentials/deploy \
-          -H "Authorization: Bearer ${{ inputs.api_key }}" \
+        # Build JSON payload safely using jq
+        PAYLOAD=$(jq -n \
+          --arg purpose "$CRED_PURPOSE" \
+          --arg service "$CRED_SERVICE" \
+          --arg repo "$GITHUB_REPO" \
+          --arg run_id "$GITHUB_RUN" \
+          '{purpose: $purpose, service: $service, repo: $repo, run_id: $run_id}')
+
+        RESPONSE=$(curl -sf --max-time 30 \
+          https://connect.chitty.cc/credentials/deploy \
+          -H "Authorization: Bearer ${CHITTYCONNECT_API_KEY}" \
           -H "Content-Type: application/json" \
-          -d '{
-            "purpose": "${{ inputs.purpose }}",
-            "service": "${{ inputs.service }}",
-            "repo": "${{ github.repository }}",
-            "run_id": "${{ github.run_id }}"
-          }')
+          -d "$PAYLOAD") || {
+          echo "::error::Failed to fetch credentials from ChittyConnect"
+          exit 1
+        }
 
-        echo "cloudflare_token=$(echo $RESPONSE | jq -r '.cloudflare_token // empty')" >> $GITHUB_OUTPUT
-        echo "npm_token=$(echo $RESPONSE | jq -r '.npm_token // empty')" >> $GITHUB_OUTPUT
-        echo "github_token=$(echo $RESPONSE | jq -r '.github_token // empty')" >> $GITHUB_OUTPUT
-        echo "account_id=$(echo $RESPONSE | jq -r '.account_id // empty')" >> $GITHUB_OUTPUT
+        # Extract and mask tokens before writing outputs
+        CF_TOKEN=$(echo "$RESPONSE" | jq -r '.cloudflare_token // empty')
+        NPM_TOKEN=$(echo "$RESPONSE" | jq -r '.npm_token // empty')
+        GH_TOKEN=$(echo "$RESPONSE" | jq -r '.github_token // empty')
+        ACCT_ID=$(echo "$RESPONSE" | jq -r '.account_id // empty')
+        NEON_TOKEN=$(echo "$RESPONSE" | jq -r '.neon_token // empty')
+        REG_TOKEN=$(echo "$RESPONSE" | jq -r '.register_token // empty')
 
-        # Mask sensitive values
-        echo "::add-mask::$(echo $RESPONSE | jq -r '.cloudflare_token // empty')"
-        echo "::add-mask::$(echo $RESPONSE | jq -r '.npm_token // empty')"
-        echo "::add-mask::$(echo $RESPONSE | jq -r '.github_token // empty')"
+        # Mask all sensitive values first
+        for val in "$CF_TOKEN" "$NPM_TOKEN" "$GH_TOKEN" "$NEON_TOKEN" "$REG_TOKEN"; do
+          if [ -n "$val" ]; then
+            echo "::add-mask::${val}"
+          fi
+        done
+
+        # Then write to outputs
+        {
+          echo "cloudflare_token=${CF_TOKEN}"
+          echo "npm_token=${NPM_TOKEN}"
+          echo "github_token=${GH_TOKEN}"
+          echo "account_id=${ACCT_ID}"
+          echo "neon_token=${NEON_TOKEN}"
+          echo "register_token=${REG_TOKEN}"
+        } >> "$GITHUB_OUTPUT"
