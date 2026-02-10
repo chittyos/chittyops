@@ -53,7 +53,7 @@ jobs:
           node compliance/audit.js $ARGS
 
       - name: Upload compliance report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: compliance-report-${{ github.run_number }}
           path: |
