@@ -1,0 +1,84 @@
+# Auto-labeling rules based on file patterns
+
+implementation:
+  - any:
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.py"
+    - "**/*.go"
+    - "**/*.rs"
+    - "**/*.java"
+  - all:
+    - head-branch: ['^feature/', '^feat/']
+
+enhancement:
+  - any:
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.py"
+  - all:
+    - head-branch: ['^enhance/', '^improvement/', '^enh/']
+
+bugfix:
+  - any:
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.py"
+  - all:
+    - head-branch: ['^fix/', '^bugfix/', '^hotfix/']
+
+documentation:
+  - any:
+    - "**/*.md"
+    - "**/docs/**"
+    - "**/*.mdx"
+    - "**/README*"
+    - "**/CHANGELOG*"
+    - "**/LICENSE*"
+
+security:
+  - any:
+    - "**/.github/workflows/security*.yml"
+    - "**/security/**"
+    - "**/SECURITY.md"
+  - all:
+    - head-branch: ['^security/', '^sec/']
+
+performance:
+  - all:
+    - head-branch: ['^perf/', '^performance/', '^optimize/']
+
+dependencies:
+  - any:
+    - "**/package.json"
+    - "**/package-lock.json"
+    - "**/yarn.lock"
+    - "**/pnpm-lock.yaml"
+    - "**/requirements.txt"
+    - "**/Pipfile"
+    - "**/Pipfile.lock"
+    - "**/go.mod"
+    - "**/go.sum"
+    - "**/Cargo.toml"
+    - "**/Cargo.lock"
+
+ci-cd:
+  - any:
+    - "**/.github/workflows/**"
+    - "**/.github/actions/**"
+    - "**/Dockerfile"
+    - "**/.dockerignore"
+    - "**/docker-compose*.yml"
+
+testing:
+  - any:
+    - "**/*.test.js"
+    - "**/*.test.ts"
+    - "**/*.spec.js"
+    - "**/*.spec.ts"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/__tests__/**"
