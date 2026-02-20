@@ -1,0 +1,253 @@
+name: 🔀 Auto-Merge PR
+
+on:
+  # Triggered when check runs complete
+  check_run:
+    types: [completed]
+  # Triggered when status changes
+  status: {}
+  # Triggered when PR review is submitted
+  pull_request_review:
+    types: [submitted]
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to evaluate for auto-merge'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  evaluate-auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get PR from check/status event
+        id: get-pr
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PR_NUMBER="${{ inputs.pr_number }}"
+          elif [ "${{ github.event_name }}" == "pull_request_review" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          else
+            # For check_run or status events, find associated PRs
+            REF_NAME="${{ github.head_ref || github.ref_name }}"
+            PR_NUMBER=$(gh pr list --json number,headRefName --jq ".[] | select(.headRefName == \"$REF_NAME\") | .number" | head -1)
+            
+            if [ -z "$PR_NUMBER" ]; then
+              echo "No PR found for this event, exiting"
+              exit 0
+            fi
+          fi
+          
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "Evaluating PR #$PR_NUMBER for auto-merge"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if PR exists and is open
+        id: check-pr
+        run: |
+          PR_STATE=$(gh pr view ${{ steps.get-pr.outputs.pr_number }} --json state -q .state 2>/dev/null || echo "NOT_FOUND")
+          
+          if [ "$PR_STATE" != "OPEN" ]; then
+            echo "PR is not open (state: $PR_STATE), exiting"
+            echo "should_continue=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "should_continue=true" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get PR details
+        if: steps.check-pr.outputs.should_continue == 'true'
+        id: pr-details
+        run: |
+          PR_DATA=$(gh pr view ${{ steps.get-pr.outputs.pr_number }} --json mergeable,mergeStateStatus,reviewDecision,isDraft,labels)
+          
+          echo "mergeable=$(echo $PR_DATA | jq -r .mergeable)" >> $GITHUB_OUTPUT
+          echo "merge_state=$(echo $PR_DATA | jq -r .mergeStateStatus)" >> $GITHUB_OUTPUT
+          echo "review_decision=$(echo $PR_DATA | jq -r .reviewDecision)" >> $GITHUB_OUTPUT
+          echo "is_draft=$(echo $PR_DATA | jq -r .isDraft)" >> $GITHUB_OUTPUT
+          
+          # Check for do-not-merge label
+          HAS_DNM=$(echo $PR_DATA | jq -r '.labels[] | select(.name | test("do-not-merge|wip|draft"; "i")) | .name' | wc -l)
+          echo "has_dnm_label=$HAS_DNM" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check CI/CD status
+        if: steps.check-pr.outputs.should_continue == 'true'
+        id: ci-status
+        run: |
+          # Get the PR head SHA
+          PR_SHA=$(gh pr view ${{ steps.get-pr.outputs.pr_number }} --json headRefName,headRefOid -q .headRefOid)
+          
+          # Check combined status (traditional checks)
+          COMBINED_STATUS=$(gh api repos/${{ github.repository }}/commits/$PR_SHA/status --jq .state 2>/dev/null || echo "unknown")
+          
+          # Check check runs (GitHub Actions checks)
+          CHECK_RUNS=$(gh api repos/${{ github.repository }}/commits/$PR_SHA/check-runs --jq '.check_runs[] | select(.status == "completed") | .conclusion' 2>/dev/null || echo "")
+          
+          # Count failed checks
+          FAILED_CHECKS=$(echo "$CHECK_RUNS" | grep -v "success\|skipped\|neutral" | wc -l)
+          
+          echo "combined_status=$COMBINED_STATUS" >> $GITHUB_OUTPUT
+          echo "failed_checks=$FAILED_CHECKS" >> $GITHUB_OUTPUT
+          
+          echo "Combined status: $COMBINED_STATUS"
+          echo "Failed check runs: $FAILED_CHECKS"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Check AI review statuses
+        if: steps.check-pr.outputs.should_continue == 'true'
+        id: ai-reviews
+        run: |
+          PR_SHA=$(gh pr view ${{ steps.get-pr.outputs.pr_number }} --json headRefOid -q .headRefOid)
+          
+          # Check for AI review statuses
+          STATUSES=$(gh api repos/${{ github.repository }}/commits/$PR_SHA/status --jq '.statuses[] | "\(.context):\(.state)"' 2>/dev/null || echo "")
+          
+          CLAUDE_STATUS=$(echo "$STATUSES" | grep "Claude" | cut -d: -f2 | head -1)
+          CODEX_STATUS=$(echo "$STATUSES" | grep "Codex" | cut -d: -f2 | head -1)
+          
+          # Default to pending if not found
+          CLAUDE_STATUS=${CLAUDE_STATUS:-pending}
+          CODEX_STATUS=${CODEX_STATUS:-pending}
+          
+          echo "claude_status=$CLAUDE_STATUS" >> $GITHUB_OUTPUT
+          echo "codex_status=$CODEX_STATUS" >> $GITHUB_OUTPUT
+          
+          echo "Claude review: $CLAUDE_STATUS"
+          echo "Codex review: $CODEX_STATUS"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Evaluate auto-merge conditions
+        if: steps.check-pr.outputs.should_continue == 'true'
+        id: evaluate
+        run: |
+          echo "## Auto-Merge Evaluation for PR #${{ steps.get-pr.outputs.pr_number }}"
+          
+          SHOULD_MERGE="true"
+          REASONS=""
+          
+          # Check if PR is draft
+          if [ "${{ steps.pr-details.outputs.is_draft }}" == "true" ]; then
+            SHOULD_MERGE="false"
+            REASONS="$REASONS\n❌ PR is a draft"
+          else
+            REASONS="$REASONS\n✅ PR is not a draft"
+          fi
+          
+          # Check for do-not-merge labels
+          if [ "${{ steps.pr-details.outputs.has_dnm_label }}" != "0" ]; then
+            SHOULD_MERGE="false"
+            REASONS="$REASONS\n❌ PR has do-not-merge/WIP label"
+          else
+            REASONS="$REASONS\n✅ No blocking labels"
+          fi
+          
+          # Check mergeable status
+          if [ "${{ steps.pr-details.outputs.mergeable }}" != "MERGEABLE" ]; then
+            SHOULD_MERGE="false"
+            REASONS="$REASONS\n❌ PR has merge conflicts"
+          else
+            REASONS="$REASONS\n✅ No merge conflicts"
+          fi
+          
+          # Check merge state (behind, blocked, etc.)
+          # CLEAN: All checks passed, ready to merge
+          # HAS_HOOKS: Has hooks (status checks) but ready
+          # UNSTABLE: Some checks pending but mergeable
+          if [ "${{ steps.pr-details.outputs.merge_state }}" != "CLEAN" ] && \
+             [ "${{ steps.pr-details.outputs.merge_state }}" != "HAS_HOOKS" ] && \
+             [ "${{ steps.pr-details.outputs.merge_state }}" != "UNSTABLE" ]; then
+            SHOULD_MERGE="false"
+            REASONS="$REASONS\n❌ Merge state: ${{ steps.pr-details.outputs.merge_state }}"
+          else
+            REASONS="$REASONS\n✅ Merge state acceptable"
+          fi
+          
+          # Check CI status
+          if [ "${{ steps.ci-status.outputs.failed_checks }}" != "0" ]; then
+            SHOULD_MERGE="false"
+            REASONS="$REASONS\n❌ ${{ steps.ci-status.outputs.failed_checks }} CI checks failed"
+          else
+            REASONS="$REASONS\n✅ All CI checks passed"
+          fi
+          
+          # Check AI reviews (informational, not blocking unless they failed)
+          if [ "${{ steps.ai-reviews.outputs.claude_status }}" == "failure" ]; then
+            SHOULD_MERGE="false"
+            REASONS="$REASONS\n❌ Claude review found critical issues"
+          elif [ "${{ steps.ai-reviews.outputs.claude_status }}" == "success" ]; then
+            REASONS="$REASONS\n✅ Claude review passed"
+          else
+            REASONS="$REASONS\n⏳ Claude review: ${{ steps.ai-reviews.outputs.claude_status }}"
+          fi
+          
+          if [ "${{ steps.ai-reviews.outputs.codex_status }}" == "failure" ]; then
+            SHOULD_MERGE="false"
+            REASONS="$REASONS\n❌ Codex review found critical issues"
+          elif [ "${{ steps.ai-reviews.outputs.codex_status }}" == "success" ]; then
+            REASONS="$REASONS\n✅ Codex review passed"
+          else
+            REASONS="$REASONS\n⏳ Codex review: ${{ steps.ai-reviews.outputs.codex_status }}"
+          fi
+          
+          echo -e "$REASONS"
+          echo "should_merge=$SHOULD_MERGE" >> $GITHUB_OUTPUT
+          echo "reasons<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$REASONS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Enable auto-merge
+        if: steps.evaluate.outputs.should_merge == 'true' && steps.check-pr.outputs.should_continue == 'true'
+        run: |
+          # Enable auto-merge with squash strategy
+          gh pr merge ${{ steps.get-pr.outputs.pr_number }} --auto --squash --delete-branch
+          
+          echo "✅ Auto-merge enabled for PR #${{ steps.get-pr.outputs.pr_number }}"
+          
+          # Post comment
+          gh pr comment ${{ steps.get-pr.outputs.pr_number }} --body "## 🔀 Auto-Merge Enabled
+          
+          All conditions met! This PR will be automatically merged when ready.
+          
+          ${{ steps.evaluate.outputs.reasons }}
+          
+          Branch will be automatically deleted after merge.
+          
+          ---
+          *Automated by auto-merge workflow • [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment why not merging
+        if: steps.evaluate.outputs.should_merge != 'true' && steps.check-pr.outputs.should_continue == 'true'
+        run: |
+          gh pr comment ${{ steps.get-pr.outputs.pr_number }} --body "## 🔀 Auto-Merge Status
+          
+          Cannot enable auto-merge yet. Requirements:
+          
+          ${{ steps.evaluate.outputs.reasons }}
+          
+          This check will run again when checks complete or reviews are submitted.
+          
+          ---
+          *Automated by auto-merge workflow • [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
