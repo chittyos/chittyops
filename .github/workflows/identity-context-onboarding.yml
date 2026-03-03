@@ -14,4 +14,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/check-chitty-onboarding.sh .chittyconnect.yml
+          if [ ! -f ".chittyconnect.yml" ]; then
+            echo "Error: .chittyconnect.yml not found in repository root."
+            exit 1
+          fi
+
+          if [ ! -s ".chittyconnect.yml" ]; then
+            echo "Error: .chittyconnect.yml is empty; onboarding configuration must be defined."
+            exit 1
+          fi
