@@ -1,0 +1,40 @@
+{
+  "name": "Require CI / test",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "~DEFAULT_BRANCH"
+      ],
+      "exclude": []
+    },
+    "repository_name": {
+      "include": [
+        "chittybeacon",
+        "chittyconcierge",
+        "chittyledger",
+        "chittymac",
+        "chittymcp-github",
+        "chittystorage",
+        "mcp-cloudflare-authless",
+        "shared"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          {
+            "context": "CI / test"
+          }
+        ]
+      }
+    }
+  ],
+  "bypass_actors": []
+}
