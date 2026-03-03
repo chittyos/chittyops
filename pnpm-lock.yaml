@@ -1,0 +1,42 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@chittyfoundation/hookify':
+        specifier: github:chittyfoundation/chittyops#main
+        version: '@chittyfoundation/ops@https://codeload.github.com/chittyfoundation/chittyops/tar.gz/76112aaf0df2f186f7e097e8ec8cc4a77de27efb'
+      '@chittyfoundation/territories':
+        specifier: github:chittyfoundation/chittyops#main
+        version: '@chittyfoundation/ops@https://codeload.github.com/chittyfoundation/chittyops/tar.gz/76112aaf0df2f186f7e097e8ec8cc4a77de27efb'
+      js-yaml:
+        specifier: ^4.1.1
+        version: 4.1.1
+
+packages:
+
+  '@chittyfoundation/ops@https://codeload.github.com/chittyfoundation/chittyops/tar.gz/76112aaf0df2f186f7e097e8ec8cc4a77de27efb':
+    resolution: {tarball: https://codeload.github.com/chittyfoundation/chittyops/tar.gz/76112aaf0df2f186f7e097e8ec8cc4a77de27efb}
+    version: 1.0.0
+
+  argparse@2.0.1:
+    resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
+
+  js-yaml@4.1.1:
+    resolution: {integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==}
+    hasBin: true
+
+snapshots:
+
+  '@chittyfoundation/ops@https://codeload.github.com/chittyfoundation/chittyops/tar.gz/76112aaf0df2f186f7e097e8ec8cc4a77de27efb': {}
+
+  argparse@2.0.1: {}
+
+  js-yaml@4.1.1:
+    dependencies:
+      argparse: 2.0.1

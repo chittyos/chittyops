@@ -155,6 +155,15 @@ organizations:
         active: true
         description: "Service discovery and health monitoring"
 
+      chittytrack:
+        repo: CHITTYOS/chittytrack
+        tier: 3
+        type: cloudflare-worker
+        domain: track.chitty.cc
+        territory: operations
+        active: true
+        description: "Centralized observability — logs, metrics, traces via tail consumers"
+
       chittyops:
         repo: CHITTYOS/chittyops
         tier: 3
@@ -228,7 +237,7 @@ organizations:
         active: true
         description: "Distributed ledger for transaction tracking"
 
-      chittyevidence-db:
+      chittyevidence:
         repo: CHITTYOS/chittyevidence-db
         tier: 4
         type: tool
@@ -337,7 +346,7 @@ organizations:
         active: true
         description: "Multi-model AI gateway"
 
-      chittyconnect-finance:
+      chittyconnectfinance:
         repo: CHITTYOS/chittyconnect-finance
         tier: 5
         type: cloudflare-worker
@@ -346,14 +355,14 @@ organizations:
         active: true
         description: "Mercury API middleware for ARIBIA LLC CFO operations"
 
-      sessionsync:
+      chittysessionsync:
         repo: CHITTYOS/sessionsync
         tier: 5
         type: tool
         domain: null
         territory: operations
-        active: true
-        description: "AI cross-session coordination"
+        active: false
+        description: "AI cross-session coordination (superseded by ChittySync)"
 
       chittymac:
         repo: CHITTYOS/chittymac
