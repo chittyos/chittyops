@@ -13,6 +13,8 @@ if [[ "${1:-}" == "--apply" ]]; then
   shift
 fi
 
+REQUIRE_STATUS_CHECKS="${REQUIRE_STATUS_CHECKS:-0}"
+
 orgs=("$@")
 if [ ${#orgs[@]} -eq 0 ]; then
   orgs=("furnished-condos" "chittycorp" "chittyapps" "chicagoapps")
@@ -30,6 +32,7 @@ python3 "$GEN_SCRIPT" "${orgs[@]}"
 total_applied=0
 total_skipped=0
 total_failed=0
+total_blocked=0
 
 apply_repo_branch_protection() {
   local org="$1"
@@ -40,8 +43,14 @@ apply_repo_branch_protection() {
   local payload
   payload=$(jq -n \
     --argjson contexts "$contexts_json" \
+    --argjson require_checks "$([[ "$REQUIRE_STATUS_CHECKS" == "1" ]] && echo true || echo false)" \
     '{
-      required_status_checks: (if ($contexts|length) > 0 then { strict: true, contexts: $contexts } else null end),
+      required_status_checks: (
+        if $require_checks and (($contexts|length) > 0)
+        then { strict: true, contexts: $contexts }
+        else null
+        end
+      ),
       enforce_admins: true,
       required_pull_request_reviews: {
         dismiss_stale_reviews: true,
@@ -70,12 +79,25 @@ apply_repo_branch_protection() {
   if gh api "repos/$org/$repo/branches/$branch_enc/protection" \
     --method PUT \
     --input <(printf '%s' "$payload") >/dev/null 2>"$errfile"; then
-    echo "applied $org/$repo branch=$branch"
+    rm -f "$errfile"
+    if [[ "$REQUIRE_STATUS_CHECKS" == "1" ]]; then
+      echo "applied $org/$repo branch=$branch (with checks)"
+    else
+      echo "applied $org/$repo branch=$branch (review-only)"
+    fi
     return 0
+  fi
+
+  if rg -q "Upgrade to GitHub (Team|Pro)|make this repository public to enable this feature" "$errfile"; then
+    echo "blocked(plan) $org/$repo branch=$branch"
+    sed -n '1,2p' "$errfile"
+    rm -f "$errfile"
+    return 2
   fi
 
   echo "failed $org/$repo branch=$branch"
   sed -n '1,3p' "$errfile"
+  rm -f "$errfile"
   return 1
 }
 
@@ -125,6 +147,8 @@ for org in "${orgs[@]}"; do
 
     if apply_repo_branch_protection "$org" "$repo" "$default_branch" "$unique_contexts_json"; then
       total_applied=$((total_applied + 1))
+    elif [[ $? -eq 2 ]]; then
+      total_blocked=$((total_blocked + 1))
     else
       total_failed=$((total_failed + 1))
     fi
@@ -135,7 +159,9 @@ done
 echo
 echo "Summary:"
 echo "- mode: $([[ $DRY_RUN -eq 1 ]] && echo dry-run || echo apply)"
+echo "- require-status-checks: $REQUIRE_STATUS_CHECKS"
 echo "- applied: $total_applied"
+echo "- blocked(plan): $total_blocked"
 echo "- failed: $total_failed"
 echo "- skipped: $total_skipped"
 

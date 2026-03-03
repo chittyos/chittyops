@@ -29,6 +29,7 @@ jobs:
       GH_TOKEN: ${{ secrets.ORG_GOVERNANCE_TOKEN }}
       ORGS: furnished-condos chittycorp chittyos chittyapps chicagoapps
       FALLBACK_ORGS: furnished-condos chittycorp chittyapps chicagoapps
+      REQUIRE_STATUS_CHECKS: "0"
     steps:
       - uses: actions/checkout@v4
 

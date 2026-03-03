@@ -6,6 +6,33 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUT="$ROOT/compliance/rulesets/check-inventory"
 mkdir -p "$OUT"
 
+write_with_retry() {
+  local src="$1"
+  local dest="$2"
+  local attempts=5
+  local tmpdir
+  local tmpfile
+  local errfile
+  local i
+  tmpdir="$(dirname "$dest")"
+  errfile="$(mktemp)"
+
+  for ((i=1; i<=attempts; i++)); do
+    tmpfile="$(mktemp "$tmpdir/.tmp.XXXXXX")"
+    if cat "$src" > "$tmpfile" 2>"$errfile" && mv -f "$tmpfile" "$dest"; then
+      rm -f "$tmpfile" "$errfile"
+      return 0
+    fi
+    rm -f "$tmpfile" 2>/dev/null || true
+    sleep "$i"
+  done
+
+  echo "failed to write $dest after $attempts attempts"
+  sed -n '1,3p' "$errfile" || true
+  rm -f "$errfile"
+  return 1
+}
+
 if ! gh auth status >/dev/null 2>&1; then
   echo "gh auth is not configured. Run: gh auth login"
   exit 1
@@ -14,7 +41,9 @@ fi
 discover_org() {
   local org="$1"
   local outfile="$OUT/${org}.txt"
-  : > "$outfile"
+  local tmpfile
+  tmpfile="$(mktemp)"
+  : > "$tmpfile"
 
   local repos
   repos=$(gh api "orgs/$org/repos" --paginate -q '.[].name')
@@ -76,9 +105,11 @@ discover_org() {
         echo "(no parseable workflows)"
       fi
       echo
-    } >> "$outfile"
+    } >> "$tmpfile"
   done
 
+  write_with_retry "$tmpfile" "$outfile"
+  rm -f "$tmpfile"
   echo "wrote $outfile"
 }
 
