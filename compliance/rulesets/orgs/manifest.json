@@ -1,0 +1,8 @@
+{
+  "chicagoapps": [
+    "00-baseline.json",
+    "10-require-chittyconnect-sync-sync.json",
+    "10-require-codeql-analyze.json",
+    "10-require-pr-validation-validate.json"
+  ]
+}

@@ -1,0 +1,59 @@
+## furnished-condos/rental-manager
+- CI / build
+
+## furnished-condos/chico
+- Build & Release MCP Server / Build MCP Release Artifacts
+- Build & Release MCP Server / Publish GitHub Release
+- MCP Server CI / Auto Approve + Merge PRs
+- MCP Server CI / Build MCP Server
+- MCP Server CI / Create GitHub Release + Publish Package
+- MCP Server CI / MCP Integration Test
+- MCP Server CI / Security Scan
+- MCP Server CI / Test MCP Server
+- MCP Server CI / Validate MCP Configuration
+
+## furnished-condos/lease-agent
+(no workflows dir)
+
+## furnished-condos/lease-wiz
+(no workflows dir)
+
+## furnished-condos/chicobuzzer
+(no workflows dir)
+
+## furnished-condos/chittyentry
+(no workflows dir)
+
+## furnished-condos/chicago
+- Claude Code / claude
+- Claude Code Review / claude-review
+
+## furnished-condos/chittyrental
+- Node.js Package / build
+- Node.js Package / publish-gpr
+
+## furnished-condos/evict-assist
+(no workflows dir)
+
+## furnished-condos/property-page
+(no workflows dir)
+
+## furnished-condos/dynamic-data
+(no workflows dir)
+
+## furnished-condos/.github
+- Documentation Check / Check Repository Documentation
+
+## furnished-condos/remote-mcp-server
+(no workflows dir)
+
+## furnished-condos/demo-repository
+- Auto Assign / run
+- Proof HTML / build
+
+## furnished-condos/llm-chat-app-template
+(no workflows dir)
+
+## furnished-condos/react-router-starter-template
+(no workflows dir)
+

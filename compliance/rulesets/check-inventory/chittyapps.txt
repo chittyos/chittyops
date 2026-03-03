@@ -1,0 +1,190 @@
+## chittyapps/chittyfinance
+- ChittyConnect Sync / sync
+- Claude Code / claude
+- Claude Code Review / claude-review
+
+## chittyapps/chittylanding
+(no workflows dir)
+
+## chittyapps/chittytrace
+- ChittyConnect Sync / sync
+
+## chittyapps/chittyformfill
+(no workflows dir)
+
+## chittyapps/chittyflow
+- CI/CD Pipeline / Deploy to Production
+- CI/CD Pipeline / Test & Build
+- Docker Build & Deploy / Build & Push Docker Image
+- Docker Build & Deploy / Deploy to Production
+
+## chittyapps/chittyintel
+(no workflows dir)
+
+## chittyapps/chittyresolution
+- ChittyOS Compliance Check / compliance
+
+## chittyapps/chittychat
+- Automated PR Review & Security Validation / Auto-merge Dependabot PRs
+- Automated PR Review & Security Validation / Automated PR Review Decision
+- Automated PR Review & Security Validation / ChittyOS Compliance Validation
+- Automated PR Review & Security Validation / IaC Security Scanning
+- Automated PR Review & Security Validation / Language-Specific Security & Quality Checks
+- Automated PR Review & Security Validation / Secret & Credential Scanning
+- Automated PR Review & Security Validation / Test Coverage Requirements
+- ChittyOS Compliance CI / Audit ChittyID Dependencies
+- ChittyOS Compliance CI / ChittyID Session Compliance
+- ChittyOS Ecosystem CI/CD with Codex Review / ChittyOS Ecosystem Validation
+- ChittyOS Ecosystem CI/CD with Codex Review / Codex Code Review & Analysis
+- ChittyOS Ecosystem CI/CD with Codex Review / Deploy ChittyOS Ecosystem
+- ChittyOS Ecosystem CI/CD with Codex Review / Ecosystem Smoke Tests
+- ChittyOS Ecosystem-Wide Codex Review / Codex Review - ${{ matrix.repository }}
+- ChittyOS Ecosystem-Wide Codex Review / Discover ChittyOS Repositories
+- ChittyOS Ecosystem-Wide Codex Review / Generate Ecosystem Review Summary
+- ChittyOS Phased Security Review & Remediation / Generate Phase Summary Report
+- ChittyOS Phased Security Review & Remediation / Phase 0 - Preparation & Dashboard Setup
+- ChittyOS Phased Security Review & Remediation / Phase 1 - High-Risk Services Audit
+- ChittyOS Phased Security Review & Remediation / Phase 2 - Customer-Facing Apps Review
+- ChittyOS Phased Security Review & Remediation / Phase 3 - Supporting Libraries Review
+- ChittyOS Phased Security Review & Remediation / Phase 4 - Establish Monitoring
+- ChittyOS Security Review / Comprehensive Security Analysis
+- ChittyOS Security Review / Dependency Security Audit
+- Codex Code Quality Review / Comprehensive Codex Review
+- Organization Development & Engagement Track / Generate Organization Development Summary
+- Organization Development & Engagement Track / Organization Connection & Discovery
+- Organization Development & Engagement Track / Professional Development & Growth
+- Organization Development & Engagement Track / Reconciliation & Conflict Resolution
+- Organization Development & Engagement Track / Team Engagement & Morale Building
+
+## chittyapps/chittyforge
+(no workflows dir)
+
+## chittyapps/chittyevidence
+(no workflows dir)
+
+## chittyapps/chittycloude-mcp
+(no workflows dir)
+
+## chittyapps/ecosystem
+(no workflows dir)
+
+## chittyapps/chico
+(no workflows dir)
+
+## chittyapps/.github
+- Compliance Check / ChittyOS Compliance Check
+- Documentation Check / Check Repository Documentation
+
+## chittyapps/chittycontextual
+- CI / build-and-check
+- CI / docker
+- ChittyConnect Sync / sync
+
+## chittyapps/chittydashboard
+(no workflows dir)
+
+## chittyapps/chittycleaner
+- CI/CD Pipeline / Build Docker Image
+- CI/CD Pipeline / Build Package
+- CI/CD Pipeline / Code Quality
+- CI/CD Pipeline / Notify Success
+- CI/CD Pipeline / Publish to GitHub Packages
+- CI/CD Pipeline / Publish to NPM
+- CI/CD Pipeline / Security Audit
+- CI/CD Pipeline / Test Suite
+
+## chittyapps/chittyinsight
+- ChittyConnect Sync / sync
+
+## chittyapps/integrateit
+(no workflows dir)
+
+## chittyapps/chittychat-sessions
+(no workflows dir)
+
+## chittyapps/chittyportal
+(no workflows dir)
+
+## chittyapps/demo-repository
+- Auto Assign / run
+- Proof HTML / build
+
+## chittyapps/chittycharge
+- CI / Bullshit Detection Audit
+- CI / ChittyCheck Compliance
+- CI / Lint and Type Check
+- CI / Security Audit
+- CI / Unit Tests
+- Deploy / Deploy to Production
+- Deploy / Deploy to Staging
+- Deploy to Production / Deploy to Production Environment
+- Deploy to Staging / Deploy to Staging Environment
+- PR Checks / Bundle Size Check
+- PR Checks / PR Validation
+- Scheduled Tasks / Daily Security Audit
+- Scheduled Tasks / Production Health Check
+
+## chittyapps/chitty
+(no workflows dir)
+
+## chittyapps/chittycan
+- CI / Lint & Build
+- CI / Smoke Test (${{ matrix.os }})
+- OpenAI Parity Tests / Local Ollama Tests
+- OpenAI Parity Tests / Node.js Parity Tests
+- OpenAI Parity Tests / Python Parity Tests
+- OpenAI Parity Tests / Update Compatibility Badge
+- Publish / Create GitHub Release
+- Publish / Publish to npm
+
+## chittyapps/chittyauth-app
+- ChittyConnect Sync / sync
+
+## chittyapps/chittyreception
+(no workflows dir)
+
+## chittyapps/bane
+(no workflows dir)
+
+## chittyapps/chittycan-worker
+(no workflows dir)
+
+## chittyapps/chittypm
+(no workflows dir)
+
+## chittyapps/chittysync
+(no workflows dir)
+
+## chittyapps/chittyxl
+(no workflows dir)
+
+## chittyapps/ch1tty
+(no workflows dir)
+
+## chittyapps/chittydocumint
+(no workflows dir)
+
+## chittyapps/chittybooks
+(no workflows dir)
+
+## chittyapps/chittybrand
+(no workflows dir)
+
+## chittyapps/ChittyAutomate-Google
+(no workflows dir)
+
+## chittyapps/chittyproof
+(no workflows dir)
+
+## chittyapps/documint
+(no workflows dir)
+
+## chittyapps/chitty-imessage
+(no workflows dir)
+
+## chittyapps/chittydlvr
+(no workflows dir)
+
+## chittyapps/chittyagent-studio
+(no workflows dir)
+
