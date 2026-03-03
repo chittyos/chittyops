@@ -79,6 +79,7 @@ apply_repo_branch_protection() {
   if gh api "repos/$org/$repo/branches/$branch_enc/protection" \
     --method PUT \
     --input <(printf '%s' "$payload") >/dev/null 2>"$errfile"; then
+    rm -f "$errfile"
     if [[ "$REQUIRE_STATUS_CHECKS" == "1" ]]; then
       echo "applied $org/$repo branch=$branch (with checks)"
     else
@@ -90,11 +91,13 @@ apply_repo_branch_protection() {
   if rg -q "Upgrade to GitHub (Team|Pro)|make this repository public to enable this feature" "$errfile"; then
     echo "blocked(plan) $org/$repo branch=$branch"
     sed -n '1,2p' "$errfile"
+    rm -f "$errfile"
     return 2
   fi
 
   echo "failed $org/$repo branch=$branch"
   sed -n '1,3p' "$errfile"
+  rm -f "$errfile"
   return 1
 }
 

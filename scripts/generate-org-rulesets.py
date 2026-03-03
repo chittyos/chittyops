@@ -2,6 +2,7 @@
 import json
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -113,18 +114,28 @@ def safe_write_text(path: Path, text: str, retries: int = 5, delay_sec: float = 
     Write via temp file + replace with retry to tolerate transient filesystem timeouts.
     """
     last_err = None
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
     for attempt in range(retries):
+        tmp_path = None
         try:
-            tmp_path.write_text(text)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as fh:
+                fh.write(text)
+                tmp_path = Path(fh.name)
             tmp_path.replace(path)
             return
         except (TimeoutError, OSError) as exc:
             last_err = exc
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
             if attempt < retries - 1:
                 time.sleep(delay_sec * (attempt + 1))
     if last_err is not None:

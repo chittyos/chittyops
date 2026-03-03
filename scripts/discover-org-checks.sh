@@ -10,15 +10,26 @@ write_with_retry() {
   local src="$1"
   local dest="$2"
   local attempts=5
+  local tmpdir
+  local tmpfile
+  local errfile
   local i
+  tmpdir="$(dirname "$dest")"
+  errfile="$(mktemp)"
+
   for ((i=1; i<=attempts; i++)); do
-    if cat "$src" > "$dest" 2>/tmp/discover_write_err.log; then
+    tmpfile="$(mktemp "$tmpdir/.tmp.XXXXXX")"
+    if cat "$src" > "$tmpfile" 2>"$errfile" && mv -f "$tmpfile" "$dest"; then
+      rm -f "$tmpfile" "$errfile"
       return 0
     fi
+    rm -f "$tmpfile" 2>/dev/null || true
     sleep "$i"
   done
+
   echo "failed to write $dest after $attempts attempts"
-  sed -n '1,3p' /tmp/discover_write_err.log || true
+  sed -n '1,3p' "$errfile" || true
+  rm -f "$errfile"
   return 1
 }
 
