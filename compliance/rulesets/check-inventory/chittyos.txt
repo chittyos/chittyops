@@ -1,0 +1,354 @@
+## chittyos/chittyscore
+- CI / validate
+- Compliance Check / compliance
+
+## chittyos/chittyverify
+- ChittyConnect Sync / sync
+
+## chittyos/chittybeacon
+- CI / test
+- Compliance Check / compliance
+
+## chittyos/chittyops
+- CI / lint-and-test
+- CI / shellcheck
+- Chitty Operator Config / validate-and-register
+- ChittyConnect Sync / sync
+- Dependency Updates & Security / codeql-analysis
+- Dependency Updates & Security / security-scan
+- Dependency Updates & Security / update-dependencies
+- Ecosystem Compliance Audit / audit
+- Registry Sync / sync-registry
+- Reusable Compliance Check / compliance
+- Reusable Package Publish / build
+- Reusable Package Publish / get-credentials
+- Reusable Package Publish / publish-brew
+- Reusable Package Publish / publish-npm
+- Reusable Package Publish / publish-r2
+- Reusable Worker Deploy / deploy
+- Reusable Worker Deploy / get-credentials
+
+## chittyos/chittyassets
+- Notion Command Center Sync / Sync Distributed AI Data to Notion Command Center
+
+## chittyos/chittyledger
+- CI / test
+- Compliance Check / compliance
+
+## chittyos/chittymonitor
+- ChittyConnect Sync / sync
+
+## chittyos/chittychronicle
+- CI/CD Pipeline / Build Application
+- CI/CD Pipeline / Deploy Preview to Cloudflare Pages
+- CI/CD Pipeline / Deploy to Production
+- CI/CD Pipeline / Security Scanning
+- CI/CD Pipeline / Test & Type Check
+
+## chittyos/chittyswarm
+- Deploy Swarm Neural Network / build-docker
+- Deploy Swarm Neural Network / deploy-railway
+- Deploy Swarm Neural Network / deploy-vps
+- Deploy Swarm Neural Network / notify
+- Deploy Swarm Neural Network / test
+- Deploy to Vercel / deploy-preview
+- Deploy to Vercel / deploy-production
+- Deploy to Vercel / notify
+- Deploy to Vercel / test
+
+## chittyos/-chittyos
+(no workflows dir)
+
+## chittyos/.claude
+- Notion Command Center Sync / Sync Distributed AI Data to Notion Command Center
+
+## chittyos/.github
+- Documentation Check / Check Repository Documentation
+- Sync Evidence Registries / sync-evidence
+- Sync Governance Registries / sync-governance
+- Sync Operations Registries / sync-operations
+- Sync Property Registries / sync-property
+
+## chittyos/chittystandard
+- ChittyConnect Sync / sync
+- Publish to NPM / publish
+
+## chittyos/demo-repository
+- Auto Assign / run
+- Proof HTML / build
+
+## chittyos/shared
+- CI / test
+- Compliance Check / compliance
+
+## chittyos/docs
+(no workflows dir)
+
+## chittyos/chittycleaner
+- CI/CD Pipeline / Build Docker Image
+- CI/CD Pipeline / Build Package
+- CI/CD Pipeline / Code Quality
+- CI/CD Pipeline / Notify Success
+- CI/CD Pipeline / Publish to GitHub Packages
+- CI/CD Pipeline / Publish to NPM
+- CI/CD Pipeline / Security Audit
+- CI/CD Pipeline / Test Suite
+
+## chittyos/sessionsync
+(no workflows dir)
+
+## chittyos/chittycore
+- ChittyConnect Sync / sync
+
+## chittyos/chittyos-cli
+- ChittyOS CI/CD Pipeline / Build and Package
+- ChittyOS CI/CD Pipeline / ChittyOS Compliance Check
+- ChittyOS CI/CD Pipeline / Create Release
+- ChittyOS CI/CD Pipeline / Deploy to Production
+- ChittyOS CI/CD Pipeline / Security Scanning
+- ChittyOS CI/CD Pipeline / Test Suite
+- ChittyOS Compliance Check / compliance-check
+- ChittyOS Compliance Check / deploy-staging
+- ChittyOS Compliance Check / performance-test
+- ChittyOS Compliance Check / security-scan
+- Extension Testing Pipeline / compliance-tests
+- Extension Testing Pipeline / integration-tests
+- Extension Testing Pipeline / performance-tests
+- Extension Testing Pipeline / publish-test-results
+- Extension Testing Pipeline / unit-tests
+- MCP Extension Release / build-and-release
+- MCP Extension Release / notify-release
+- Publish NPM Package (ChittyOS Certified) / publish
+
+## chittyos/chittygateway
+- Deploy to Cloudflare Workers / deploy-production
+- Deploy to Cloudflare Workers / deploy-staging
+- Deploy to Cloudflare Workers / preview
+- Deploy to Cloudflare Workers / test
+- Neon Database Branching / create-branch
+- Neon Database Branching / delete-branch
+
+## chittyos/mcp
+- Build and Deploy Docker Image / build-and-push
+- Build and Deploy Docker Image / deploy-k8s
+- CI/CD Pipeline / create-release
+- CI/CD Pipeline / deploy-cloudflare
+- CI/CD Pipeline / publish-npm
+- CI/CD Pipeline / test
+- Deploy ChittyCLI / create-release
+- Deploy ChittyCLI / deploy-cloudflare
+- Deploy ChittyCLI / publish-npm
+- Deploy ChittyMCP Bridge / Deploy to Production
+- Deploy ChittyMCP Bridge / Deploy to Staging
+- Deploy ChittyMCP Bridge / Rollback Production
+- Deploy ChittyMCP Bridge / Test ChittyMCP
+- Test ChittyMCP / Test Suite
+
+## chittyos/chittyregistry
+- CI / build-and-test
+- CI / cli-build-and-test
+- ChittyConnect Sync / sync
+- Deploy ChittyRegistry Universal / Deploy to Production
+- Deploy ChittyRegistry Universal / Deploy to Staging
+- Deploy ChittyRegistry Universal / Test and Validate
+- Deploy ChittyRegistry Worker / Deploy to Production
+- Deploy ChittyRegistry Worker / Deploy to Staging
+- Deploy ChittyRegistry Worker / Rollback on Failure
+- Deploy ChittyRegistry Worker / Validate Worker Configuration
+- Test Notion Sync Daemon / Integration Test (Mock)
+- Test Notion Sync Daemon / Lint and Type Check
+- Test Notion Sync Daemon / Security Audit
+- Test Notion Sync Daemon / Test Configuration Files
+- Test Notion Sync Daemon / Test Summary
+- Test Notion Sync Daemon / Validate Dependencies
+- Test Notion Sync Daemon / Validate Documentation
+
+## chittyos/chittyrouter
+- ChittyConnect Sync / sync
+- Continuous Integration / Build Validation
+- Continuous Integration / Deployment Readiness
+- Continuous Integration / Lint Code
+- Continuous Integration / Run Tests
+- Continuous Integration / Security Scan
+- Continuous Integration / Validate MCP Integration
+- Deploy ChittyRouter Gateway Direct / Deploy Gateway to Production
+- Deploy ChittyRouter to Cloudflare / Create GitHub Release
+- Deploy ChittyRouter to Cloudflare / Deploy to Production
+- Deploy ChittyRouter to Cloudflare / Deploy to Staging
+- Deploy ChittyRouter to Cloudflare / Rollback Production
+- Deploy ChittyRouter to Cloudflare / Test
+
+## chittyos/email-worker
+- Deploy Email Worker / Deploy to Cloudflare Workers
+
+## chittyos/chitty-email-workers
+(no workflows dir)
+
+## chittyos/chittycontext
+- ChittyConnect Sync / sync
+
+## chittyos/chittyconnect
+- Auto-Register (Notion) / plan_and_apply
+- CI / build-test
+- ChittyConnect CI / Build
+- ChittyConnect CI / Fetch ChittyConnect ephemeral credentials
+- ChittyConnect CI / Lint
+- ChittyConnect CI / Test
+- ChittyConnect Sync / sync
+- Claude Code / claude
+- Claude Code Review / claude-review
+- Cloudflare Inventory / inventory
+- Deploy ChittyConnect / deploy
+- Deploy ChittyConnect / validate
+- Deploy ChittyConnect / verify
+- Governance Checks / governance
+- PR Checks / pr-validation
+- PR Security Checks / Security Scan
+- PR Security Checks / Verify Signed Commits
+- Publish Package / publish-gpr
+- Publish Package / publish-npm
+- Release / Create Release
+- Release Drafter / update_release_draft
+- Test & Validate / chitty-creds
+- Test & Validate / smoke-tests
+- Test & Validate / validate
+
+## chittyos/chittymcp
+- ChittyConnect Sync / sync
+- Deploy ChittyMCP / Deploy to Production
+- Deploy ChittyMCP / Deploy to Staging
+- Deploy ChittyMCP / Validate ChittyMCP Service
+
+## chittyos/mcp-cloudflare-authless
+- CI / test
+- Compliance Check / compliance
+
+## chittyos/vite-react-template
+(no workflows dir)
+
+## chittyos/chittyos-workspace
+(no workflows dir)
+
+## chittyos/chittyserv
+(no workflows dir)
+
+## chittyos/chittydiscovery
+(no workflows dir)
+
+## chittyos/chittyintel
+- ChittyConnect Sync / sync
+
+## chittyos/chittyapi
+- ChittyConnect Sync / sync
+
+## chittyos/chitty-desktop-connector
+(no workflows dir)
+
+## chittyos/chitty-mobile-connector
+(no workflows dir)
+
+## chittyos/chittyagent
+- ChittyConnect Sync / Check Dependencies
+- ChittyConnect Sync / Health Check
+- ChittyConnect Sync / Sync Pull Request
+- ChittyConnect Sync / Sync Release
+- ChittyConnect Sync / Sync Repository State
+- Deploy Cloudflare Workers / Deploy ${{ matrix.worker }}
+- Deploy Cloudflare Workers / build
+- Deploy Cloudflare Workers / detect-changes
+
+## chittyos/chittycli
+(no workflows dir)
+
+## chittyos/chittymcp-github
+- CI / test
+- Compliance Check / compliance
+
+## chittyos/shell-plugins
+- Check Nix flake / check-flake
+- Check signed commits in PR / Check signed commits in PR
+- Test and Validate / Lint
+- Test and Validate / Test
+- Update flake dependencies / update-dependencies
+
+## chittyos/chittystorage
+- CI / test
+- Compliance Check / compliance
+
+## chittyos/op-shell-plugins
+- Check Nix flake / check-flake
+- Check signed commits in PR / Check signed commits in PR
+- Test and Validate / Lint
+- Test and Validate / Test
+- Update flake dependencies / update-dependencies
+
+## chittyos/chittysync
+- ChittyConnect Sync / sync
+- ci / build
+- publish / publish
+- release-assets / release
+
+## chittyos/chittyhelper
+- AI Review Mentions / comment
+- ChittyHelper — Register via ChittyRegister / Submit registration to ChittyRegister
+
+## chittyos/chittycan
+- CI / Lint & Build
+- CI / Smoke Test (${{ matrix.os }})
+- OpenAI Parity Tests / Local Ollama Tests
+- OpenAI Parity Tests / Node.js Parity Tests
+- OpenAI Parity Tests / Python Parity Tests
+- OpenAI Parity Tests / Update Compatibility Badge
+- Publish / Create GitHub Release
+- Publish / Publish to npm
+
+## chittyos/get-chitty
+- ChittyConnect Sync / sync
+- Deploy Workers / deploy
+
+## chittyos/legal-cases
+(no workflows dir)
+
+## chittyos/chittyconnect-finance
+(no workflows dir)
+
+## chittyos/chitty-issue-resolver
+- Auto Issue Resolution / resolve-issues
+- Weekly Issue Report / generate-report
+
+## chittyos/chittyagent-cleaner
+- ChittyConnect Sync / sync
+
+## chittyos/chittyagent-local
+(no workflows dir)
+
+## chittyos/chittyconcierge
+- CI / test
+- Compliance Check / compliance
+
+## chittyos/chittyevidence-db
+- CI / Deploy to Production
+- CI / Test & Type Check
+- Compliance Check / Migration Consistency
+- Compliance Check / compliance
+
+## chittyos/chittycommand
+(no workflows dir)
+
+## chittyos/chittymac
+- CI / test
+- Compliance Check / compliance
+
+## chittyos/chittytrack
+- Deploy ChittyTrack / Deploy to Production
+- Deploy ChittyTrack / Test
+
+## chittyos/chittydisputes
+(no workflows dir)
+
+## chittyos/chittyscrape
+(no workflows dir)
+
+## chittyos/chittymarket
+(no workflows dir)
+

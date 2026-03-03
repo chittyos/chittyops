@@ -1,0 +1,37 @@
+{
+  "name": "Require ChittyConnect Sync / sync",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "~DEFAULT_BRANCH"
+      ],
+      "exclude": []
+    },
+    "repository_name": {
+      "include": [
+        "chittyauth-app",
+        "chittycontextual",
+        "chittyfinance",
+        "chittyinsight",
+        "chittytrace"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          {
+            "context": "ChittyConnect Sync / sync"
+          }
+        ]
+      }
+    }
+  ],
+  "bypass_actors": []
+}

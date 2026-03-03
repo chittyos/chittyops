@@ -1,0 +1,45 @@
+## chittycorp/chittyforce
+- Agent Sync & Monitoring / agent-health-check
+- Agent Sync & Monitoring / agent-specific-tests
+- Agent Sync & Monitoring / deploy-agent-updates
+- ChittyConnect Sync / sync
+- Executive & Agent Sync / deploy-production
+- Executive & Agent Sync / security-scan
+- Executive & Agent Sync / sync-to-local
+- Executive & Agent Sync / validate-config
+- Security & Compliance Scan / anti-piracy-check
+- Security & Compliance Scan / compliance-audit
+- Security & Compliance Scan / notify-cloudesq
+- Security & Compliance Scan / permission-validation
+- Security & Compliance Scan / secret-scanning
+
+## chittycorp/chittyentry
+- CI / lint-and-format
+- CI / security-audit
+- CI / test-and-build
+- ChittyConnect Sync / sync
+- ChittyEntry Integration Check / integration-check
+- Code Quality / code-analysis
+- Code Quality / security-scan
+- Dependency Updates / security-updates
+- Dependency Updates / update-dependencies
+- Deploy to entry.chitty.cc / deploy
+- Deploy with 1Password / deploy
+- Publish SDK to npm / publish
+- Repository Cleanup / cleanup-branches
+- Repository Cleanup / disk-usage-report
+- Self-Hosted Runners Management / manage-runners
+
+## chittycorp/chittychronicle
+(no workflows dir)
+
+## chittycorp/.github
+(no workflows dir)
+
+## chittycorp/chittyreception
+- CI / test
+- Compliance Check / compliance
+
+## chittycorp/CHITTYCOUNSEL
+(no workflows dir)
+
