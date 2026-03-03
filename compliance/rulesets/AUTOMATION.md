@@ -18,6 +18,8 @@ It runs:
 2. `scripts/apply-repo-branch-protections.sh --apply` for repo-level fallback
 
 The fallback ensures new repos are picked up automatically on each scheduled run, so you do not need to manually apply protection per repository.
+By default, fallback mode enforces review/conversation protections and uses review-only branch protection (no required status checks) to avoid blocking repos that do not publish consistent check contexts.
+To require status checks in fallback mode, set `REQUIRE_STATUS_CHECKS=1`.
 
 ## Required Secret
 

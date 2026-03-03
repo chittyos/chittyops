@@ -1,4 +1,21 @@
 {
+  "furnished-condos": [
+    "00-baseline.json",
+    "10-require-ci-build.json"
+  ],
+  "chittycorp": [
+    "00-baseline.json",
+    "10-require-chittyconnect-sync-sync.json",
+    "10-require-compliance-check-compliance.json",
+    "10-require-ci-test.json",
+    "10-require-ci-lint-and-format.json",
+    "10-require-ci-test-and-build.json"
+  ],
+  "chittyapps": [
+    "00-baseline.json",
+    "10-require-chittyconnect-sync-sync.json",
+    "10-require-chittyos-compliance-check-compliance.json"
+  ],
   "chicagoapps": [
     "00-baseline.json",
     "10-require-chittyconnect-sync-sync.json",

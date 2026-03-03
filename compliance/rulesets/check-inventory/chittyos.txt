@@ -18,6 +18,7 @@
 - Dependency Updates & Security / security-scan
 - Dependency Updates & Security / update-dependencies
 - Ecosystem Compliance Audit / audit
+- Org Governance Autopilot / rollout
 - Registry Sync / sync-registry
 - Reusable Compliance Check / compliance
 - Reusable Package Publish / build

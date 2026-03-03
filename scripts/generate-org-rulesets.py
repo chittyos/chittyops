@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,6 +108,29 @@ def check_ruleset(check: str, repos: list[str]):
     return slug, payload
 
 
+def safe_write_text(path: Path, text: str, retries: int = 5, delay_sec: float = 0.5):
+    """
+    Write via temp file + replace with retry to tolerate transient filesystem timeouts.
+    """
+    last_err = None
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    for attempt in range(retries):
+        try:
+            tmp_path.write_text(text)
+            tmp_path.replace(path)
+            return
+        except (TimeoutError, OSError) as exc:
+            last_err = exc
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            if attempt < retries - 1:
+                time.sleep(delay_sec * (attempt + 1))
+    if last_err is not None:
+        raise last_err
+
+
 def main():
     selected_orgs = set(sys.argv[1:]) if len(sys.argv) > 1 else None
     manifest = {}
@@ -120,7 +144,7 @@ def main():
         org_dir.mkdir(parents=True, exist_ok=True)
 
         base = baseline_ruleset(org)
-        (org_dir / '00-baseline.json').write_text(json.dumps(base, indent=2) + '\n')
+        safe_write_text(org_dir / '00-baseline.json', json.dumps(base, indent=2) + '\n')
 
         files = ['00-baseline.json']
         for check in candidate_checks:
@@ -129,12 +153,12 @@ def main():
                 continue
             slug, payload = check_ruleset(check, repos)
             fname = f'10-require-{slug}.json'
-            (org_dir / fname).write_text(json.dumps(payload, indent=2) + '\n')
+            safe_write_text(org_dir / fname, json.dumps(payload, indent=2) + '\n')
             files.append(fname)
 
         manifest[org] = files
 
-    (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    safe_write_text(OUT / 'manifest.json', json.dumps(manifest, indent=2) + '\n')
 
 
 if __name__ == '__main__':
