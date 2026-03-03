@@ -1,0 +1,47 @@
+{
+  "name": "Require ChittyConnect Sync / sync",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "~DEFAULT_BRANCH"
+      ],
+      "exclude": []
+    },
+    "repository_name": {
+      "include": [
+        "chittyagent-cleaner",
+        "chittyapi",
+        "chittyconnect",
+        "chittycontext",
+        "chittycore",
+        "chittyintel",
+        "chittymcp",
+        "chittymonitor",
+        "chittyops",
+        "chittyregistry",
+        "chittyrouter",
+        "chittystandard",
+        "chittysync",
+        "chittyverify",
+        "get-chitty"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          {
+            "context": "ChittyConnect Sync / sync"
+          }
+        ]
+      }
+    }
+  ],
+  "bypass_actors": []
+}

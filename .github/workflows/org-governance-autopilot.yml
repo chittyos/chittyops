@@ -1,0 +1,69 @@
+name: Org Governance Autopilot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 7 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/apply-org-rulesets.sh"
+      - "scripts/apply-repo-branch-protections.sh"
+      - "scripts/discover-org-checks.sh"
+      - "scripts/generate-org-rulesets.py"
+      - "compliance/rulesets/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: org-governance-autopilot
+  cancel-in-progress: false
+
+jobs:
+  rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ secrets.ORG_GOVERNANCE_TOKEN }}
+      ORGS: furnished-condos chittycorp chittyos chittyapps chicagoapps
+      FALLBACK_ORGS: furnished-condos chittycorp chittyapps chicagoapps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify governance token
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing required secret ORG_GOVERNANCE_TOKEN."
+            exit 1
+          fi
+          gh auth status
+
+      - name: Apply org rulesets
+        run: |
+          set -euo pipefail
+          read -r -a orgs <<< "${ORGS}"
+          bash ./scripts/apply-org-rulesets.sh "${orgs[@]}"
+
+      - name: Apply repo fallback protections
+        run: |
+          set -euo pipefail
+          read -r -a fallback_orgs <<< "${FALLBACK_ORGS}"
+          bash ./scripts/apply-repo-branch-protections.sh --apply "${fallback_orgs[@]}"
+
+      - name: Upload governance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-rulesets-${{ github.run_id }}
+          path: |
+            compliance/rulesets/check-inventory
+            compliance/rulesets/orgs
+          retention-days: 30
