@@ -10,5 +10,39 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
+      - uses: actions/checkout@v4
       - name: Run governance checks
-        run: echo "Governance gates workflow placeholder - add checks here."
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+
+          required_files=(
+            ".github/workflows/identity-context-onboarding.yml"
+            ".github/workflows/onepassword-rotation-audit.yml"
+            ".github/dependabot.yml"
+          )
+
+          for f in "${required_files[@]}"; do
+            if [[ ! -f "$f" ]]; then
+              echo "Missing required governance file: $f"
+              missing=1
+            fi
+          done
+
+          if ! grep -Rqi "codeql" .github/workflows 2>/dev/null; then
+            echo "Missing CodeQL signal in .github/workflows."
+            missing=1
+          fi
+
+          if ! grep -RqiE "trufflehog|gitleaks|secret[ -]?scan|npm audit|pnpm audit|snyk" .github/workflows 2>/dev/null; then
+            echo "Missing dependency or secret scanning signal in .github/workflows."
+            missing=1
+          fi
+
+          if [[ "$missing" -ne 0 ]]; then
+            echo "Governance baseline checks failed."
+            exit 1
+          fi
+
+          echo "Governance baseline checks passed."
