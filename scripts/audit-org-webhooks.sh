@@ -59,8 +59,18 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! gh auth status -t 2>/dev/null | grep -q 'admin:org_hook'; then
-  echo "Missing admin:org_hook scope. Run: gh auth refresh -h github.com -s admin:org_hook"
+org_probe="${orgs[0]}"
+probe_status="$(gh api -X GET -H 'Accept: application/vnd.github+json' "/orgs/$org_probe/hooks" -i 2>/dev/null | awk 'NR==1 {print $2}')"
+if [ -z "$probe_status" ]; then
+  echo "Failed to verify GitHub token permissions for org '$org_probe'"
+  exit 1
+fi
+if [ "$probe_status" = "403" ]; then
+  echo "Token lacks permission to list org hooks for '$org_probe'"
+  exit 1
+fi
+if [ "$probe_status" != "200" ]; then
+  echo "Unexpected HTTP status '$probe_status' when verifying org hook access for '$org_probe'"
   exit 1
 fi
 
@@ -115,9 +125,19 @@ for org in "${orgs[@]}"; do
 
     needs_apply_reasons=()
 
-    # Validate event scope unless wildcard is used intentionally.
+    # Validate event scope against the required event set.
     if [ "$events_joined" = "*" ]; then
       needs_apply_reasons+=("wildcard-events")
+    else
+      sorted_events_joined="$(
+        tr ',' '\n' <<<"$events_joined" | sed '/^$/d' | sort -u | tr '\n' ',' | sed 's/,$//'
+      )"
+      sorted_required_events="$(
+        tr ',' '\n' <<<"$WEBHOOK_EVENTS_CSV" | sed '/^$/d' | sort -u | tr '\n' ',' | sed 's/,$//'
+      )"
+      if [ "$sorted_events_joined" != "$sorted_required_events" ]; then
+        needs_apply_reasons+=("events-mismatch")
+      fi
     fi
 
     if [ "$APPLY" -eq 1 ]; then
@@ -134,6 +154,22 @@ for org in "${orgs[@]}"; do
       hooks_json="$(gh api "/orgs/$org/hooks")"
       hook_obj="$(jq --argjson id "$hook_id" '.[] | select(.id == $id)' <<<"$hooks_json")"
       events_joined="$(jq -r '.events | join(",")' <<<"$hook_obj")"
+
+      # Re-evaluate event scope after apply mode rewrites events.
+      needs_apply_reasons=()
+      if [ "$events_joined" = "*" ]; then
+        needs_apply_reasons+=("wildcard-events")
+      else
+        sorted_events_joined="$(
+          tr ',' '\n' <<<"$events_joined" | sed '/^$/d' | sort -u | tr '\n' ',' | sed 's/,$//'
+        )"
+        sorted_required_events="$(
+          tr ',' '\n' <<<"$WEBHOOK_EVENTS_CSV" | sed '/^$/d' | sort -u | tr '\n' ',' | sed 's/,$//'
+        )"
+        if [ "$sorted_events_joined" != "$sorted_required_events" ]; then
+          needs_apply_reasons+=("events-mismatch")
+        fi
+      fi
     fi
 
     # Delivery-level verification (signature header + response code)
