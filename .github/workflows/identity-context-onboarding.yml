@@ -1,0 +1,25 @@
+name: Identity & Context Onboarding Gate
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  identity-onboarding:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate ChittyID Context Onboarding
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f ".chittyconnect.yml" ]; then
+            echo "Error: .chittyconnect.yml not found in repository root."
+            exit 1
+          fi
+
+          if [ ! -s ".chittyconnect.yml" ]; then
+            echo "Error: .chittyconnect.yml is empty; onboarding configuration must be defined."
+            exit 1
+          fi
