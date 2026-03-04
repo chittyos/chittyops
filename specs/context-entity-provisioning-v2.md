@@ -3,7 +3,7 @@
 **Status**: DRAFT
 **Author**: ChittyOS Foundation
 **Canonical URI**: `chittycanon://specs/synthetic-person-architecture`
-**Implements**: ChittyConnect CHARTER.md API Contract extension
+**Implements**: ChittyConnect CHARTER.md API Contract extension (see [CHITTYOS/chittyconnect](https://github.com/CHITTYOS/chittyconnect))
 **Date**: 2026-03-03
 
 ---
@@ -34,7 +34,7 @@ Per [Bent 2025, "The Term 'Agent' Has Been Diluted Beyond Utility"](https://arxi
 
 A ChittyEntity's **agenticness score** is the composite of these five dimensions, derived from its Context Stack data (DNA, MemoryCloude, Ledger, Resume). This score evolves over the entity's lifetime — a fresh ChittyEntity scores low; one with 85 sessions and proficient-level expertise across 5 domains scores high.
 
-```
+```text
 ChittyEntity Agenticness Profile — P:Syn:5537
 ──────────────────────────────────────────────
 Environmental Interaction:  ████████░░  4/5  (45 sessions, 12+ services)
@@ -52,10 +52,10 @@ Composite Agenticness:      3.5 / 5.0
 |------|-----------|------------|
 | **ChittyEntity** | The persistent synthetic person with measurable agenticness, identified by a ChittyID | The thing itself — "provision a ChittyEntity", "consult a ChittyEntity", "bind to ChittyEntity P:5537" |
 | **Session** | A single working period bound to a ChittyEntity | The ephemeral connection — "start a session", "session metrics" |
-| **Sponsor** | The natural person who authorizes and governs ChittyEntities | The human — "Nicholas Bianchi sponsors 5 ChittyEntities" |
+| **Sponsor** | The natural person who authorizes and governs ChittyEntities | The human — "a sponsor governs 5 ChittyEntities" |
 | **Context Stack** | The composition of subsystems that make up a ChittyEntity (ChittyID + ChittyDNA + MemoryCloude + ChittyLedger + Resume) | The architecture — "query the Context Stack", "the Context Stack holds..." |
 | **Resume** | A synthesized snapshot of a ChittyEntity's accumulated knowledge | The surface layer — "generate a resume", "store the resume" |
-| **ChittyID** | The unique identifier for a ChittyEntity (format: `VV-G-LLL-SSSS-P-YM-C-X`) | The identity string — "mint a ChittyID", "P:Syn:5537" |
+| **ChittyID** | The unique identifier for a ChittyEntity (full format: `VV-G-LLL-SSSS-P-YM-C-X`; shorthand: `P:Syn:SSSS` where `P` = type Person, `Syn` = Synthetic characterization, `SSSS` = sequence) | The identity string — "mint a ChittyID", "P:Syn:5537" |
 | **Agenticness** | The measured degree of agency a ChittyEntity exhibits, per 5 dimensions | The capability profile — "agenticness score 3.5/5" |
 
 ### Deprecated Terms — STOP USING
@@ -86,7 +86,7 @@ When formal ontological precision is required (schemas, CHARTER docs, API contra
 
 A ChittyEntity is not just a resume. It's not just a database row. A ChittyEntity is the **composition of five subsystems** that together produce the je ne sais quoi — the accumulated lived experience that makes one ChittyEntity's knowledge qualitatively different from another's.
 
-```
+```text
 ┌──────────────────────────────────────────────────────────┐
 │                    CHITTYENTITY                            │
 │           (Person P, Synthetic — chittycanon://gov)        │
@@ -147,7 +147,7 @@ A new ChittyEntity with the same competency list but no memories, no decisions, 
 
 ## 2. ChittyEntity Lifecycle
 
-```
+```text
      mint
       │
       ▼
@@ -188,9 +188,9 @@ A new ChittyEntity with the same competency list but no memories, no decisions, 
 | STALE | `stale` | 90+ days without any session or consultation; MemoryCloude conversations expired |
 | RETIRED | `retired` | 180+ days; DNA and Ledger preserved but ChittyEntity no longer provisioned |
 
-### Lifecycle Operations (Already Implemented)
+### Lifecycle Operations (Planned API Surface)
 
-These operations already exist in `context-intelligence.js`:
+These operations are part of the planned Context Intelligence API; the intended endpoints are:
 
 | Operation | Endpoint | What It Does |
 |-----------|----------|-------------|
@@ -209,16 +209,18 @@ These operations manipulate the ChittyEntity as a whole — the ChittyID, DNA, L
 
 ### Problem
 
-The current `POST /api/v1/context/resolve` uses **anchor hash matching** (SHA-256 of `projectPath + workspace + supportType + organization`). This conflates location with identity — two sessions on the same path get the same Context regardless of what expertise is needed.
+> **Endpoint Convention**: All ChittyConnect context endpoints use the `/context/` prefix (e.g., `/context/resolve`, `/context/bind`). The public API gateway exposes these under `/api/v1/context/` — both forms route to the same handlers. This spec uses the short form; prepend `/api/v1` for external callers.
 
-### Solution: `POST /api/v1/context/provision`
+The current `POST /context/resolve` uses **anchor hash matching** (SHA-256 of `projectPath + workspace + supportType + organization`). This conflates location with identity — two sessions on the same path get the same Context regardless of what expertise is needed.
+
+### Solution: `POST /context/provision`
 
 ChittyConnect evaluates what expertise the session needs, searches across the sponsor's ChittyEntities (including their MemoryCloude recall, DNA profiles, and resume content), and proposes a provisioning decision.
 
 **Request:**
 ```json
 {
-  "sponsor": "Nicholas Bianchi",
+  "sponsor": "sponsor-123",
   "organization": "CHITTYOS",
   "platform": "claude-code",
   "sessionId": "session-abc-123",
@@ -228,7 +230,7 @@ ChittyConnect evaluates what expertise the session needs, searches across the sp
     "competencies": ["wrangler-deploy", "hono-routing"],
     "supportType": "development",
     "projectContext": {
-      "path": "/Users/nb/Desktop/Projects/github.com/CHITTYOS/chittyconnect",
+      "path": "/path/to/project",
       "description": "Adding new API endpoints to ChittyConnect"
     }
   },
@@ -322,7 +324,7 @@ ChittyConnect evaluates what expertise the session needs, searches across the sp
 4. If best score < threshold: propose `provision_new`
 5. Always require sponsor confirmation unless `confirmationMode: "auto"` and confidence >= 0.95
 
-### `POST /api/v1/context/provision/confirm`
+### `POST /context/provision/confirm`
 
 Confirms the provisioning decision. Internally calls existing `/context/bind`.
 
@@ -336,7 +338,7 @@ A live ChittyEntity can consult a dormant ChittyEntity's expertise **without loa
 
 This **extends the active context window** — the live ChittyEntity doesn't have to store or process everything. It can invoke specialized ChittyEntities on demand for expert opinion, review, or handoff briefing.
 
-### `POST /api/v1/context/consult`
+### `POST /context/consult`
 
 **Request:**
 ```json
@@ -406,6 +408,7 @@ This **extends the active context window** — the live ChittyEntity doesn't hav
 ```
 
 **Consultation Modes:**
+
 | Mode | Purpose | Stack Layers Queried |
 |------|---------|---------------------|
 | `expert_opinion` | Answer a specific question | All (resume + memory + DNA + ledger) |
@@ -426,11 +429,11 @@ The Resume is the **most accessible** layer of the Context Stack. It's the one a
 
 But it is NOT the whole picture. It's a synthesis, and like any synthesis, it loses detail.
 
-### `POST /api/v1/context/resume`
+### `POST /context/resume`
 
 Store a Context Resume — called at session end or before context compaction.
 
-### `GET /api/v1/context/resume/:chittyId`
+### `GET /context/resume/:chittyId`
 
 Retrieve the latest resume. Query param `?version=N` for specific version.
 
@@ -458,7 +461,7 @@ Retrieve the latest resume. Query param `?version=N` for specific version.
 
 MemoryCloude implements **human-like memory degradation**:
 
-```
+```text
   Retention
   ────────►
 
@@ -497,6 +500,29 @@ This mirrors how human memory works — you remember *who* you know forever, *wh
 ---
 
 ## 7. Database Schema Extensions
+
+> **Dialect**: Cloudflare D1 (SQLite). Functions like `unixepoch()` are D1/SQLite-specific.
+
+**Prerequisite — `context_entities` base table** (defined in ChittyConnect, shown here for reference):
+
+```sql
+-- Base table (already exists in ChittyConnect D1)
+CREATE TABLE context_entities (
+  id TEXT PRIMARY KEY,
+  chitty_id TEXT NOT NULL UNIQUE,
+  sponsor_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL DEFAULT 'P',
+  characterization TEXT NOT NULL DEFAULT 'Synthetic',
+  status TEXT NOT NULL DEFAULT 'fresh',
+  trust_score REAL DEFAULT 0,
+  trust_level INTEGER DEFAULT 0,
+  anchor_hash TEXT,
+  created_at INTEGER DEFAULT (unixepoch()),
+  updated_at INTEGER DEFAULT (unixepoch())
+);
+```
+
+**Extensions added by this spec:**
 
 ```sql
 -- Context resumes (new table)
@@ -592,7 +618,7 @@ ALTER TABLE context_entities ADD COLUMN agenticness_updated_at INTEGER;
 | `POST /intelligence/derivative` | **Kept** | Child ChittyEntity inherits parent's DNA + resume |
 | `POST /intelligence/suspension` | **Kept** | ChittyEntities temporarily blended |
 | `POST /intelligence/collaborators/find` | **Enhanced** | Uses full stack for matching |
-| `MemoryCloude.persistInteraction()` | **Kept** | Already implements degradation |
+| `MemoryCloude.storeMemory()` | **Kept** | Already implements degradation |
 | `ExperienceAnchor.resolveAnchor()` | **Replaced** | By `/provision` endpoint |
 | `ContextResolver.hashAnchors()` | **Demoted** | Offline fallback only |
 
