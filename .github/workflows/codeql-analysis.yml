@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         language:
-          - javascript-typescript
+          - javascript
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,3 +38,5 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+        with:
+          category: ".github/workflows/dependency-update.yml:codeql-analysis/language:javascript"
