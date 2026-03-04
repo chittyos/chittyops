@@ -1,0 +1,97 @@
+name: Org Webhook Compliance Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      orgs:
+        description: "Space-separated orgs to audit (default: managed org set)"
+        required: false
+        default: ""
+      apply_fix:
+        description: "Patch webhook config/events/secret while auditing"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: "23 */6 * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: org-webhook-compliance-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.ORG_GOVERNANCE_TOKEN }}
+      WEBHOOK_SECRET: ${{ secrets.CHITTYCONNECT_GITHUB_WEBHOOK_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify governance token
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing ORG_GOVERNANCE_TOKEN secret"
+            exit 1
+          fi
+          gh auth status
+
+      - name: Run webhook audit
+        id: audit
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          ARGS=()
+
+          if [[ -n "${{ inputs.orgs }}" ]]; then
+            read -r -a INPUT_ORGS <<< "${{ inputs.orgs }}"
+            for org in "${INPUT_ORGS[@]}"; do
+              [[ -n "$org" ]] && ARGS+=("$org")
+            done
+          fi
+
+          if [[ "${{ inputs.apply_fix }}" == "true" ]]; then
+            ARGS=(--apply "${ARGS[@]}")
+          fi
+
+          bash ./scripts/audit-org-webhooks.sh "${ARGS[@]}"
+
+      - name: Upload webhook audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webhook-audit-${{ github.run_id }}
+          path: compliance/webhook-audit
+          retention-days: 30
+
+      - name: Open or update webhook compliance issue
+        if: steps.audit.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          title="Webhook compliance audit failing"
+          body="Org webhook compliance audit detected failures.\n\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n\nArtifact: webhook-audit-${{ github.run_id }}"
+
+          issue_number="$(gh issue list --repo "${{ github.repository }}" --state open --search "$title in:title" --json number --jq '.[0].number' || true)"
+
+          if [[ -n "$issue_number" && "$issue_number" != "null" ]]; then
+            gh issue comment "$issue_number" --repo "${{ github.repository }}" --body "$body"
+          else
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "$title" \
+              --body "$body"
+          fi
+
+      - name: Fail on non-compliant hooks
+        if: steps.audit.outcome != 'success'
+        run: |
+          echo "Webhook compliance audit failed. See artifacts for details."
+          exit 1

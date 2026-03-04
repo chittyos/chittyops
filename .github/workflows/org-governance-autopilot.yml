@@ -10,9 +10,12 @@ on:
     paths:
       - "scripts/apply-org-rulesets.sh"
       - "scripts/apply-repo-branch-protections.sh"
+      - "scripts/apply-repo-settings.sh"
+      - "scripts/audit-org-webhooks.sh"
       - "scripts/discover-org-checks.sh"
       - "scripts/generate-org-rulesets.py"
       - "compliance/rulesets/**"
+      - ".github/workflows/org-webhook-compliance-audit.yml"
 
 permissions:
   contents: read
@@ -27,6 +30,8 @@ jobs:
     timeout-minutes: 120
     env:
       GH_TOKEN: ${{ secrets.ORG_GOVERNANCE_TOKEN }}
+      WEBHOOK_SECRET: ${{ secrets.CHITTYCONNECT_GITHUB_WEBHOOK_SECRET }}
+      REQUIRED_APPROVING_REVIEW_COUNT: "0"
       ORGS: furnished-condos chittycorp chittyos chittyapps chicagoapps
       FALLBACK_ORGS: furnished-condos chittycorp chittyapps chicagoapps
     steps:
@@ -57,6 +62,22 @@ jobs:
           set -euo pipefail
           read -r -a fallback_orgs <<< "${FALLBACK_ORGS}"
           bash ./scripts/apply-repo-branch-protections.sh --apply "${fallback_orgs[@]}"
+
+      - name: Apply repo settings (auto-merge and auto-delete)
+        run: |
+          set -euo pipefail
+          read -r -a orgs <<< "${ORGS}"
+          bash ./scripts/apply-repo-settings.sh --apply "${orgs[@]}"
+
+      - name: Audit and heal org webhooks
+        run: |
+          set -euo pipefail
+          read -r -a orgs <<< "${ORGS}"
+          if [[ -n "${WEBHOOK_SECRET:-}" ]]; then
+            bash ./scripts/audit-org-webhooks.sh --apply "${orgs[@]}"
+          else
+            bash ./scripts/audit-org-webhooks.sh "${orgs[@]}"
+          fi
 
       - name: Upload governance artifacts
         if: always()

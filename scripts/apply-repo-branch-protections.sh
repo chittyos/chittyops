@@ -13,6 +13,16 @@ if [[ "${1:-}" == "--apply" ]]; then
   shift
 fi
 
+REQUIRED_APPROVING_REVIEW_COUNT="${REQUIRED_APPROVING_REVIEW_COUNT:-0}"
+if ! [[ "$REQUIRED_APPROVING_REVIEW_COUNT" =~ ^[0-9]+$ ]]; then
+  echo "REQUIRED_APPROVING_REVIEW_COUNT must be an integer (0-6)"
+  exit 1
+fi
+if (( REQUIRED_APPROVING_REVIEW_COUNT < 0 || REQUIRED_APPROVING_REVIEW_COUNT > 6 )); then
+  echo "REQUIRED_APPROVING_REVIEW_COUNT must be between 0 and 6"
+  exit 1
+fi
+
 orgs=("$@")
 if [ ${#orgs[@]} -eq 0 ]; then
   orgs=("furnished-condos" "chittycorp" "chittyapps" "chicagoapps")
@@ -40,13 +50,14 @@ apply_repo_branch_protection() {
   local payload
   payload=$(jq -n \
     --argjson contexts "$contexts_json" \
+    --argjson review_count "$REQUIRED_APPROVING_REVIEW_COUNT" \
     '{
       required_status_checks: (if ($contexts|length) > 0 then { strict: true, contexts: $contexts } else null end),
       enforce_admins: true,
       required_pull_request_reviews: {
         dismiss_stale_reviews: true,
         require_code_owner_reviews: false,
-        required_approving_review_count: 1,
+        required_approving_review_count: $review_count,
         require_last_push_approval: false
       },
       restrictions: null,
