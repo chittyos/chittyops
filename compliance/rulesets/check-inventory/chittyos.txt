@@ -10,14 +10,20 @@
 - Compliance Check / compliance
 
 ## chittyos/chittyops
+- 1Password Rotation Audit / audit
+- Adversarial Review Orchestrator / orchestrate
 - CI / lint-and-test
 - CI / shellcheck
 - Chitty Operator Config / validate-and-register
 - ChittyConnect Sync / sync
+- CodeQL / Analyze
 - Dependency Updates & Security / codeql-analysis
 - Dependency Updates & Security / security-scan
 - Dependency Updates & Security / update-dependencies
 - Ecosystem Compliance Audit / audit
+- Governance Gates / gates
+- Identity & Context Onboarding Gate / identity-onboarding
+- Org Governance Autopilot / rollout
 - Registry Sync / sync-registry
 - Reusable Compliance Check / compliance
 - Reusable Package Publish / build

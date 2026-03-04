@@ -53,9 +53,15 @@ Set `CHITTYCONNECT_API_KEY` as an organization secret:
 
 This single secret enables all repos to request ephemeral credentials.
 
+For org governance automation in `chittyops`, also set:
+- `ORG_GOVERNANCE_TOKEN` (fine-grained PAT with org admin permissions for rulesets/webhooks)
+- `CHITTYCONNECT_GITHUB_WEBHOOK_SECRET` (shared GitHub webhook signing secret expected by `connect.chitty.cc`)
+
 ### Repository Level
 
 **No secrets needed.** Repos inherit `CHITTYCONNECT_API_KEY` from org.
+
+Exception: the central `CHITTYOS/chittyops` automation repo needs the two governance secrets above to enforce org-wide policy and webhook health.
 
 ## Using in Workflows
 

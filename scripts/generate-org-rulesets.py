@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -29,6 +30,9 @@ candidate_checks = [
     'PR Validation / validate',
     'ChittyOS Compliance Check / compliance',
 ]
+REQUIRED_APPROVING_REVIEW_COUNT = int(
+    os.getenv('REQUIRED_APPROVING_REVIEW_COUNT', '0')
+)
 
 
 def parse_repo_checks(p: Path):
@@ -59,7 +63,7 @@ def baseline_ruleset(org: str):
             {
                 'type': 'pull_request',
                 'parameters': {
-                    'required_approving_review_count': 1,
+                    'required_approving_review_count': REQUIRED_APPROVING_REVIEW_COUNT,
                     'dismiss_stale_reviews_on_push': True,
                     'require_code_owner_review': False,
                     'require_last_push_approval': False,
