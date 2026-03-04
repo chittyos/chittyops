@@ -33,7 +33,7 @@ jobs:
       cloudflare_token: ${{ steps.creds.outputs.cloudflare_token }}
       account_id: ${{ steps.creds.outputs.account_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: CHITTYOS/chittyops
           sparse-checkout: .github/actions/getchitty-creds
@@ -51,7 +51,7 @@ jobs:
     needs: get-credentials
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v4
         with:
