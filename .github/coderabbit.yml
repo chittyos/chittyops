@@ -1,0 +1,177 @@
+# CodeRabbit AI Configuration
+# Documentation: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+# Language settings
+language: en-US
+
+# Review settings
+reviews:
+  # Enable auto review on PR creation and updates
+  auto_review:
+    enabled: true
+    drafts: false  # Don't review draft PRs
+    
+  # Request changes on critical issues
+  request_changes_workflow: true
+  
+  # Enable incremental reviews (only review new changes)
+  incremental: true
+  
+  # Review configuration
+  profile: chill  # Options: assertive, chill
+  
+  # Review depth
+  high_level_summary: true
+  poem: false  # Disable review poems
+  review_status: true
+  
+  # Collapse old outdated review comments
+  collapse_walkthrough: false
+  
+  # Auto-approve certain changes
+  auto_approve:
+    enabled: false
+
+# Path-based instructions
+path_instructions:
+  - path: "*.md"
+    instructions: "Check for broken links, spelling, and grammar. Ensure documentation is clear and accurate."
+    
+  - path: ".github/workflows/*.yml"
+    instructions: "Verify workflow syntax, check for security issues, ensure proper use of secrets and permissions."
+    
+  - path: "*.js"
+    instructions: "Check for console.log statements, ensure proper error handling, verify async/await usage."
+    
+  - path: "*.ts"
+    instructions: "Verify TypeScript types are properly defined, check for 'any' usage, ensure type safety."
+    
+  - path: "package.json"
+    instructions: "Verify dependencies are necessary, check for security vulnerabilities, ensure versions are appropriate."
+
+# Files to ignore
+ignore:
+  - "package-lock.json"
+  - "yarn.lock"
+  - "pnpm-lock.yaml"
+  - "*.min.js"
+  - "*.min.css"
+  - "dist/**"
+  - "build/**"
+  - "node_modules/**"
+  - "coverage/**"
+  - ".next/**"
+  - ".vercel/**"
+
+# Enable specific checks
+checks:
+  # Security checks
+  security:
+    enabled: true
+    severity_threshold: medium  # Report medium and above
+    
+  # Performance checks
+  performance:
+    enabled: true
+    
+  # Best practices
+  best_practices:
+    enabled: true
+    
+  # Code complexity
+  complexity:
+    enabled: true
+    threshold: 15  # Cyclomatic complexity threshold
+    
+  # Documentation
+  documentation:
+    enabled: true
+    require_docstrings: false
+    
+  # Testing
+  testing:
+    enabled: true
+    require_tests_for_new_code: false
+
+# Labels to auto-apply
+labels:
+  # Apply labels based on file types changed
+  - pattern: "*.md"
+    label: "documentation"
+    
+  - pattern: ".github/workflows/*"
+    label: "ci-cd"
+    
+  - pattern: "package.json"
+    label: "dependencies"
+    
+  - pattern: "*.test.*"
+    label: "tests"
+
+# Tone and style
+tone_instructions: |
+  - Be constructive and helpful
+  - Focus on teaching, not just pointing out issues
+  - Provide examples when suggesting improvements
+  - Recognize good code and patterns
+  - Be concise but thorough
+
+# Integration settings
+integrations:
+  # GitHub settings
+  github:
+    pr_commands: true
+    issue_commands: false
+  
+# Custom rules
+rules:
+  # Require tests for new features (informational only)
+  - name: "Tests for new features"
+    description: "New features should include tests"
+    severity: info
+    pattern: "feat:|feature:"
+    
+  # Check for security patterns
+  - name: "No hardcoded secrets"
+    description: "Do not hardcode secrets, API keys, tokens, or passwords"
+    severity: error
+    # Matches various patterns: password="...", api_key: "...", TOKEN=value, secret = '...'
+    pattern: '(password|secret|api[_-]?key|token|private[_-]?key|access[_-]?key)["\047]?\s*[=:]\s*["\047]?[a-zA-Z0-9+/=_-]{16,}'
+    
+  # Check for console statements
+  - name: "No console in production"
+    description: "Remove console.log statements before merging"
+    severity: warning
+    pattern: 'console\.(log|debug|info)'
+    exclude_paths:
+      - "*.test.*"
+      - "*.spec.*"
+      - "scripts/**"
+
+# Early access features
+early_access: false
+
+# Knowledge base
+knowledge_base:
+  # Learn from previous reviews
+  learnings_enabled: true
+  
+  # Project-specific context
+  context: |
+    This is the ChittyOS CI/CD operations repository.
+    
+    Key conventions:
+    - Use ChittyConnect for ephemeral secrets provisioning
+    - Follow existing workflow patterns and structure
+    - Include ChittyBeacon monitoring integration where appropriate
+    - Use reusable workflows for common patterns
+    - Ensure workflows are efficient with Actions minutes
+    
+    Architecture:
+    - Foundation layer: chittyfoundation/chittyops (governance)
+    - Implementation layer: CHITTYOS/chittyops (this repo - operational tools)
+    
+    Organizations managed:
+    - ChittyOS
+    - ChittyCorp  
+    - nevershitty

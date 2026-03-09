@@ -1,0 +1,222 @@
+name: 🤖 OpenAI Codex Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+      pr_sha:
+        description: 'PR head SHA'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+      pr_sha:
+        description: 'PR head SHA'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  codex-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.pr_sha }}
+
+      - name: Get PR details
+        id: pr
+        run: |
+          PR_DATA=$(gh pr view ${{ inputs.pr_number }} --json title,body,files)
+          echo "title=$(echo $PR_DATA | jq -r .title)" >> $GITHUB_OUTPUT
+          echo "body=$(echo $PR_DATA | jq -r .body)" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get PR diff and analyze files
+        id: diff
+        run: |
+          # Get the base branch
+          BASE_REF=$(gh pr view ${{ inputs.pr_number }} --json baseRefName -q .baseRefName)
+          
+          # Fetch base branch
+          git fetch origin $BASE_REF
+          
+          # Get diff (limit to 50KB to stay within API token limits)
+          # Note: Large PRs may have truncated diffs. Consider splitting large PRs.
+          DIFF=$(git diff origin/$BASE_REF...HEAD | head -c 50000)
+          
+          # Check if diff was truncated
+          FULL_DIFF_SIZE=$(git diff origin/$BASE_REF...HEAD | wc -c)
+          if [ "$FULL_DIFF_SIZE" -gt 50000 ]; then
+            echo "⚠️ Warning: Diff truncated from $FULL_DIFF_SIZE bytes to 50000 bytes"
+          fi
+          
+          # Save diff to file
+          echo "$DIFF" > /tmp/pr_diff.txt
+          
+          # Get changed files
+          git diff --name-only origin/$BASE_REF...HEAD > /tmp/changed_files.txt
+          
+          # Analyze file types
+          FILE_TYPES=$(cat /tmp/changed_files.txt | sed 's/.*\.//' | sort | uniq -c | sort -rn)
+          echo "$FILE_TYPES" > /tmp/file_types.txt
+          
+          # Get stats
+          FILES_CHANGED=$(git diff --name-only origin/$BASE_REF...HEAD | wc -l)
+          LINES_ADDED=$(git diff --shortstat origin/$BASE_REF...HEAD | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+          LINES_DELETED=$(git diff --shortstat origin/$BASE_REF...HEAD | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+          
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "lines_added=$LINES_ADDED" >> $GITHUB_OUTPUT
+          echo "lines_deleted=$LINES_DELETED" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Call OpenAI API for code review
+        id: codex
+        run: |
+          # Read diff
+          DIFF=$(cat /tmp/pr_diff.txt)
+          
+          # Prepare the review prompt for GPT-4
+          cat > /tmp/prompt.json <<'EOF'
+          {
+            "model": "gpt-4-turbo-preview",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an expert code reviewer specializing in code quality, implementation patterns, and common issues. Focus on: 1) Implementation quality, 2) Common bugs and anti-patterns, 3) Performance concerns, 4) Security vulnerabilities, 5) Best practices."
+              },
+              {
+                "role": "user",
+                "content": "Review this PR and provide:\n\n**Code Quality Assessment**:\n- Implementation quality (structure, readability)\n- Common issues or anti-patterns detected\n- Performance considerations\n- Security concerns\n\n**Specific Issues** (if any):\n- List specific problems with file:line references\n\n**Recommendations**:\n- Best practice improvements\n\n**Overall Rating**: PASS/NEEDS_WORK/CRITICAL_ISSUES\n\n---\n\n**PR**: ${{ steps.pr.outputs.title }}\n\n**Stats**: ${{ steps.diff.outputs.files_changed }} files, +${{ steps.diff.outputs.lines_added }} -${{ steps.diff.outputs.lines_deleted }}\n\n**Changes**:\n```diff\nDIFF_CONTENT_HERE\n```"
+              }
+            ],
+            "max_tokens": 2048,
+            "temperature": 0.3
+          }
+          EOF
+          
+          # Replace DIFF_CONTENT_HERE with actual diff
+          ESCAPED_DIFF=$(cat /tmp/pr_diff.txt | jq -Rs .)
+          FULL_PROMPT=$(jq --arg diff "$DIFF" '.messages[1].content = (.messages[1].content | sub("DIFF_CONTENT_HERE"; $diff))' /tmp/prompt.json)
+          
+          # Call OpenAI API
+          if [ -n "${{ secrets.OPENAI_API_KEY }}" ]; then
+            RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${{ secrets.OPENAI_API_KEY }}" \
+              -d "$FULL_PROMPT")
+            
+            # Extract review content
+            REVIEW=$(echo $RESPONSE | jq -r '.choices[0].message.content // "Error: Unable to get review"')
+            
+            # Save review to file
+            echo "$REVIEW" > /tmp/codex_review.txt
+            
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ OPENAI_API_KEY not configured. Skipping Codex review." > /tmp/codex_review.txt
+            echo "status=skipped" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Analyze for common issues
+        id: issues
+        run: |
+          # Quick checks for common issues
+          ISSUES=""
+          
+          # Check for console.log in production code
+          if grep -r "console\.log" $(cat /tmp/changed_files.txt | grep -vE '\.test\.|\.spec\.' | tr '\n' ' ') 2>/dev/null; then
+            ISSUES="$ISSUES\n- ⚠️ Found console.log statements in production code"
+          fi
+          
+          # Check for TODO/FIXME comments
+          TODO_COUNT=$(git diff origin/$(gh pr view ${{ inputs.pr_number }} --json baseRefName -q .baseRefName)...HEAD | grep -cE '^\+.*\b(TODO|FIXME)\b' || echo "0")
+          if [ "$TODO_COUNT" -gt 0 ]; then
+            ISSUES="$ISSUES\n- 📝 Added $TODO_COUNT TODO/FIXME comments"
+          fi
+          
+          # Check for hardcoded secrets patterns (multiple formats)
+          # Matches: password = "...", api_key: "...", token="...", SECRET_KEY=value
+          if git diff origin/$(gh pr view ${{ inputs.pr_number }} --json baseRefName -q .baseRefName)...HEAD | \
+             grep -qiE '^\+.*(password|secret|api[_-]?key|token|private[_-]?key|access[_-]?key)["\047]?\s*[=:]\s*["\047]?[a-zA-Z0-9+/=]{16,}'; then
+            ISSUES="$ISSUES\n- 🔐 CRITICAL: Possible hardcoded secrets detected"
+          fi
+          
+          # Check for large file additions
+          LARGE_FILES=$(git diff --stat origin/$(gh pr view ${{ inputs.pr_number }} --json baseRefName -q .baseRefName)...HEAD | grep -E '\|.*\+{50,}' | wc -l)
+          if [ "$LARGE_FILES" -gt 0 ]; then
+            ISSUES="$ISSUES\n- 📦 $LARGE_FILES large files added/modified"
+          fi
+          
+          if [ -n "$ISSUES" ]; then
+            echo "$ISSUES" > /tmp/quick_issues.txt
+          else
+            echo "No common issues detected" > /tmp/quick_issues.txt
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Post Codex review as PR comment
+        run: |
+          REVIEW=$(cat /tmp/codex_review.txt)
+          QUICK_ISSUES=$(cat /tmp/quick_issues.txt 2>/dev/null || echo "")
+          
+          gh pr comment ${{ inputs.pr_number }} --body "## 🤖 OpenAI Codex Review
+          
+          $REVIEW
+          
+          ### Quick Analysis
+          $QUICK_ISSUES
+          
+          ---
+          *Automated review by OpenAI GPT-4 • [View workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set commit status
+        run: |
+          # Determine status based on review
+          STATUS="success"
+          DESCRIPTION="Codex review completed"
+          
+          if grep -qiE "critical.?issues" /tmp/codex_review.txt || grep -qiE "CRITICAL" /tmp/quick_issues.txt 2>/dev/null; then
+            STATUS="failure"
+            DESCRIPTION="Critical issues found"
+          elif grep -qiE "needs.?work" /tmp/codex_review.txt; then
+            STATUS="failure"
+            DESCRIPTION="Code needs improvements"
+          fi
+          
+          gh api repos/${{ github.repository }}/statuses/${{ inputs.pr_sha }} \
+            -f state=$STATUS \
+            -f context="AI Review / Codex" \
+            -f description="$DESCRIPTION" \
+            -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-review-${{ inputs.pr_number }}
+          path: |
+            /tmp/codex_review.txt
+            /tmp/quick_issues.txt
+          retention-days: 30
