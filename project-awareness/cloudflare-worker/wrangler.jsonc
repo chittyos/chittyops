@@ -1,0 +1,95 @@
+// chittyops-project-awareness — Cloudflare Workers configuration
+{
+  "name": "chittyops-project-awareness",
+  "main": "src/worker.js",
+  "compatibility_date": "2024-08-29",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "routes": [
+    {
+      "pattern": "project-awareness.chitty.cc/*",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "CHITTY_REGISTRY_URL": "https://registry.chitty.cc",
+    "CHITTYCHAT_API_URL": "https://chittychat.chitty.cc",
+    "CHITTYID_API_URL": "https://chittyid.chitty.cc",
+    "CORS_ORIGIN": "*",
+    "SESSION_TIMEOUT": "3600",
+    "MAX_SESSIONS_PER_IP": "10",
+    "RATE_LIMIT_RPM": "1000"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SESSION_STORE",
+      "id": "chittyops_sessions",
+      "preview_id": "chittyops_sessions_preview"
+    },
+    {
+      "binding": "PROJECT_STORE",
+      "id": "chittyops_projects",
+      "preview_id": "chittyops_projects_preview"
+    },
+    {
+      "binding": "CROSS_PLATFORM_SYNC",
+      "id": "chittyops_cross_platform",
+      "preview_id": "chittyops_cross_platform_preview"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PROJECT_AWARENESS_DO",
+        "class_name": "ProjectAwarenessDurableObject"
+      },
+      {
+        "name": "SESSION_SYNC_DO",
+        "class_name": "SessionSyncDurableObject"
+      }
+    ]
+  },
+  "r2_buckets": [
+    {
+      "binding": "PROJECT_DATA_BUCKET",
+      "bucket_name": "chittyops-project-data",
+      "preview_bucket_name": "chittyops-project-data-preview"
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "USAGE_ANALYTICS",
+      "dataset": "chittyops_usage"
+    }
+  ],
+  "build": {
+    "command": "npm run build"
+  },
+  "env": {
+    "staging": {
+      "route": {
+        "pattern": "project-awareness-staging.chitty.cc/*",
+        "custom_domain": true
+      },
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "CORS_ORIGIN": "*",
+        "RATE_LIMIT_RPM": "100"
+      }
+    },
+    "development": {
+      "vars": {
+        "ENVIRONMENT": "development",
+        "CORS_ORIGIN": "*"
+      }
+    }
+  },
+  "placement": {
+    "mode": "smart"
+  },
+  "limits": {
+    "cpu_ms": 50000
+  }
+}
