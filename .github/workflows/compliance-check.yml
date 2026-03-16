@@ -6,8 +6,14 @@ on:
   pull_request:
 
 jobs:
-  compliance:
+  check:
     uses: CHITTYOS/chittyops/.github/workflows/reusable-compliance-check.yml@main
     with:
       service_name: 'chittyops'
       tier: 3
+
+  compliance:
+    runs-on: ubuntu-latest
+    needs: [check]
+    steps:
+      - run: echo "Compliance gate passed"
