@@ -19,20 +19,81 @@ org_files = {
 }
 
 candidate_checks = [
-    'ChittyConnect Sync / sync',
-    'Compliance Check / compliance',
-    'CI / test',
-    'CI / build',
-    'CI / lint-and-test',
-    'CI / lint-and-format',
-    'CI / test-and-build',
-    'CodeQL / Analyze',
-    'PR Validation / validate',
-    'ChittyOS Compliance Check / compliance',
+    {
+        'name': 'ChittyConnect Sync / sync',
+        'context': 'sync',
+        'aliases': ['sync', 'ChittyConnect Sync / sync'],
+    },
+    {
+        'name': 'Compliance Check / compliance',
+        'context': 'compliance',
+        'aliases': ['compliance', 'Compliance Check / compliance'],
+    },
+    {
+        'name': 'CI / test',
+        'context': 'test',
+        'aliases': ['test', 'CI / test'],
+    },
+    {
+        'name': 'CI / build',
+        'context': 'build',
+        'aliases': ['build', 'CI / build'],
+    },
+    {
+        'name': 'CI / lint-and-test',
+        'context': 'lint-and-test',
+        'aliases': ['lint-and-test', 'CI / lint-and-test'],
+    },
+    {
+        'name': 'CI / lint-and-format',
+        'context': 'lint-and-format',
+        'aliases': ['lint-and-format', 'CI / lint-and-format'],
+    },
+    {
+        'name': 'CI / test-and-build',
+        'context': 'test-and-build',
+        'aliases': ['test-and-build', 'CI / test-and-build'],
+    },
+    {
+        'name': 'CodeQL / Analyze',
+        'context': 'CodeQL',
+        'aliases': ['CodeQL', 'CodeQL / Analyze', 'Analyze (javascript)'],
+    },
+    {
+        'name': 'PR Validation / validate',
+        'context': 'validate',
+        'aliases': ['validate', 'PR Validation / validate'],
+    },
+    {
+        'name': 'ChittyOS Compliance Check / compliance',
+        'context': 'compliance',
+        'aliases': ['compliance', 'ChittyOS Compliance Check / compliance'],
+    },
 ]
-REQUIRED_APPROVING_REVIEW_COUNT = int(
-    os.getenv('REQUIRED_APPROVING_REVIEW_COUNT', '0')
-)
+
+
+def parse_required_approving_review_count():
+    raw = os.getenv('REQUIRED_APPROVING_REVIEW_COUNT', '0')
+    if raw == '':
+        return 0
+    try:
+        value = int(raw)
+    except ValueError:
+        sys.stderr.write(
+            'ERROR: REQUIRED_APPROVING_REVIEW_COUNT must be an integer between 0 and 6; '
+            f'got {raw!r}.\n'
+        )
+        sys.exit(1)
+    if value < 0 or value > 6:
+        sys.stderr.write(
+            'ERROR: REQUIRED_APPROVING_REVIEW_COUNT must be between 0 and 6; '
+            f'got {value}.\n'
+        )
+        sys.exit(1)
+    return value
+
+
+REQUIRED_APPROVING_REVIEW_COUNT = parse_required_approving_review_count()
 
 
 def parse_repo_checks(p: Path):
@@ -75,9 +136,9 @@ def baseline_ruleset(org: str):
     }
 
 
-def check_ruleset(check: str, repos: list[str]):
+def check_ruleset(name: str, context: str, repos: list[str]):
     slug = (
-        check.lower()
+        name.lower()
         .replace(' / ', '-')
         .replace('/', '-')
         .replace(' ', '-')
@@ -88,7 +149,7 @@ def check_ruleset(check: str, repos: list[str]):
     while '--' in slug:
         slug = slug.replace('--', '-')
     payload = {
-        'name': f'Require {check}',
+        'name': f'Require {name}',
         'target': 'branch',
         'enforcement': 'active',
         'conditions': {
@@ -101,7 +162,7 @@ def check_ruleset(check: str, repos: list[str]):
                 'parameters': {
                     'strict_required_status_checks_policy': True,
                     'required_status_checks': [
-                        {'context': check}
+                        {'context': context}
                     ],
                 },
             }
@@ -128,10 +189,14 @@ def main():
 
         files = ['00-baseline.json']
         for check in candidate_checks:
-            repos = [r for r, checks in repo_checks.items() if check in checks]
+            aliases = set(check['aliases'])
+            repos = [
+                r for r, checks in repo_checks.items()
+                if aliases.intersection(checks)
+            ]
             if not repos:
                 continue
-            slug, payload = check_ruleset(check, repos)
+            slug, payload = check_ruleset(check['name'], check['context'], repos)
             fname = f'10-require-{slug}.json'
             (org_dir / fname).write_text(json.dumps(payload, indent=2) + '\n')
             files.append(fname)
