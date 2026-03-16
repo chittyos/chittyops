@@ -1,0 +1,13 @@
+name: compliance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  compliance:
+    uses: CHITTYOS/chittyops/.github/workflows/reusable-compliance-check.yml@main
+    with:
+      service_name: 'chittyops'
+      tier: 3
