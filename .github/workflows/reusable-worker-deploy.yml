@@ -60,24 +60,38 @@ jobs:
 
             PAYLOAD='{"credentials":["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID"]}'
 
+            CURL_EXIT=0
             HTTP_CODE=$(curl -s --max-time 30 -o /tmp/cc_response.json -w '%{http_code}' \
               https://connect.chitty.cc/api/github-actions/credentials \
               -H "Authorization: Bearer ${OIDC_TOKEN}" \
               -H "Content-Type: application/json" \
-              -d "$PAYLOAD")
+              -d "$PAYLOAD") || CURL_EXIT=$?
             RESPONSE=$(cat /tmp/cc_response.json 2>/dev/null || echo '{}')
+
+            if [ "$CURL_EXIT" -ne 0 ]; then
+              echo "::error::curl to ChittyConnect failed with exit code ${CURL_EXIT}"
+              echo "::error::Response body: $(echo "$RESPONSE" | head -c 500)"
+              exit 1
+            fi
+            echo "ChittyConnect responded with HTTP ${HTTP_CODE}"
 
           elif [ -n "$CHITTYCONNECT_API_KEY" ]; then
             echo "OIDC unavailable, using API key fallback"
 
             PAYLOAD='{"credentials":["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID"],"purpose":"worker-deploy","service":"'"$CRED_SERVICE"'"}'
 
+            CURL_EXIT=0
             HTTP_CODE=$(curl -s --max-time 30 -o /tmp/cc_response.json -w '%{http_code}' \
               https://connect.chitty.cc/api/credentials/provision \
               -H "Authorization: Bearer ${CHITTYCONNECT_API_KEY}" \
               -H "Content-Type: application/json" \
-              -d "$PAYLOAD")
+              -d "$PAYLOAD") || CURL_EXIT=$?
             RESPONSE=$(cat /tmp/cc_response.json 2>/dev/null || echo '{}')
+
+            if [ "$CURL_EXIT" -ne 0 ]; then
+              echo "::error::curl to ChittyConnect failed with exit code ${CURL_EXIT}"
+              exit 1
+            fi
 
           else
             echo "::error::No auth available. Either enable OIDC (permissions: { id-token: write }) or provide CHITTYCONNECT_API_KEY secret."
@@ -91,10 +105,16 @@ jobs:
             exit 1
           fi
 
-          CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_API_TOKEN // .credential.value // empty')
-          ACCT_ID=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_ACCOUNT_ID // .credential.account_id // empty')
+          CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_API_TOKEN // .credential.value // empty' 2>/dev/null) || CF_TOKEN=""
+          ACCT_ID=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_ACCOUNT_ID // .credential.account_id // empty' 2>/dev/null) || ACCT_ID=""
 
-          [ -n "$CF_TOKEN" ] && echo "::add-mask::${CF_TOKEN}"
+          if [ -z "$CF_TOKEN" ]; then
+            echo "::error::No Cloudflare token in response. Keys: $(echo "$RESPONSE" | jq -r 'keys | join(", ")' 2>/dev/null || echo 'non-JSON')"
+            echo "::error::Response preview: $(echo "$RESPONSE" | head -c 300)"
+            exit 1
+          fi
+
+          echo "::add-mask::${CF_TOKEN}"
 
           {
             echo "cloudflare_token=${CF_TOKEN}"
