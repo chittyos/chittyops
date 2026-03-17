@@ -24,11 +24,14 @@ on:
         default: true
     secrets:
       CHITTYCONNECT_API_KEY:
-        required: true
+        required: false
 
 jobs:
   get-credentials:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       cloudflare_token: ${{ steps.creds.outputs.cloudflare_token }}
       account_id: ${{ steps.creds.outputs.account_id }}
@@ -50,6 +53,8 @@ jobs:
   deploy:
     needs: get-credentials
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
