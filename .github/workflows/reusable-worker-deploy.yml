@@ -99,8 +99,10 @@ jobs:
           fi
 
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-            ERROR_DETAIL=$(echo "$RESPONSE" | jq -r '.error.message // .error.code // empty' 2>/dev/null)
-            [ -z "$ERROR_DETAIL" ] && ERROR_DETAIL=$(echo "$RESPONSE" | head -c 200)
+            ERROR_DETAIL=$(echo "$RESPONSE" | jq -r '.error.message // .error.code // empty' 2>/dev/null) || true
+            if [ -z "$ERROR_DETAIL" ]; then
+              ERROR_DETAIL=$(echo "$RESPONSE" | head -c 500)
+            fi
             echo "::error::ChittyConnect returned HTTP ${HTTP_CODE}: ${ERROR_DETAIL}"
             exit 1
           fi
