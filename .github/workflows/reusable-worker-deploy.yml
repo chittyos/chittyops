@@ -22,13 +22,13 @@ on:
         required: false
         type: boolean
         default: true
-    secrets:
-      CHITTYCONNECT_API_KEY:
-        required: true
 
 jobs:
   get-credentials:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       cloudflare_token: ${{ steps.creds.outputs.cloudflare_token }}
       account_id: ${{ steps.creds.outputs.account_id }}
@@ -43,13 +43,14 @@ jobs:
         id: creds
         uses: ./.chittyops/.github/actions/getchitty-creds
         with:
-          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
           purpose: 'worker-deploy'
           service: ${{ inputs.service_name }}
 
   deploy:
     needs: get-credentials
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
