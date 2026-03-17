@@ -54,7 +54,7 @@ runs:
         GITHUB_RUN: ${{ github.run_id }}
       run: |
         # Build credentials array from comma-separated list
-        CRED_JSON=$(echo "$CRED_LIST" | jq -R 'split(",") | map(gsub("\\s";""))')
+        CRED_JSON=$(echo "$CRED_LIST" | jq -R 'split(",") | map(ltrimstr(" ") | rtrimstr(" "))')
 
         # --- Auth strategy: OIDC preferred, API key fallback ---
         if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
