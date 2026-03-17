@@ -71,14 +71,17 @@ runs:
 
           PAYLOAD=$(jq -n --argjson creds "$CRED_JSON" '{credentials: $creds}')
 
-          RESPONSE=$(curl -sf --max-time 30 \
+          HTTP_CODE=$(curl -s --max-time 30 -o /tmp/cc_response.json -w '%{http_code}' \
             https://connect.chitty.cc/api/github-actions/credentials \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD") || {
-            echo "::error::Failed to fetch credentials from ChittyConnect (OIDC)"
+            -d "$PAYLOAD")
+          RESPONSE=$(cat /tmp/cc_response.json 2>/dev/null || echo '{}')
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::ChittyConnect returned HTTP ${HTTP_CODE}: $(echo "$RESPONSE" | jq -r '.error.message // .error // "unknown"' 2>/dev/null)"
             exit 1
-          }
+          fi
 
           # Check success
           SUCCESS=$(echo "$RESPONSE" | jq -r '.success // false')
