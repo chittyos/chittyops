@@ -36,19 +36,47 @@ jobs:
       cloudflare_token: ${{ steps.creds.outputs.cloudflare_token }}
       account_id: ${{ steps.creds.outputs.account_id }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: CHITTYOS/chittyops
-          sparse-checkout: .github/actions/getchitty-creds
-          path: .chittyops
-
-      - name: Fetch ephemeral credentials
+      - name: Fetch credentials via OIDC
         id: creds
-        uses: ./.chittyops/.github/actions/getchitty-creds
-        with:
-          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
-          purpose: 'worker-deploy'
-          service: ${{ inputs.service_name }}
+        env:
+          CRED_SERVICE: ${{ inputs.service_name }}
+        run: |
+          # Get GitHub OIDC token for ChittyConnect
+          OIDC_TOKEN=$(curl -sS \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://connect.chitty.cc" \
+            | jq -r '.value')
+
+          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+            echo "::error::Failed to obtain GitHub OIDC token"
+            exit 1
+          fi
+
+          PAYLOAD='{"credentials":["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID"]}'
+
+          HTTP_CODE=$(curl -s --max-time 30 -o /tmp/cc_response.json -w '%{http_code}' \
+            https://connect.chitty.cc/api/github-actions/credentials \
+            -H "Authorization: Bearer ${OIDC_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+          RESPONSE=$(cat /tmp/cc_response.json 2>/dev/null || echo '{}')
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            ERROR_DETAIL=$(echo "$RESPONSE" | jq -r '.error.message // .error.code // empty' 2>/dev/null)
+            [ -z "$ERROR_DETAIL" ] && ERROR_DETAIL=$(echo "$RESPONSE" | head -c 200)
+            echo "::error::ChittyConnect returned HTTP ${HTTP_CODE}: ${ERROR_DETAIL}"
+            exit 1
+          fi
+
+          CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_API_TOKEN // empty')
+          ACCT_ID=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_ACCOUNT_ID // empty')
+
+          [ -n "$CF_TOKEN" ] && echo "::add-mask::${CF_TOKEN}"
+
+          {
+            echo "cloudflare_token=${CF_TOKEN}"
+            echo "account_id=${ACCT_ID}"
+          } >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: get-credentials
