@@ -64,8 +64,10 @@ jobs:
               https://connect.chitty.cc/api/github-actions/credentials \
               -H "Authorization: Bearer ${OIDC_TOKEN}" \
               -H "Content-Type: application/json" \
-              -d "$PAYLOAD")
+              -d "$PAYLOAD") || true
             RESPONSE=$(cat /tmp/cc_response.json 2>/dev/null || echo '{}')
+            echo "HTTP response code: ${HTTP_CODE}"
+            echo "Response length: $(echo "$RESPONSE" | wc -c) bytes"
 
           elif [ -n "$CHITTYCONNECT_API_KEY" ]; then
             echo "OIDC unavailable, using API key fallback"
@@ -91,8 +93,13 @@ jobs:
             exit 1
           fi
 
-          CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_API_TOKEN // .credential.value // empty')
-          ACCT_ID=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_ACCOUNT_ID // .credential.account_id // empty')
+          CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_API_TOKEN // .credential.value // empty' 2>/dev/null) || CF_TOKEN=""
+          ACCT_ID=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_ACCOUNT_ID // .credential.account_id // empty' 2>/dev/null) || ACCT_ID=""
+
+          if [ -z "$CF_TOKEN" ]; then
+            echo "::error::No CLOUDFLARE_API_TOKEN in response. Response keys: $(echo "$RESPONSE" | jq -r 'keys | join(", ")' 2>/dev/null || echo 'not JSON')"
+            exit 1
+          fi
 
           [ -n "$CF_TOKEN" ] && echo "::add-mask::${CF_TOKEN}"
 
