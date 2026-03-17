@@ -22,6 +22,9 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      CHITTYCONNECT_API_KEY:
+        required: false
 
 jobs:
   get-credentials:
@@ -43,6 +46,7 @@ jobs:
         id: creds
         uses: ./.chittyops/.github/actions/getchitty-creds
         with:
+          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
           purpose: 'worker-deploy'
           service: ${{ inputs.service_name }}
 

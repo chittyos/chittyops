@@ -1,16 +1,16 @@
 name: 'getChitty Creds'
-description: 'Fetches ephemeral credentials from ChittyConnect via GitHub OIDC (zero secrets)'
+description: 'Fetches ephemeral credentials from ChittyConnect via GitHub OIDC (zero secrets) with API key fallback'
 inputs:
   api_key:
-    description: 'ChittyConnect API key (deprecated — OIDC is preferred)'
+    description: 'ChittyConnect API key (fallback when OIDC is unavailable)'
     required: false
     default: ''
   purpose:
-    description: 'Purpose of credential request'
+    description: 'Purpose of credential request (included in audit log)'
     required: false
     default: 'ci-deploy'
   service:
-    description: 'Service name requesting credentials'
+    description: 'Service name requesting credentials (included in audit log)'
     required: false
     default: ''
   credentials:
@@ -24,73 +24,123 @@ outputs:
   account_id:
     description: 'Cloudflare Account ID'
     value: ${{ steps.fetch.outputs.account_id }}
+  npm_token:
+    description: 'Ephemeral npm token'
+    value: ${{ steps.fetch.outputs.npm_token }}
+  github_token:
+    description: 'Ephemeral GitHub token'
+    value: ${{ steps.fetch.outputs.github_token }}
   neon_token:
-    description: 'Neon database URL'
+    description: 'Neon database URL (legacy name kept for compatibility)'
     value: ${{ steps.fetch.outputs.neon_token }}
+  neon_database_url:
+    description: 'Neon database URL'
+    value: ${{ steps.fetch.outputs.neon_database_url }}
+  register_token:
+    description: 'Ephemeral ChittyRegister token'
+    value: ${{ steps.fetch.outputs.register_token }}
 runs:
   using: 'composite'
   steps:
-    - name: Fetch ephemeral credentials via OIDC
+    - name: Fetch ephemeral credentials
       id: fetch
       shell: bash
       env:
+        CHITTYCONNECT_API_KEY: ${{ inputs.api_key }}
         CRED_PURPOSE: ${{ inputs.purpose }}
         CRED_SERVICE: ${{ inputs.service }}
         CRED_LIST: ${{ inputs.credentials }}
+        GITHUB_REPO: ${{ github.repository }}
+        GITHUB_RUN: ${{ github.run_id }}
       run: |
-        # Get GitHub OIDC token for ChittyConnect audience
-        if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
-          echo "::error::OIDC not available. Add 'permissions: { id-token: write }' to the calling job."
-          exit 1
-        fi
-
-        OIDC_TOKEN=$(curl -sS \
-          -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://connect.chitty.cc" \
-          | jq -r '.value')
-
-        if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
-          echo "::error::Failed to obtain GitHub OIDC token"
-          exit 1
-        fi
-
         # Build credentials array from comma-separated list
         CRED_JSON=$(echo "$CRED_LIST" | jq -R 'split(",") | map(gsub("\\s";""))')
 
-        PAYLOAD=$(jq -n --argjson creds "$CRED_JSON" '{credentials: $creds}')
+        # --- Auth strategy: OIDC preferred, API key fallback ---
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+          # OIDC path (zero secrets)
+          OIDC_TOKEN=$(curl -sS \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://connect.chitty.cc" \
+            | jq -r '.value')
 
-        RESPONSE=$(curl -sf --max-time 30 \
-          https://connect.chitty.cc/api/github-actions/credentials \
-          -H "Authorization: Bearer ${OIDC_TOKEN}" \
-          -H "Content-Type: application/json" \
-          -d "$PAYLOAD") || {
-          echo "::error::Failed to fetch credentials from ChittyConnect"
-          exit 1
-        }
+          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+            echo "::error::Failed to obtain GitHub OIDC token"
+            exit 1
+          fi
 
-        # Check success
-        SUCCESS=$(echo "$RESPONSE" | jq -r '.success // false')
-        if [ "$SUCCESS" != "true" ]; then
-          ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
-          echo "::error::ChittyConnect error: ${ERROR_MSG}"
+          PAYLOAD=$(jq -n --argjson creds "$CRED_JSON" '{credentials: $creds}')
+
+          RESPONSE=$(curl -sf --max-time 30 \
+            https://connect.chitty.cc/api/github-actions/credentials \
+            -H "Authorization: Bearer ${OIDC_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD") || {
+            echo "::error::Failed to fetch credentials from ChittyConnect (OIDC)"
+            exit 1
+          }
+
+          # Check success
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success // false')
+          if [ "$SUCCESS" != "true" ]; then
+            ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
+            echo "::error::ChittyConnect error: ${ERROR_MSG}"
+            exit 1
+          fi
+
+          # Extract from OIDC response shape (.credentials.X)
+          CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_API_TOKEN // empty')
+          ACCT_ID=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_ACCOUNT_ID // empty')
+          NPM_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.NPM_TOKEN // empty')
+          GH_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.GITHUB_TOKEN // empty')
+          NEON_URL=$(echo "$RESPONSE" | jq -r '.credentials.NEON_DATABASE_URL // empty')
+          REG_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CHITTYREGISTER_TOKEN // empty')
+
+        elif [ -n "$CHITTYCONNECT_API_KEY" ]; then
+          # API key fallback
+          PAYLOAD=$(jq -n \
+            --argjson creds "$CRED_JSON" \
+            --arg purpose "$CRED_PURPOSE" \
+            --arg service "$CRED_SERVICE" \
+            --arg repo "$GITHUB_REPO" \
+            --arg run_id "$GITHUB_RUN" \
+            '{credentials: $creds, purpose: $purpose, service: $service, repo: $repo, run_id: $run_id}')
+
+          RESPONSE=$(curl -sf --max-time 30 \
+            https://connect.chitty.cc/api/credentials/provision \
+            -H "Authorization: Bearer ${CHITTYCONNECT_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD") || {
+            echo "::error::Failed to fetch credentials from ChittyConnect (API key)"
+            exit 1
+          }
+
+          CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credential.value // .credentials.CLOUDFLARE_API_TOKEN // empty')
+          ACCT_ID=$(echo "$RESPONSE" | jq -r '.credential.account_id // .credentials.CLOUDFLARE_ACCOUNT_ID // empty')
+          NPM_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.NPM_TOKEN // empty')
+          GH_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.GITHUB_TOKEN // empty')
+          NEON_URL=$(echo "$RESPONSE" | jq -r '.credentials.NEON_DATABASE_URL // empty')
+          REG_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CHITTYREGISTER_TOKEN // empty')
+
+        else
+          echo "::error::No auth available. Either enable OIDC (add 'permissions: { id-token: write }') or provide api_key input."
           exit 1
         fi
 
-        # Extract credentials from response
-        CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_API_TOKEN // empty')
-        ACCT_ID=$(echo "$RESPONSE" | jq -r '.credentials.CLOUDFLARE_ACCOUNT_ID // empty')
-        NEON_URL=$(echo "$RESPONSE" | jq -r '.credentials.NEON_DATABASE_URL // empty')
-
         # Mask all sensitive values
-        for val in "$CF_TOKEN" "$NEON_URL"; do
+        for val in "$CF_TOKEN" "$NPM_TOKEN" "$GH_TOKEN" "$NEON_URL" "$REG_TOKEN"; do
           if [ -n "$val" ]; then
             echo "::add-mask::${val}"
           fi
         done
 
-        # Write to outputs
+        # Write to outputs (neon_token is legacy alias for neon_database_url)
         {
           echo "cloudflare_token=${CF_TOKEN}"
           echo "account_id=${ACCT_ID}"
+          echo "npm_token=${NPM_TOKEN}"
+          echo "github_token=${GH_TOKEN}"
           echo "neon_token=${NEON_URL}"
+          echo "neon_database_url=${NEON_URL}"
+          echo "register_token=${REG_TOKEN}"
         } >> "$GITHUB_OUTPUT"
