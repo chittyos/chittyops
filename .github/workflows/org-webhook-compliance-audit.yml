@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload webhook audit artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: webhook-audit-${{ github.run_id }}
           path: compliance/webhook-audit
