@@ -61,6 +61,8 @@ discover_org() {
             j = cfg.is_a?(Hash) ? cfg : {}
             jname = j["name"].to_s
             jname = jid.to_s if jname.nil? || jname.empty?
+            # Include both raw check-run name and workflow/job for compatibility.
+            puts "- #{jname}"
             puts "- #{wname} / #{jname}"
           end
         ' 2>/dev/null || true)

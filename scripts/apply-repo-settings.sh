@@ -33,13 +33,17 @@ apply_repo_settings() {
     return 0
   fi
 
-  if gh api "repos/$org/$repo" --method PATCH --input <(printf '%s' "$payload") >/dev/null 2>/tmp/repo_patch_err.log; then
+  local errfile
+  errfile="$(mktemp)"
+  if gh api "repos/$org/$repo" --method PATCH --input <(printf '%s' "$payload") >/dev/null 2>"$errfile"; then
+    rm -f "$errfile"
     echo "patched $org/$repo"
     return 0
   fi
 
   echo "failed $org/$repo"
-  sed -n '1,2p' /tmp/repo_patch_err.log
+  sed -n '1,2p' "$errfile"
+  rm -f "$errfile"
   return 1
 }
 
