@@ -631,3 +631,48 @@ organizations:
         territory: operations
         active: true
         description: "Organization-wide GitHub configuration"
+
+  # ── chittyfoundation (governance primitives layer) ──────────────────────
+  chittyfoundation:
+    services:
+      chittyops-foundation:
+        repo: chittyfoundation/chittyops
+        tier: 0
+        type: tool
+        domain: null
+        territory: operations
+        active: true
+        description: "Governance primitives, hook contracts, territory definitions"
+
+      .github:
+        repo: chittyfoundation/.github
+        tier: null
+        type: org-config
+        domain: null
+        territory: operations
+        active: true
+        description: "Organization-wide GitHub configuration"
+
+  # ── chittyapps (product applications layer) ─────────────────────────────
+  chittyapps:
+    services:
+      .github:
+        repo: chittyapps/.github
+        tier: null
+        type: org-config
+        domain: null
+        territory: operations
+        active: true
+        description: "Organization-wide GitHub configuration"
+
+  # ── furnished-condos (external product org) ─────────────────────────────
+  furnished-condos:
+    services:
+      .github:
+        repo: furnished-condos/.github
+        tier: null
+        type: org-config
+        domain: null
+        territory: operations
+        active: true
+        description: "Organization-wide GitHub configuration"

@@ -15,6 +15,8 @@
     "audit": "node compliance/audit.js --verbose",
     "audit:json": "node compliance/audit.js --output=compliance-report.json --markdown=compliance-report.md --verbose",
     "audit:service": "node compliance/audit.js --verbose --service",
+    "audit:security": "node compliance/security-audit.js --skip-runtime --verbose",
+    "audit:security:json": "node compliance/security-audit.js --skip-runtime --output=security-report.json --markdown=security-report.md --verbose",
     "remediate": "node compliance/remediate.js compliance-report.json --mode=report"
   },
   "repository": {
