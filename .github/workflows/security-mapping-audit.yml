@@ -1,0 +1,111 @@
+name: Org-Wide Security Mapping Audit
+
+on:
+  schedule:
+    - cron: '0 5 * * 1' # Weekly Monday 05:00 UTC (offset from compliance audit at 06:00)
+  workflow_dispatch:
+    inputs:
+      org:
+        description: 'Organization to audit (or "all")'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - CHITTYOS
+          - ChittyCorp
+          - chittyfoundation
+          - chittyapps
+          - furnished-condos
+      skip_runtime:
+        description: 'Skip live health endpoint checks'
+        required: false
+        type: boolean
+        default: true
+      threshold:
+        description: 'Minimum security coverage % (exit 1 if below; 0 = informational only)'
+        required: false
+        default: '0'
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  security-audit:
+    name: Security Mapping Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run security mapping audit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ARGS="--org=${{ inputs.org || 'all' }}"
+          ARGS="$ARGS --output=security-report.json"
+          ARGS="$ARGS --markdown=security-report.md"
+          ARGS="$ARGS --verbose"
+          if [ "${{ inputs.skip_runtime }}" = "true" ]; then
+            ARGS="$ARGS --skip-runtime"
+          fi
+          if [ -n "${{ inputs.threshold }}" ] && [ "${{ inputs.threshold }}" != "0" ]; then
+            ARGS="$ARGS --threshold=${{ inputs.threshold }}"
+          fi
+          node compliance/security-audit.js $ARGS
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-mapping-report-${{ github.run_number }}
+          path: |
+            security-report.json
+            security-report.md
+          retention-days: 90
+
+      - name: Post report summary
+        if: always()
+        run: |
+          echo "## Org-Wide Security Mapping Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f security-report.md ]; then
+            cat security-report.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "_Report file not generated — check the audit step for errors._" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Open or update tracking issue on P0/P1 findings
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="[Security] Org-wide security mapping findings"
+          if [ ! -f security-report.md ]; then
+            echo "No report file; skipping issue update."
+            exit 0
+          fi
+          body="$(cat security-report.md)"
+          existing="$(gh issue list --state open \
+            --search "\"${title}\" in:title" \
+            --json number,title \
+            --jq '.[] | select(.title=="'"${title}"'") | .number' | head -n1 || true)"
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body "${body}" >/dev/null
+            echo "Updated existing issue #${existing}"
+          else
+            gh issue create \
+              --title "${title}" \
+              --body "${body}" \
+              --label "security,compliance" >/dev/null
+            echo "Created new tracking issue"
+          fi
