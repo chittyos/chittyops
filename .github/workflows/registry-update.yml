@@ -32,21 +32,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Get credentials via ChittyConnect
-        uses: CHITTYOS/chittyops/.github/actions/getchitty-creds@main
-        id: creds
-        with:
-          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
-          purpose: 'registry-sync'
-          service: 'chittyops'
-
       - name: Sync service registry
         env:
           REGISTRY_URL: https://registry.chitty.cc
-          CHITTYCONNECT_TOKEN: ${{ steps.creds.outputs.github_token }}
-        run: node scripts/sync-registry.js
+          CHITTYCONNECT_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CHITTYCONNECT_TOKEN" ]; then
+            echo "::error::REGISTRY_TOKEN secret is not set on this repo"
+            exit 1
+          fi
+          node scripts/sync-registry.js
 
       - name: Verify sync
+        env:
+          REGISTRY_URL: https://registry.chitty.cc
         run: |
           STATUS=$(curl -sf "${REGISTRY_URL}/health" | node -e "
             let d='';process.stdin.on('data',c=>d+=c);
