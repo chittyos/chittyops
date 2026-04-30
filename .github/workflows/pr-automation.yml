@@ -68,57 +68,10 @@ jobs:
               });
             }
 
-  trigger-ai-reviews:
-    name: Trigger AI Reviews
-    runs-on: ubuntu-latest
-    needs: auto-label
-    if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize')
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Dispatch Claude Review
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'ai-review-claude.yml',
-              ref: context.ref,
-              inputs: {
-                pr_number: String(context.payload.pull_request.number)
-              }
-            });
-      
-      - name: Dispatch Codex Review
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'ai-review-codex.yml',
-              ref: context.ref,
-              inputs: {
-                pr_number: String(context.payload.pull_request.number)
-              }
-            });
-
-      - name: Wait for CodeRabbit
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const pr = context.payload.pull_request;
-            console.log(`CodeRabbit AI should auto-review PR #${pr.number}`);
-            console.log('CodeRabbit is configured via .github/coderabbit.yml');
-
   check-merge-ready:
     name: Check if ready to merge
     runs-on: ubuntu-latest
-    needs: trigger-ai-reviews
+    needs: auto-label
     if: github.event_name != 'pull_request' || github.event.action != 'opened'
     steps:
       - uses: actions/checkout@v4
