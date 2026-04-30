@@ -246,6 +246,190 @@ describe('templates', () => {
   });
 });
 
+// ── Security checks YAML validation ──
+
+describe('security-checks.yml', () => {
+  const securityChecksPath = path.join(__dirname, '..', 'compliance', 'security-checks.yml');
+  const secChecks = yaml.load(fs.readFileSync(securityChecksPath, 'utf8'));
+
+  test('parses without errors', () => {
+    assert.ok(secChecks);
+    assert.strictEqual(secChecks.schema_version, '1.0');
+  });
+
+  test('defines all 6 WS dimensions', () => {
+    const expected = [
+      'ws1_inventory', 'ws2_identity', 'ws3_cicd',
+      'ws4_runtime', 'ws5_threats', 'ws6_remediation',
+    ];
+    for (const dim of expected) {
+      assert.ok(secChecks.checks[dim], `Missing dimension: ${dim}`);
+      assert.ok(secChecks.checks[dim].name, `${dim} missing name`);
+      assert.ok(secChecks.checks[dim].description, `${dim} missing description`);
+    }
+  });
+
+  test('defines severity_tiers with p0, p1, p2', () => {
+    assert.ok(secChecks.severity_tiers);
+    assert.ok(secChecks.severity_tiers.p0);
+    assert.ok(secChecks.severity_tiers.p1);
+    assert.ok(secChecks.severity_tiers.p2);
+    assert.ok(typeof secChecks.severity_tiers.p0.sla_hours === 'number');
+    assert.ok(secChecks.severity_tiers.p0.sla_hours < secChecks.severity_tiers.p1.sla_hours);
+  });
+
+  test('defines blast_radius classifications', () => {
+    assert.ok(secChecks.blast_radius);
+    assert.ok(secChecks.blast_radius.tier0_tier1);
+    assert.ok(secChecks.blast_radius.tier2_tier3);
+    assert.ok(secChecks.blast_radius.tier4_tier5);
+  });
+});
+
+// ── SecurityAuditor unit tests ──
+
+describe('SecurityAuditor', () => {
+  test('module loads without error', () => {
+    const { SecurityAuditor } = require('../compliance/security-audit');
+    assert.ok(SecurityAuditor);
+  });
+
+  test('constructor initialises with defaults', () => {
+    const { SecurityAuditor } = require('../compliance/security-audit');
+    const auditor = new SecurityAuditor({ verbose: false, skipRuntime: true });
+    assert.strictEqual(auditor.verbose, false);
+    assert.strictEqual(auditor.skipRuntime, true);
+  });
+
+  test('loadRegistry returns valid registry', () => {
+    const { SecurityAuditor } = require('../compliance/security-audit');
+    const auditor = new SecurityAuditor();
+    const registry = auditor.loadRegistry();
+    assert.ok(registry);
+    assert.ok(registry.organizations);
+  });
+
+  test('loadSecurityChecks returns valid checks', () => {
+    const { SecurityAuditor } = require('../compliance/security-audit');
+    const auditor = new SecurityAuditor();
+    const checks = auditor.loadSecurityChecks();
+    assert.ok(checks);
+    assert.ok(checks.checks.ws1_inventory);
+    assert.ok(checks.checks.ws2_identity);
+    assert.ok(checks.checks.ws3_cicd);
+    assert.ok(checks.checks.ws4_runtime);
+    assert.ok(checks.checks.ws5_threats);
+    assert.ok(checks.checks.ws6_remediation);
+  });
+
+  test('riskSeverity returns P0 for critical dim on tier-0 service', () => {
+    const { riskSeverity } = require('../compliance/security-audit');
+    assert.strictEqual(riskSeverity('ws2_identity', 0), 'P0');
+    assert.strictEqual(riskSeverity('ws3_cicd', 1), 'P0');
+    assert.strictEqual(riskSeverity('ws5_threats', 2), 'P0');
+  });
+
+  test('riskSeverity returns P1 for critical dim on higher-tier service', () => {
+    const { riskSeverity } = require('../compliance/security-audit');
+    assert.strictEqual(riskSeverity('ws2_identity', 4), 'P1');
+    assert.strictEqual(riskSeverity('ws3_cicd', 5), 'P1');
+  });
+
+  test('riskSeverity returns P2 for non-critical dims', () => {
+    const { riskSeverity } = require('../compliance/security-audit');
+    assert.strictEqual(riskSeverity('ws1_inventory', 4), 'P2');
+    assert.strictEqual(riskSeverity('ws6_remediation', 3), 'P2');
+  });
+
+  test('blastRadiusLabel returns correct labels by tier', () => {
+    const { blastRadiusLabel } = require('../compliance/security-audit');
+    assert.strictEqual(blastRadiusLabel(0, 'npm-package'), 'Ecosystem-wide');
+    assert.strictEqual(blastRadiusLabel(1, 'cloudflare-worker'), 'Ecosystem-wide');
+    assert.strictEqual(blastRadiusLabel(2, 'cloudflare-worker'), 'Platform-wide');
+    assert.strictEqual(blastRadiusLabel(3, 'tool'), 'Platform-wide');
+    assert.strictEqual(blastRadiusLabel(4, 'cloudflare-worker'), 'Domain/Application');
+    assert.strictEqual(blastRadiusLabel(5, 'tool'), 'Domain/Application');
+    assert.strictEqual(blastRadiusLabel(null, 'org-config'), 'Organization');
+  });
+
+  test('generateSecurityMarkdown includes all required sections', () => {
+    const { generateSecurityMarkdown } = require('../compliance/security-audit');
+    const report = {
+      timestamp: '2026-04-24T00:00:00.000Z',
+      scope: 'org-wide-security-mapping',
+      organizations: {
+        TestOrg: {
+          services: {
+            'test-worker': {
+              repo: 'TestOrg/test-worker',
+              tier: 2,
+              type: 'cloudflare-worker',
+              domain: 'test.example.com',
+              active: true,
+              skipped: false,
+              checks: {
+                ws1_inventory: { status: 'pass' },
+                ws2_identity:  { status: 'fail', reason: 'No secret-scanning tool in CI' },
+                ws3_cicd:      { status: 'pass' },
+                ws4_runtime:   { status: 'not_applicable' },
+                ws5_threats:   { status: 'fail', reason: 'No .chittyconnect.yml' },
+                ws6_remediation: { status: 'pass' },
+              },
+            },
+          },
+        },
+      },
+      summary: {
+        total: 1, fullPass: 0, partial: 1, fail: 0,
+        skipped: 0, orgCount: 1, securityRate: 0,
+      },
+    };
+
+    const md = generateSecurityMarkdown(report);
+    assert.ok(md.includes('Security Mapping Report'));
+    assert.ok(md.includes('Risk Register'));
+    assert.ok(md.includes('Control Matrix'));
+    assert.ok(md.includes('test-worker'));
+    assert.ok(md.includes('PASS'));
+    assert.ok(md.includes('FAIL'));
+    assert.ok(md.includes('P0')); // tier-2 ws2_identity failure => P0
+  });
+});
+
+// ── Service registry — security scope orgs ──
+
+describe('service-registry.yml security scope', () => {
+  const registryPath = path.join(__dirname, '..', 'compliance', 'service-registry.yml');
+  const registry = yaml.load(fs.readFileSync(registryPath, 'utf8'));
+
+  test('includes all orgs from security mapping scope', () => {
+    const requiredOrgs = ['CHITTYOS', 'ChittyCorp', 'chittyfoundation', 'chittyapps', 'furnished-condos'];
+    for (const org of requiredOrgs) {
+      assert.ok(
+        registry.organizations[org],
+        `Missing org in service registry: ${org}`
+      );
+    }
+  });
+
+  test('each new org has at least one service entry', () => {
+    const newOrgs = ['chittyfoundation', 'chittyapps', 'furnished-condos'];
+    for (const org of newOrgs) {
+      const orgData = registry.organizations[org];
+      assert.ok(orgData && orgData.services, `${org} missing services map`);
+      assert.ok(Object.keys(orgData.services).length > 0, `${org} has no service entries`);
+    }
+  });
+
+  test('chittyfoundation chittyops-foundation entry is valid', () => {
+    const svc = registry.organizations.chittyfoundation.services['chittyops-foundation'];
+    assert.ok(svc, 'chittyfoundation/chittyops-foundation service missing');
+    assert.strictEqual(svc.repo, 'chittyfoundation/chittyops');
+    assert.strictEqual(svc.tier, 0);
+    assert.strictEqual(svc.active, true);
+  });
+});
+
 describe('sync-registry', () => {
   test('sync script has valid syntax', () => {
     const syncPath = path.join(__dirname, '..', 'scripts', 'sync-registry.js');

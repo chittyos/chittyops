@@ -1,0 +1,149 @@
+# ChittyOS Org-Wide Security Mapping Checks
+# canonical_uri: chittycanon://chittyos/security/checks
+# namespace: chittyos.operations.security
+# type: security-checks
+# status: ACTIVE
+# linked_issue: Org-wide Security Mapping Initiative (WS1-WS6)
+# NOTE: These check definitions mirror the ComplianceSecurityAuditor class in
+# security-audit.js. Keep both in sync.
+schema_version: "1.0"
+
+# Security dimensions aligned with the six workstreams of the security mapping initiative.
+# Scope: chittyos, chittyapps, chittyfoundation, chittycorp, furnished-condos
+
+checks:
+  ws1_inventory:
+    name: "WS1 — Asset Inventory & Dependency Graph"
+    description: "Repo is catalogued with tier, criticality, and description; branch protection is enabled on main"
+    repo_checks:
+      - field: "tier"
+        description: "Service tier (0-5 or null for infra) declared in registry"
+      - field: "description"
+        description: "Service description present in registry"
+    branch_protection:
+      required: true
+      branch: "main"
+      description: "Branch protection rules enabled on main"
+    file_checks:
+      - path: "CODEOWNERS"
+        required: true
+        description: "Code ownership file present for review enforcement"
+
+  ws2_identity:
+    name: "WS2 — Identity & Secrets Mapping"
+    description: "Secret scanning enabled, secret catalog maintained, rotation policy configured, no raw credentials in workflows"
+    workflow_checks:
+      - pattern: "trufflehog|gitleaks|secret[- ]?scan"
+        description: "Secret-scanning tool (TruffleHog or Gitleaks) referenced in at least one workflow"
+    file_checks:
+      - path: ".github/secret-catalog.json"
+        required: false
+        description: "Secret catalog documents all org-level secrets with rotation policy"
+      - path: ".gitleaks.toml"
+        required: false
+        description: "Gitleaks config present for allowlist management"
+    github_features:
+      - feature: "secret_scanning"
+        description: "GitHub native secret scanning active on repo"
+
+  ws3_cicd:
+    name: "WS3 — CI/CD & SDLC Control Mapping"
+    description: "Required status checks, SCA (Dependabot/Snyk), SAST (CodeQL), and secret-gate in CI are all active"
+    workflow_checks:
+      - pattern: "codeql|CodeQL"
+        description: "SAST via CodeQL configured in CI"
+      - pattern: "npm audit|pnpm audit|snyk|dependabot"
+        description: "SCA (dependency vulnerability scanning) configured in CI"
+    file_checks:
+      - path: ".github/dependabot.yml"
+        required: true
+        description: "Dependabot configuration present for automated dependency updates"
+    branch_protection:
+      required: true
+      required_status_checks: true
+      description: "At least one required status check enforced before merge"
+
+  ws4_runtime:
+    name: "WS4 — Runtime & Data-Plane Hardening"
+    description: "Health endpoint reachable, Cloudflare Workers config present for runtime services, data-plane hardening indicators present"
+    applicable_when:
+      field: "type"
+      condition: "in"
+      value:
+        - "cloudflare-worker"
+    runtime_checks:
+      - endpoint: "https://{domain}/health"
+        method: "GET"
+        expected_status: 200
+        timeout_ms: 5000
+        description: "Health endpoint responds with HTTP 200"
+    file_checks:
+      - path: "wrangler.jsonc"
+        required: false
+        description: "wrangler.jsonc present with runtime configuration"
+      - path: "wrangler.toml"
+        required: false
+        description: "wrangler.toml present as alternative runtime config"
+
+  ws5_threats:
+    name: "WS5 — Threat Scenarios & Auth Boundaries"
+    description: "Service-to-service trust chain provisioned, auth provider declared, MCP/API ingress authentication configured"
+    config_checks:
+      - field: "auth.provider"
+        in_file: ".chittyconnect.yml"
+        expected_value: "chittyauth"
+        description: "Auth provider explicitly set to chittyauth"
+      - field: "onboarding.provisions"
+        in_file: ".chittyconnect.yml"
+        expected_contains:
+          - "service_token"
+          - "trust_chain"
+        description: "Service token and trust chain provisioned via ChittyConnect onboarding"
+    workflow_checks:
+      - pattern: "adversarial|penetration|abuse|threat"
+        required: false
+        description: "Adversarial or threat-validation workflow present (recommended)"
+
+  ws6_remediation:
+    name: "WS6 — Remediation Execution & Closure Evidence"
+    description: "Compliance audit CI is active, remediation workflow is configured, and open P0 findings have owners"
+    workflow_checks:
+      - pattern: "compliance.*audit|ecosystem.*audit|security.*audit"
+        description: "Compliance or security audit workflow active in the repository"
+      - pattern: "onepassword.*rotation|rotation.*audit|secret.*rotation"
+        required: false
+        description: "Secret rotation audit workflow configured (recommended)"
+    file_checks:
+      - path: ".github/workflows/ecosystem-compliance-audit.yml"
+        required: false
+        description: "Ecosystem compliance audit workflow file present"
+
+# Risk severity tiers for findings (used in the risk register)
+severity_tiers:
+  p0:
+    label: "P0 — Critical"
+    description: "Immediate exploitation risk; secret exposure, authentication bypass, or public data leak"
+    sla_hours: 24
+  p1:
+    label: "P1 — High"
+    description: "Likely exploitation vector; missing branch protection, no SAST, unrotated long-lived tokens"
+    sla_hours: 168
+  p2:
+    label: "P2 — Medium"
+    description: "Control gap that increases attack surface; missing dependabot, no secret catalog, absent CODEOWNERS"
+    sla_hours: 720
+
+# Blast-radius classification: used by the risk register generator
+blast_radius:
+  tier0_tier1:
+    label: "Ecosystem-wide"
+    description: "Compromise of a trust anchor or identity service affects all downstream services"
+  tier2_tier3:
+    label: "Platform-wide"
+    description: "Compromise affects all services consuming the platform layer"
+  tier4_tier5:
+    label: "Domain/Application"
+    description: "Compromise is bounded to the specific domain or application"
+  org_config:
+    label: "Organization"
+    description: "Affects repository settings, CI/CD pipelines, and all contributors"
