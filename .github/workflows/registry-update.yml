@@ -1,12 +1,15 @@
 name: Registry Sync
 
+# DISABLED 2026-04-30: This workflow has been failing every 6h since 2026-02-09
+# (~80 days) and even when working did nothing useful. The target endpoint
+# `POST registry.chitty.cc/api/v1/sync` ignores the posted service catalog and
+# just triggers an internal R2 scan — the 62-service payload from
+# compliance/service-registry.yml has never been ingested.
+#
+# Re-enable once chittyregistry exposes a real catalog-ingestion endpoint with
+# real auth. Tracking issue: CHITTYOS/chittyregistry (filed 2026-04-30).
+
 on:
-  schedule:
-    - cron: '17 */6 * * *'  # Every 6 hours at :17
-  push:
-    branches: [main]
-    paths:
-      - 'compliance/service-registry.yml'
   workflow_dispatch:
 
 permissions:
@@ -16,44 +19,7 @@ jobs:
   sync-registry:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Get credentials via ChittyConnect
-        uses: CHITTYOS/chittyops/.github/actions/getchitty-creds@main
-        id: creds
-        with:
-          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
-          purpose: 'registry-sync'
-          service: 'chittyops'
-
-      - name: Sync service registry
-        env:
-          REGISTRY_URL: https://registry.chitty.cc
-          CHITTYCONNECT_TOKEN: ${{ steps.creds.outputs.github_token }}
-        run: node scripts/sync-registry.js
-
-      - name: Verify sync
+      - name: Disabled
         run: |
-          STATUS=$(curl -sf "${REGISTRY_URL}/health" | node -e "
-            let d='';process.stdin.on('data',c=>d+=c);
-            process.stdin.on('end',()=>{
-              const h=JSON.parse(d);
-              console.log(h.status);
-              process.exit(h.status==='HEALTHY'?0:1);
-            });
-          " 2>/dev/null) || true
-          echo "Registry status: ${STATUS:-unknown}"
+          echo "::warning::Registry Sync is disabled — see workflow file header for context"
+          exit 0
