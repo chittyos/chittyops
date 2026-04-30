@@ -1,0 +1,21 @@
+language: en-US
+early_access: true
+reviews:
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  profile: chill
+  review_strategy: auto
+  auto_title_placeholder: "⚠️ **Potential issues**"
+  path_filters:
+    - "!**/*.lock"
+    - "!**/*.json"
+    - "!**/package-lock.json"
+    - "!**/yarn.lock"
+  collapse_walkthrough: false
+chat:
+  auto_reply: true

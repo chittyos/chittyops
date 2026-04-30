@@ -1,0 +1,134 @@
+name: Auto-Delete Branch
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  delete-branch:
+    name: Delete Merged Branch
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Get branch information
+        id: branch-info
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const branch = pr.head.ref;
+            const base = pr.base.ref;
+            
+            console.log(`PR #${pr.number} was merged`);
+            console.log(`Source branch: ${branch}`);
+            console.log(`Base branch: ${base}`);
+            
+            core.setOutput('branch', branch);
+            core.setOutput('base', base);
+            core.setOutput('is_fork', pr.head.repo.full_name !== pr.base.repo.full_name);
+
+      - name: Check if branch is protected
+        id: check-protected
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branch = '${{ steps.branch-info.outputs.branch }}';
+            
+            // List of protected branch patterns
+            const protectedPatterns = [
+              'main',
+              'master',
+              'develop',
+              'development',
+              'staging',
+              'production',
+              'release/*',
+              'hotfix/*'
+            ];
+            
+            // Check if branch matches any protected pattern
+            const isProtected = protectedPatterns.some(pattern => {
+              if (pattern.includes('*')) {
+                const regex = new RegExp('^' + pattern.replace('*', '.*') + '$');
+                return regex.test(branch);
+              }
+              return branch === pattern;
+            });
+            
+            if (isProtected) {
+              console.log(`Branch "${branch}" matches protected pattern, will not delete`);
+              core.setOutput('is_protected', 'true');
+              return true;
+            }
+            
+            // Check GitHub branch protection rules
+            try {
+              const { data: protection } = await github.rest.repos.getBranchProtection({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: branch
+              });
+              
+              console.log(`Branch "${branch}" has GitHub protection rules, will not delete`);
+              core.setOutput('is_protected', 'true');
+              return true;
+            } catch (error) {
+              if (error.status === 404) {
+                console.log(`Branch "${branch}" is not protected`);
+                core.setOutput('is_protected', 'false');
+                return false;
+              }
+              throw error;
+            }
+
+      - name: Delete branch
+        if: |
+          steps.check-protected.outputs.is_protected == 'false' &&
+          steps.branch-info.outputs.is_fork == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branch = '${{ steps.branch-info.outputs.branch }}';
+            
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `heads/${branch}`
+              });
+              
+              console.log(`✅ Successfully deleted branch: ${branch}`);
+            } catch (error) {
+              if (error.status === 422) {
+                console.log(`Branch "${branch}" was already deleted or doesn't exist`);
+              } else {
+                console.error(`Failed to delete branch "${branch}":`, error.message);
+                throw error;
+              }
+            }
+
+      - name: Skip fork branch deletion
+        if: steps.branch-info.outputs.is_fork == 'true'
+        run: |
+          echo "Branch is from a fork, skipping deletion"
+          echo "Fork branches should be deleted by their owners"
+
+      - name: Skip protected branch deletion
+        if: steps.check-protected.outputs.is_protected == 'true'
+        run: |
+          echo "Branch is protected, skipping deletion"
+          echo "Protected branches: main, master, develop, staging, production, release/*, hotfix/*"
+
+      - name: Log cleanup status
+        if: always()
+        run: |
+          echo "Branch cleanup completed"
+          echo "Branch: ${{ steps.branch-info.outputs.branch }}"
+          echo "Protected: ${{ steps.check-protected.outputs.is_protected }}"
+          echo "Is fork: ${{ steps.branch-info.outputs.is_fork }}"
