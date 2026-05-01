@@ -71,7 +71,6 @@ jobs:
   check-merge-ready:
     name: Check if ready to merge
     runs-on: ubuntu-latest
-    needs: auto-label
     if: github.event_name != 'pull_request' || github.event.action != 'opened'
     steps:
       - uses: actions/checkout@v4

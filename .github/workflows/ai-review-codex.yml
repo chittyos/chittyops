@@ -9,6 +9,15 @@ on:
         type: string
   pull_request:
     types: [opened, synchronize]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/labeler.yml'
+      - '.github/auto-merge.json'
+
+concurrency:
+  group: ai-review-codex-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
