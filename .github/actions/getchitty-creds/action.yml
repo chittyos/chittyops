@@ -14,9 +14,17 @@ inputs:
     required: false
     default: ''
   credentials:
-    description: 'Comma-separated list of credentials to fetch'
+    description: 'Comma-separated list of credentials to fetch (OIDC path only)'
     required: false
     default: 'CLOUDFLARE_API_TOKEN,CLOUDFLARE_ACCOUNT_ID'
+  type:
+    description: 'ChittyConnect credential type (API-key path). Determines server-side scoping/policy. Examples: cloudflare_workers_deploy.'
+    required: false
+    default: 'cloudflare_workers_deploy'
+  zones:
+    description: 'Comma-separated Cloudflare zone IDs to scope zone-bound permissions (e.g., Workers Routes Write). API-key path: forwarded as context.zones to ChittyConnect. OIDC path: forwarded but currently ignored server-side (see chittyconnect follow-up).'
+    required: false
+    default: ''
 outputs:
   cloudflare_token:
     description: 'Ephemeral Cloudflare API token'
@@ -50,11 +58,16 @@ runs:
         CRED_PURPOSE: ${{ inputs.purpose }}
         CRED_SERVICE: ${{ inputs.service }}
         CRED_LIST: ${{ inputs.credentials }}
+        CRED_TYPE: ${{ inputs.type }}
+        CRED_ZONES: ${{ inputs.zones }}
         GITHUB_REPO: ${{ github.repository }}
         GITHUB_RUN: ${{ github.run_id }}
       run: |
-        # Build credentials array from comma-separated list
-        CRED_JSON=$(echo "$CRED_LIST" | jq -R 'split(",") | map(ltrimstr(" ") | rtrimstr(" "))')
+        # Build credentials array from comma-separated list (OIDC path)
+        CRED_JSON=$(echo "$CRED_LIST" | jq -R 'split(",") | map(ltrimstr(" ") | rtrimstr(" ")) | map(select(length > 0))')
+
+        # Build zones array from comma-separated list (empty array if unset)
+        ZONES_JSON=$(echo "$CRED_ZONES" | jq -R 'split(",") | map(ltrimstr(" ") | rtrimstr(" ")) | map(select(length > 0))')
 
         # --- Auth strategy: OIDC preferred, API key fallback ---
         if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
@@ -69,7 +82,13 @@ runs:
             exit 1
           fi
 
-          PAYLOAD=$(jq -n --argjson creds "$CRED_JSON" '{credentials: $creds}')
+          # Forward zones in OIDC payload. Server-side honoring of context.zones
+          # for zone-scoped permissions on this route is a chittyconnect follow-up
+          # (today the OIDC route bypasses EnhancedCredentialProvisioner).
+          PAYLOAD=$(jq -n \
+            --argjson creds "$CRED_JSON" \
+            --argjson zones "$ZONES_JSON" \
+            '{credentials: $creds} + (if ($zones | length) > 0 then {zones: $zones} else {} end)')
 
           HTTP_CODE=$(curl -s --max-time 30 -o /tmp/cc_response.json -w '%{http_code}' \
             https://connect.chitty.cc/api/github-actions/credentials \
@@ -104,30 +123,58 @@ runs:
           REG_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CHITTYREGISTER_TOKEN // empty')
 
         elif [ -n "$CHITTYCONNECT_API_KEY" ]; then
-          # API key fallback
+          # API key fallback. Server contract (POST /api/credentials/provision):
+          #   { type, context: { service, purpose, zones?, ... } }
+          # Returns ONE credential per call (.credential.value, .credential.account_id).
+          # Multi-credential outputs (npm/github/neon/register) are only populated via
+          # the OIDC path above; under API-key auth they remain empty.
           PAYLOAD=$(jq -n \
-            --argjson creds "$CRED_JSON" \
+            --arg type "$CRED_TYPE" \
             --arg purpose "$CRED_PURPOSE" \
             --arg service "$CRED_SERVICE" \
             --arg repo "$GITHUB_REPO" \
             --arg run_id "$GITHUB_RUN" \
-            '{credentials: $creds, purpose: $purpose, service: $service, repo: $repo, run_id: $run_id}')
+            --argjson zones "$ZONES_JSON" \
+            '{
+              type: $type,
+              context: ({
+                service: $service,
+                purpose: $purpose,
+                repo: $repo,
+                run_id: $run_id
+              } + (if ($zones | length) > 0 then {zones: $zones} else {} end))
+            }')
 
-          RESPONSE=$(curl -sf --max-time 30 \
+          HTTP_CODE=$(curl -s --max-time 30 -o /tmp/cc_response.json -w '%{http_code}' \
             https://connect.chitty.cc/api/credentials/provision \
             -H "Authorization: Bearer ${CHITTYCONNECT_API_KEY}" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD") || {
-            echo "::error::Failed to fetch credentials from ChittyConnect (API key)"
-            exit 1
-          }
+            -d "$PAYLOAD")
+          RESPONSE=$(cat /tmp/cc_response.json 2>/dev/null || echo '{}')
 
-          CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credential.value // .credentials.CLOUDFLARE_API_TOKEN // empty')
-          ACCT_ID=$(echo "$RESPONSE" | jq -r '.credential.account_id // .credentials.CLOUDFLARE_ACCOUNT_ID // empty')
-          NPM_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.NPM_TOKEN // empty')
-          GH_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.GITHUB_TOKEN // empty')
-          NEON_URL=$(echo "$RESPONSE" | jq -r '.credentials.NEON_DATABASE_URL // empty')
-          REG_TOKEN=$(echo "$RESPONSE" | jq -r '.credentials.CHITTYREGISTER_TOKEN // empty')
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            ERROR_DETAIL=$(echo "$RESPONSE" | jq -r '.error.message // .error.code // empty' 2>/dev/null)
+            if [ -z "$ERROR_DETAIL" ]; then
+              ERROR_DETAIL=$(echo "$RESPONSE" | head -c 200)
+            fi
+            echo "::error::ChittyConnect returned HTTP ${HTTP_CODE}: ${ERROR_DETAIL}"
+            exit 1
+          fi
+
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success // false')
+          if [ "$SUCCESS" != "true" ]; then
+            ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
+            echo "::error::ChittyConnect error: ${ERROR_MSG}"
+            exit 1
+          fi
+
+          # API-key route returns a single credential keyed under .credential
+          CF_TOKEN=$(echo "$RESPONSE" | jq -r '.credential.value // empty')
+          ACCT_ID=$(echo "$RESPONSE" | jq -r '.credential.account_id // empty')
+          NPM_TOKEN=""
+          GH_TOKEN=""
+          NEON_URL=""
+          REG_TOKEN=""
 
         else
           echo "::error::No auth available. Either enable OIDC (add 'permissions: { id-token: write }') or provide api_key input."
