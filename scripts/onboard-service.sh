@@ -169,8 +169,9 @@ fi
 # Skipped unless --neon-project=<id> is provided.
 if [ -n "$NEON_PROJECT_ID" ]; then
   echo -e "\n${GREEN}Step 3.5: Registering Neon DB URL in 1Password...${NC}"
-  ITEM_TITLE="NEON_DB_$(echo "$SERVICE_NAME" | tr '[:lower:]' '[:upper:]')"
-  SYNTHETIC_SHARED_VAULT_ID="wscjej6suswjce43xhhrma3edu"
+  # Normalize: uppercase + map any non-[A-Z0-9_] (e.g. hyphens in chittyevidence-db) to '_'
+  # so ITEM_TITLE is always a valid env var name.
+  ITEM_TITLE="NEON_DB_$(echo "$SERVICE_NAME" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9_]/_/g')"
 
   if $DRY_RUN; then
     echo -e "${YELLOW}  [DRY RUN] Would fetch connection URI from Neon project $NEON_PROJECT_ID${NC}"
@@ -192,8 +193,11 @@ if [ -n "$NEON_PROJECT_ID" ]; then
     if op item get "$ITEM_TITLE" --vault synthetic-shared --format=json >/dev/null 2>&1; then
       echo "  $ITEM_TITLE already exists — skipping."
     else
-      # Fetch connection URI from Neon API. URI lives only in shell var, never inlined.
-      NEON_RESPONSE=$(curl -sf -H "Authorization: Bearer $NEON_API_KEY" \
+      # Fetch connection URI from Neon API. The API key is passed via curl --config
+      # over a process-substituted FD so it never appears in argv (avoids leakage
+      # via `ps`/audit logs on shared hosts). URI lives only in shell var.
+      NEON_RESPONSE=$(curl -sf \
+        --config <(printf 'header = "Authorization: Bearer %s"\n' "$NEON_API_KEY") \
         "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/connection_uri?database_name=neondb&role_name=neondb_owner" \
         || { echo -e "${RED}  ERROR: Neon API call failed for project $NEON_PROJECT_ID${NC}" >&2; exit 1; })
       CONNECTION_URI=$(echo "$NEON_RESPONSE" | jq -r '.uri // empty')
@@ -204,16 +208,16 @@ if [ -n "$NEON_PROJECT_ID" ]; then
 
       # Build the 1P item JSON via jq (--arg ensures the URI never appears as a command literal).
       # Pipe to op item create via stdin; URI never reaches the process arglist.
+      # Vault is specified once, via the --vault CLI flag — no `vault` field in the JSON
+      # so the two cannot drift.
       jq -n \
         --arg title "$ITEM_TITLE" \
-        --arg vault_id "$SYNTHETIC_SHARED_VAULT_ID" \
         --arg svc "$SERVICE_NAME" \
         --arg project "$NEON_PROJECT_ID" \
         --arg uri "$CONNECTION_URI" \
         '{
           title: $title,
           category: "API_CREDENTIAL",
-          vault: { id: $vault_id },
           fields: [
             { id: "notesPlain", label: "notesPlain", type: "STRING", purpose: "NOTES",
               value: ("Neon DB URL for " + $svc + ". Registered by onboard-service.sh. Project: " + $project + ".") },
