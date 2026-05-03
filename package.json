@@ -3,15 +3,19 @@
   "version": "0.1.0",
   "description": "1Password to Cloudflare Secrets Store bridge + chitty-op CLI for chittyserv-dev",
   "type": "module",
-  "bin": { "chitty-op": "./dist/cli/index.js" },
+  "bin": {
+    "chitty-op": "./dist/cli/index.js"
+  },
   "main": "./dist/lib/op-client.js",
   "types": "./dist/lib/op-client.d.ts",
-  "engines": { "node": ">=22.0.0" },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src tests --ext .ts",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "preflight": "npm run typecheck && npm run lint && npm test"
   },
