@@ -104,3 +104,36 @@ describe("runList", () => {
     expect(writes.join("")).toContain("cloudflare");
   });
 });
+import { runOtp } from "../src/cli/otp.js";
+
+describe("runOtp", () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it("prints OTP for vault/item", async () => {
+    vi.spyOn(env, "loadBridgeEnv").mockReturnValue({
+      onepasswordConnectUrl: "https://1p",
+      onepasswordConnectToken: "t",
+    });
+    const getOtp = vi.fn().mockResolvedValue("654321");
+    vi.spyOn(opClient, "OpClient").mockImplementation(
+      () => ({ getOtp }) as unknown as opClient.OpClient,
+    );
+    vi.spyOn(chronicle, "logEvent").mockResolvedValue();
+    const writes: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(String(c));
+      return true;
+    });
+
+    const code = await runOtp("services/github", { actor: "ubuntu" });
+    expect(code).toBe(0);
+    expect(getOtp).toHaveBeenCalledWith("services", "github");
+    expect(writes.join("")).toBe("654321\n");
+  });
+
+  it("rejects 3-segment path (otp does not take field)", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const code = await runOtp("a/b/c", { actor: "ubuntu" });
+    expect(code).toBe(1);
+  });
+});
