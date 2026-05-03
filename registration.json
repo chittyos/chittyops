@@ -1,0 +1,22 @@
+{
+  "name": "chitty-1p-bridge",
+  "tier": 3,
+  "category": "operational",
+  "deployment": "systemd-on-vm",
+  "vm": "chittyserv-dev",
+  "domain": null,
+  "health_endpoint": null,
+  "health_method": "systemctl status chitty-1p-bridge-sync.timer",
+  "canonical_uri": "chittycanon://core/services/chitty-1p-bridge",
+  "charter_uri": "chittycanon://docs/ops/policy/chitty-1p-bridge-charter",
+  "architecture_uri": "chittycanon://docs/ops/architecture/chitty-1p-bridge",
+  "repo": "https://github.com/chittyos/chitty-1p-bridge",
+  "version": "0.1.0",
+  "phase": 1,
+  "capabilities": ["op.get", "op.list_vaults", "op.list_items", "op.otp"],
+  "dependencies": {
+    "upstream": ["1password-connect", "chittyregistry"],
+    "peer": ["chittychronicle"]
+  },
+  "owner": "operator@chitty.cc"
+}
