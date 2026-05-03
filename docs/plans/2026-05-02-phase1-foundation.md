@@ -1141,6 +1141,216 @@ git commit -m "feat(cli): commander-based chitty-op entry point"
 
 ---
 
+### Task 9.5: Ch1tty integration (A1-light) — register bridge tools with Ch1tty gateway
+
+**Files:** Create `ch1tty/manifest.json`, `ch1tty/handler.sh`, `tests/ch1tty-handler.test.sh`, `scripts/register-ch1tty.sh`.
+
+Inserted between Task 9 (CLI build) and Task 10 (registry registration). The Ch1tty integration ships with Phase 1 because it's how non-VM clients (Claude, ChatGPT connectors) reach the bridge without giving up the spec's no-public-HTTP stance: Ch1tty invokes the handler over SSH and returns stdout as JSON.
+
+- [ ] **Step 1: Discover Ch1tty tool-registration schema**
+
+```bash
+curl -sf https://agent.chitty.cc/mcp/schema 2>/dev/null | jq . | head -50 ||   curl -sf https://agent.chitty.cc/mcp/.well-known/openapi.json | jq . | head -50 ||   echo "check Ch1tty docs in /Users/nb/.claude/plugins/cache/chittymarket/chittyagent/0.1.0/"
+```
+
+If neither endpoint returns a schema, fall back to the Ch1tty client docs in `~/.claude/plugins/cache/chittymarket/chittyagent/`. Output: pin the exact field names Ch1tty expects (tool name pattern, input schema, handler invocation contract).
+
+- [ ] **Step 2: Write ch1tty/manifest.json**
+
+`ch1tty/manifest.json` (adjust field names to match Step 1 output):
+```json
+{
+  "name": "chitty-1p-bridge",
+  "version": "0.1.0",
+  "transport": "ssh",
+  "host": "chittyserv-dev",
+  "handler": "/opt/chitty-1p-bridge/ch1tty/handler.sh",
+  "tools": [
+    {
+      "name": "op.get",
+      "description": "Read a credential field from 1Password via the bridge.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "vault/item or vault/item/field" }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "op.list",
+      "description": "List vaults (no arg) or items in a vault.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vault": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "op.otp",
+      "description": "Read a TOTP code from a 1Password item.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "vault/item" }
+        },
+        "required": ["path"]
+      }
+    }
+  ]
+}
+```
+
+- [ ] **Step 3: Write ch1tty/handler.sh**
+
+`ch1tty/handler.sh`:
+```bash
+#!/usr/bin/env bash
+# Ch1tty A1-light handler: JSON-in on stdin, JSON-out on stdout.
+# Invoked by Ch1tty via SSH: ssh chittyserv-dev /opt/chitty-1p-bridge/ch1tty/handler.sh
+set -euo pipefail
+
+INPUT="$(cat)"
+TOOL="$(echo "$INPUT" | jq -r '.tool // empty')"
+ARGS="$(echo "$INPUT" | jq -c '.args // {}')"
+
+if [ -z "$TOOL" ]; then
+  jq -nc '{ok:false, error:"missing required field: tool"}'; exit 0
+fi
+
+run_chitty_op() {
+  local subcmd="$1"; shift
+  local out err rc
+  out="$(/usr/local/bin/chitty-op "$subcmd" "$@" 2>&1)" && rc=0 || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    jq -nc --arg result "$out" '{ok:true, result:$result}'
+  else
+    jq -nc --arg error "$out" --argjson rc "$rc" '{ok:false, error:$error, exit_code:$rc}'
+  fi
+}
+
+case "$TOOL" in
+  op.get)
+    PATH_ARG="$(echo "$ARGS" | jq -r '.path // empty')"
+    [ -z "$PATH_ARG" ] && { jq -nc '{ok:false, error:"args.path required"}'; exit 0; }
+    run_chitty_op get "$PATH_ARG"
+    ;;
+  op.list)
+    VAULT_ARG="$(echo "$ARGS" | jq -r '.vault // empty')"
+    if [ -n "$VAULT_ARG" ]; then
+      run_chitty_op list "$VAULT_ARG"
+    else
+      run_chitty_op list
+    fi
+    ;;
+  op.otp)
+    PATH_ARG="$(echo "$ARGS" | jq -r '.path // empty')"
+    [ -z "$PATH_ARG" ] && { jq -nc '{ok:false, error:"args.path required"}'; exit 0; }
+    run_chitty_op otp "$PATH_ARG"
+    ;;
+  *)
+    jq -nc --arg t "$TOOL" '{ok:false, error:("unknown tool: " + $t)}'
+    ;;
+esac
+```
+
+- [ ] **Step 4: Write tests/ch1tty-handler.test.sh**
+
+`tests/ch1tty-handler.test.sh`:
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+HANDLER="$(dirname "$0")/../ch1tty/handler.sh"
+PASS=0; FAIL=0
+
+assert_field() {
+  local name="$1" actual="$2" expected="$3"
+  if [ "$actual" = "$expected" ]; then echo "PASS: $name"; PASS=$((PASS+1));
+  else echo "FAIL: $name (expected '$expected', got '$actual')"; FAIL=$((FAIL+1)); fi
+}
+
+# Test 1: missing tool field returns ok=false
+OUT="$(echo '{}' | bash "$HANDLER" | jq -r '.ok')"
+assert_field 'missing-tool returns ok=false' "$OUT" 'false'
+
+# Test 2: unknown tool returns ok=false with error
+OUT="$(echo '{"tool":"bogus"}' | bash "$HANDLER" | jq -r '.ok')"
+assert_field 'unknown-tool returns ok=false' "$OUT" 'false'
+
+# Test 3: op.get without path returns ok=false
+OUT="$(echo '{"tool":"op.get","args":{}}' | bash "$HANDLER" | jq -r '.ok')"
+assert_field 'op.get without path returns ok=false' "$OUT" 'false'
+
+# Test 4: op.otp without path returns ok=false
+OUT="$(echo '{"tool":"op.otp","args":{}}' | bash "$HANDLER" | jq -r '.ok')"
+assert_field 'op.otp without path returns ok=false' "$OUT" 'false'
+
+# Note: op.get/list/otp WITH valid args require chitty-op installed at /usr/local/bin/chitty-op
+# AND op CLI signed in; those are integration-level, not unit-level. Skip in this test file.
+
+echo
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]
+```
+
+- [ ] **Step 5: Make scripts executable + run handler tests**
+
+```bash
+chmod +x ch1tty/handler.sh tests/ch1tty-handler.test.sh
+bash tests/ch1tty-handler.test.sh
+```
+Expected: 4 PASS, 0 FAIL.
+
+- [ ] **Step 6: Write scripts/register-ch1tty.sh**
+
+`scripts/register-ch1tty.sh`:
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+CH1TTY_URL="${CH1TTY_URL:-https://agent.chitty.cc/mcp}"
+MANIFEST="$(dirname "$0")/../ch1tty/manifest.json"
+
+[ -f "$MANIFEST" ] || { echo "missing $MANIFEST" >&2; exit 1; }
+jq . "$MANIFEST" > /dev/null
+
+TOKEN="$(op read 'op://infrastructure/ch1tty/registry_write_token' 2>/dev/null || echo '')"
+if [ -z "$TOKEN" ]; then
+  echo "warn: no Ch1tty write token in 1P; attempting anonymous registration" >&2
+  AUTH_HEADER=""
+else
+  AUTH_HEADER="-H "Authorization: Bearer $TOKEN""
+fi
+
+eval curl -sS -X POST "$CH1TTY_URL/tools/register"   $AUTH_HEADER   -H '"Content-Type: application/json"'   --data @"$MANIFEST" | jq .
+```
+
+- [ ] **Step 7: Run registration (best-effort — endpoint may not exist yet)**
+
+```bash
+chmod +x scripts/register-ch1tty.sh
+./scripts/register-ch1tty.sh || echo "Ch1tty registration endpoint not available — manifest committed for future registration"
+```
+Expected: either successful registration JSON or a clean fallback message. Either is acceptable; the manifest being present in the repo is what matters.
+
+- [ ] **Step 8: Verify discovery (only if Step 7 succeeded)**
+
+```bash
+curl -s "https://agent.chitty.cc/mcp/tools?q=op.get" | jq '.tools[] | select(.name == "op.get")' | head -20
+```
+Expected: tool entry with chitty-1p-bridge as source. Skip if Step 7 failed.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add ch1tty/manifest.json ch1tty/handler.sh tests/ch1tty-handler.test.sh scripts/register-ch1tty.sh
+git commit -m "feat(ch1tty): A1-light integration — manifest + handler for Ch1tty gateway"
+```
+
+---
+
+---
+
 ### Task 10: ChittyRegistry registration
 
 **Files:** Create `scripts/register.sh`, `registration.json`.
@@ -1283,6 +1493,7 @@ git remote get-url origin >/dev/null 2>&1 && git push origin HEAD --tags || \
 - [ ] `curl -s https://registry.chitty.cc/api/v1/search?q=1p-bridge | jq '.results | length'` returns >= 1
 - [ ] chittyregister-compliance-sergeant agent reports zero blockers
 - [ ] All commits authored on the bridge repo with TDD discipline (test → impl → pass → commit)
+- [ ] Ch1tty manifest registered (or registration deferred with manifest present)
 
 ## Out of scope (Phase 2+)
 
