@@ -50,3 +50,57 @@ describe("runGet", () => {
     expect(code).toBe(1);
   });
 });
+import { runList } from "../src/cli/list.js";
+
+describe("runList", () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it("lists vaults when no arg provided", async () => {
+    vi.spyOn(env, "loadBridgeEnv").mockReturnValue({
+      onepasswordConnectUrl: "https://1p",
+      onepasswordConnectToken: "t",
+    });
+    const listVaults = vi.fn().mockResolvedValue([
+      { id: "v1", name: "infrastructure" },
+      { id: "v2", name: "services" },
+    ]);
+    vi.spyOn(opClient, "OpClient").mockImplementation(
+      () => ({ listVaults }) as unknown as opClient.OpClient,
+    );
+    vi.spyOn(chronicle, "logEvent").mockResolvedValue();
+    const writes: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(String(c));
+      return true;
+    });
+
+    const code = await runList(undefined, { actor: "ubuntu" });
+    expect(code).toBe(0);
+    expect(writes.join("")).toContain("infrastructure");
+    expect(writes.join("")).toContain("services");
+  });
+
+  it("lists items when vault arg provided", async () => {
+    vi.spyOn(env, "loadBridgeEnv").mockReturnValue({
+      onepasswordConnectUrl: "https://1p",
+      onepasswordConnectToken: "t",
+    });
+    const listItems = vi.fn().mockResolvedValue([
+      { id: "i1", title: "cloudflare" },
+    ]);
+    vi.spyOn(opClient, "OpClient").mockImplementation(
+      () => ({ listItems }) as unknown as opClient.OpClient,
+    );
+    vi.spyOn(chronicle, "logEvent").mockResolvedValue();
+    const writes: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(String(c));
+      return true;
+    });
+
+    const code = await runList("infrastructure", { actor: "ubuntu" });
+    expect(code).toBe(0);
+    expect(listItems).toHaveBeenCalledWith("infrastructure");
+    expect(writes.join("")).toContain("cloudflare");
+  });
+});
