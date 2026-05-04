@@ -27,26 +27,16 @@ Today the `getchitty-creds` action's API-key path tries to extract NPM/GITHUB/NE
   - **chittyconnect OIDC zones plan** (`plans/chittyconnect-oidc-zones-support/plan.md`): teaches `/api/github-actions/credentials` to route through provisioner. Phase 2 of this plan needs the batch equivalent of that route.
 - **Branch state risk:** chittyconnect is on `smoke/1password-sdk-eval` with uncommitted WIP (3 modified, 1 untracked) that likely belongs to a parallel session. Phase 1 must use `git worktree add` off `origin/main`, never disturb the smoke branch.
 
-## Open clarifications
+## Locked decisions
 
-- **[Q1] Mixed batch vs pure-provisioner batch (C1 vs C2).** The original C1/C2 question.
-  - **C1 (recommended):** Each batch entry is one of `{type, context}` (provisioner mint) OR `{credential: "NAME"}` (static 1P fetch via the github-actions credential map). Action gets everything in 1 call.
-  - **C2:** Pure provisioner-only (`[{type, context}, ...]`). Action makes 2 calls — batch for mints, separate static fetch for 1P-only creds.
-  - **Decision needed before Phase 1.**
-- **[Q2] NPM_TOKEN and CHITTYREGISTER_TOKEN scope.** Neither exists in chittyconnect's credential map or 1P paths today. Three options:
-  - (a) Add them in this plan: pick paths (`integrations/npm/api_token`? `services/chittyregister/api_token`?), populate 1P, extend `credentialMap` and `credential-paths.js`. Adds vault decisions.
-  - (b) Defer: action drops these outputs until a follow-up PR adds them. Existing callers (`chittycommand` example only) would lose those outputs, but no real workflow depends on them.
-  - (c) Scope-out entirely: action keeps these as `secrets.NPM_TOKEN` / `secrets.CHITTYREGISTER_TOKEN` inputs supplied by the workflow.
-  - **Decision needed before Phase 2.** Also: resolve the `infrastructure/neon` vs `integrations/neon` path divergence — pick one and update both files.
-- **[Q3] Test policy override.** No real-provisioner integration tests exist in chittyconnect. Per global "no mocks for new DB/service tests" policy, the new batch endpoint requires real-backend tests. Two paths:
-  - (a) Establish the pattern in this PR: Neon test branch + staging worker + sandbox Cloudflare account + test rig that mints a synthetic OIDC token. Significant infra work.
-  - (b) Get explicit override to follow chittyconnect precedent (mock-based) for this endpoint, with a follow-up issue tracking real-backend migration ecosystem-wide.
-  - **Decision needed before Phase 1 implementation.** Recommendation: (b) with follow-up issue, given chittyconnect's deploy.yml itself can't dogfood the endpoint (chicken-and-egg) and integration test infra is a multi-week effort.
-- **[Q4] Sequencing relative to PR #54 and OIDC zones plan.**
-  - PR #54 must merge first OR be rebased onto Phase 2's branch. Recommendation: wait for #54 to merge.
-  - The OIDC zones plan is independent — Phase 1 of THIS plan can land before, after, or alongside it. The two endpoints (`/api/github-actions/credentials/batch` here, `/api/github-actions/credentials` in that plan) are separate routes.
-- **[Q5] Rate-limit charge per batch.** Recommendation: 1 charge per batch call regardless of N entries. Mirrors the cost shape (one HTTP call) and prevents legit batch use from exhausting limits faster than equivalent single calls would. Confirm.
-- **[Q6] Partial success semantics.** Recommendation: per-entry success/error in the response array, top-level `success: true` if any entry succeeded, `metadata.partial: true` if any failed. Caller decides whether partial counts as success. Confirm.
+All six decisions locked in (2026-05-04). Override before Phase 1 implementation if any of these need to change.
+
+- **[Q1] → C1 (mixed batch).** Each batch entry is one of `{type, context}` (provisioner mint) OR `{credential: "NAME"}` (static 1P fetch via the github-actions credential map). Action gets everything in 1 call. C2 (pure provisioner) was rejected — it forces the action to make 2 calls per workflow run, defeating the purpose.
+- **[Q2] → (b) Defer NPM_TOKEN and CHITTYREGISTER_TOKEN.** Phase 2 of this plan ships without these outputs. The latent bug already drops them in practice (the action extracts them from a CF response that never contains them), so no real caller depends on them today. A separate follow-up plan adds them once vault paths and rotation policies are decided. The `infrastructure/neon` vs `integrations/neon` path divergence is also out of scope here — separate cleanup issue, non-blocking.
+- **[Q3] → Real-backend tests only (no mocks).** Per the global binding "No Mocks" rule, this PR adds no new `vi.mock`/`jest.mock` of DB or service modules. Phase 1 ships one integration test file (`tests/integration/credentials-batch.test.js`) that targets `wrangler dev` bound to a Neon test branch + sandbox Cloudflare account + a synthetic-OIDC-token test rig. Building that rig is part of Phase 1, not deferred. Existing chittyconnect mock-based tests stay untouched; they are not migrated by this PR. Mock-based override (the original (b) option) is **not on the table** — proposing it would normalize a binding-rule violation.
+- **[Q4] → Sequencing.** PR #54 must merge first; Phase 2 rebases on the resulting `main`. The OIDC zones plan is genuinely independent of both phases of this plan because Phase 1's batch handler inlines provisioner routing (Step 1.1 — `provisioner.provision()` called directly per entry), and Phase 2 uses only the new batch route. Neither phase depends on the OIDC zones plan teaching the single-cred OIDC route to do the same thing. The two efforts can land in any order.
+- **[Q5] → 1 charge per batch call.** Mirrors the cost shape (one HTTP call) and prevents legit batch use from exhausting limits faster than equivalent single calls would.
+- **[Q6] → Per-entry success/error in `results[]`.** Top-level `success: true` if any entry succeeded, `metadata.partial: true` if any failed. Caller decides whether partial counts as success. Action explicitly checks per-entry `success` and only writes outputs for successful entries (see Phase 2 Step 2.1).
 
 ## Implementation Steps
 
@@ -69,7 +59,7 @@ Today the `getchitty-creds` action's API-key path tries to extract NPM/GITHUB/NE
       { "id": "npm",  "credential": "NPM_TOKEN" }
   ]}
   ```
-  (Decision Q1 = C1: mixed entries supported. Q1 = C2: omit `credential` form, return 400.)
+  (Q1 locked to C1 — mixed entries supported.)
 - Rate-limit: 1 charge against `requestingService` (Q5).
 - Per entry: provisioner.provision() OR broker.get(credentialMap[name].path) with same fallback to env var that the existing OIDC route uses.
 - Response:
@@ -86,9 +76,9 @@ Today the `getchitty-creds` action's API-key path tries to extract NPM/GITHUB/NE
 - Org allow-list (`github-actions.js:76-97`) runs on the OIDC shim only.
 
 **Testing:**
-- Per Q3 decision: either real-backend integration test (preferred) or mock-based parity with existing tests.
+- Real-backend integration test only (Q3 locked — no mocks). New file `tests/integration/credentials-batch.test.js` runs against `wrangler dev` bound to a Neon test branch + sandbox CF account + synthetic-OIDC-token rig. Build the rig as part of Phase 1.
 - Cases: mixed-entry success, partial failure (one bad entry), empty array → 400, oversize (>10 entries) → 400, invalid `type` → entry-level error not 4xx top-level, missing `context.service` → entry-level error, rate limit exceeded → 429 top-level.
-- Unit-test the request-shape parser separately.
+- Unit-test the request-shape parser separately (pure-function, no mocks needed).
 
 #### Step 1.2: Capability advertisement + docs
 **Files:**
@@ -114,7 +104,7 @@ Today the `getchitty-creds` action's API-key path tries to extract NPM/GITHUB/NE
 
 ### Phase 2 — chittyops
 
-**Prereq:** PR #54 merged. Phase 1 PR merged and deployed to production (`connect.chitty.cc`).
+**Prereq:** PR #54 merged. Phase 1 PR merged and deployed to production (`connect.chitty.cc`). The OIDC zones plan is *not* a prereq — Phase 1 inlines provisioner routing in the batch handler, so this plan stands alone.
 
 #### Step 2.1: Refactor action to use batch endpoint
 **Repo:** `chittyops`
@@ -126,7 +116,8 @@ Today the `getchitty-creds` action's API-key path tries to extract NPM/GITHUB/NE
 - Build a batch request from the comma-separated `credentials` input. Map each credential name to either a provisioner type or a static-fetch entry:
   - `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` → single `{type:"cloudflare_workers_deploy", context:{service, zones, purpose}}` entry — provisioner returns both fields in `credential.value` + `credential.account_id`.
   - `NEON_DATABASE_URL` → `{type:"neon_database_connection", context:{database, readonly:false}}`.
-  - `NPM_TOKEN`, `GITHUB_TOKEN`, `CHITTYREGISTER_TOKEN` → `{credential: "<NAME>"}` static-fetch entries (subject to Q2 decision).
+  - `GITHUB_TOKEN` → `{credential: "GITHUB_APP_ID"}` + `{credential: "GITHUB_APP_PRIVATE_KEY"}` static-fetch entries.
+  - `NPM_TOKEN`, `CHITTYREGISTER_TOKEN` → **dropped from this PR per Q2** (deferred). Action emits empty outputs for these names; downstream workflows that need them must supply via `secrets.NPM_TOKEN` / `secrets.CHITTYREGISTER_TOKEN` until the follow-up plan adds them to chittyconnect.
 - One POST to `/api/github-actions/credentials/batch` (OIDC) or `/api/credentials/batch` (API-key fallback).
 - Parse `results[]` by `id`, populate the appropriate output (`cloudflare_token`, `account_id`, `npm_token`, `github_token`, `neon_database_url`, `register_token`).
 - Mask all returned secrets (existing `::add-mask::` loop, extended).
@@ -147,7 +138,7 @@ Today the `getchitty-creds` action's API-key path tries to extract NPM/GITHUB/NE
 
 ## Out of scope (deliberate)
 
-- Migrating chittyconnect's existing tests off mocks (covered by Q3 decision; if (b), file a follow-up issue).
+- Migrating chittyconnect's existing mock-based tests to real-backend. The Q3 lock binds only this PR's *new* tests; pre-existing mocked tests stay untouched. A separate ecosystem-wide migration plan handles those.
 - Removing the existing `POST /api/credentials/provision` single-cred endpoint. Keep it; batch is additive.
 - Adding more credential types to the provisioner (NPM mint, GitHub App install token mint, etc.) — separate plans per type.
 - Updating `chittyops/.github/workflows/reusable-worker-deploy.yml` to use the action. Currently uses static `CLOUDFLARE_API_TOKEN`. Switching it to ChittyConnect is a separate plan with its own rollout risk.
