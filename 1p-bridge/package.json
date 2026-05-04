@@ -1,5 +1,5 @@
 {
-  "name": "@chittyos/1p-bridge",
+  "name": "@chittyops/1p-bridge",
   "version": "0.1.0",
   "description": "1Password to Cloudflare Secrets Store bridge + chitty-op CLI for chittyserv-dev",
   "type": "module",
@@ -30,5 +30,17 @@
     "eslint": "^9.0.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chittyos/chittyops.git",
+    "directory": "1p-bridge"
+  },
+  "homepage": "https://github.com/chittyos/chittyops/tree/main/1p-bridge",
+  "bugs": {
+    "url": "https://github.com/chittyos/chittyops/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

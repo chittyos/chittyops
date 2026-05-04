@@ -26,7 +26,7 @@ This repo is bound to ChittyOS-Core entity scope. Session state for work in this
 
 ## Commands Claude is expected to run autonomously
 
-- `ssh chittyserv-dev 'cd ~/projects/github.com/CHITTYOS/chitty-1p-bridge && <cmd>'` — all dev happens on the VM
+- `ssh chittyserv-dev 'cd ~/projects/github.com/CHITTYOS/chittyops/1p-bridge && <cmd>'` — all dev happens on the VM
 - `npm run preflight` before any commit
 - `gh pr create` after pushing a feature branch
 - `curl -s https://registry.chitty.cc/api/v1/search?q=1p-bridge` to confirm registration

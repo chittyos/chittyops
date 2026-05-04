@@ -11,13 +11,25 @@
   "canonical_uri": "chittycanon://core/services/chitty-1p-bridge",
   "charter_uri": "chittycanon://docs/ops/policy/chitty-1p-bridge-charter",
   "architecture_uri": "chittycanon://docs/ops/architecture/chitty-1p-bridge",
-  "repo": "https://github.com/chittyos/chitty-1p-bridge",
+  "repo": "https://github.com/chittyos/chittyops",
   "version": "0.1.0",
   "phase": 1,
-  "capabilities": ["op.get", "op.list", "op.otp"],
+  "capabilities": [
+    "op.get",
+    "op.list",
+    "op.otp"
+  ],
   "dependencies": {
-    "upstream": ["1password-connect", "cloudflare-secrets-store", "chittyregistry"],
-    "peer": ["chittychronicle"]
+    "upstream": [
+      "1password-connect",
+      "cloudflare-secrets-store",
+      "chittyregistry"
+    ],
+    "peer": [
+      "chittychronicle"
+    ]
   },
-  "owner": "operator@chitty.cc"
+  "owner": "operator@chitty.cc",
+  "repo_path": "1p-bridge",
+  "npm_package": "@chittyops/1p-bridge"
 }

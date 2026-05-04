@@ -28,7 +28,7 @@ Bridge 1Password Connect and Cloudflare Secrets Store so that secret rotation in
 ### IS responsible for
 - Polling 1Password Connect on a 5-minute cron and pushing changed values to the Cloudflare Secrets Store API per a declarative watchlist
 - Providing the `chitty-op` CLI (get / list / otp / sync) for operator-grade 1P access
-- Providing a reusable Node module (`@chittyos/1p-bridge`) that other VM tools import for 1P access
+- Providing a reusable Node module (`@chittyops/1p-bridge`) that other VM tools import for 1P access
 - Logging every sync event and CLI invocation to ChittyChronicle
 - Owning the per-vault state cache used to detect changes between ticks
 - (Phase 3+) Writing rotated values from KV back to 1P so 1P remains canonical
@@ -61,7 +61,7 @@ Bridge 1Password Connect and Cloudflare Secrets Store so that secret rotation in
 - `chitty-op sync status` → per-entry hash, last-sync timestamp from local state
 - `chitty-op sync run [--dry-run]` → execute one sync cycle on demand
 
-### Node module: `@chittyos/1p-bridge`
+### Node module: `@chittyops/1p-bridge`
 - `getItem(vault, item)`, `getField(vault, item, field)`, `getOtp(vault, item)`
 - `listItems(vault)`, `listVaults()`
 - `createItem(vault, builder)`, `updateItem(vault, item, mutator)` (Phase 3+)

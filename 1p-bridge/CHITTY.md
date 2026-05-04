@@ -46,7 +46,7 @@ chittyserv-dev (VM)
 | Consumer | How it uses the bridge |
 |---|---|
 | Operators (humans) | `chitty-op` CLI for ad-hoc credential lookup |
-| Other VM scripts | Import `@chittyos/1p-bridge` instead of hand-rolling 1P access |
+| Other VM scripts | Import `@chittyops/1p-bridge` instead of hand-rolling 1P access |
 | chittyconnect Worker | Indirectly — its env bindings get refreshed by the sync daemon |
 | chittyrouter, chittyfinance, etc. | Same indirect pattern when their secrets are added to the watchlist |
 
