@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Ch1tty A1-light handler: JSON-in on stdin, JSON-out on stdout.
+# Invoked by Ch1tty via SSH: ssh chittyserv-dev /opt/chitty-1p-bridge/ch1tty/handler.sh
+set -euo pipefail
+
+INPUT="$(cat)"
+TOOL="$(echo "$INPUT" | jq -r '.tool // empty')"
+ARGS="$(echo "$INPUT" | jq -c '.args // {}')"
+
+if [ -z "$TOOL" ]; then
+  jq -nc '{ok:false, error:"missing required field: tool"}'; exit 0
+fi
+
+# chitty-op is at /usr/local/bin in production; for tests, use repo build at dist/cli/index.js
+CHITTY_OP="${CHITTY_OP_BIN:-/usr/local/bin/chitty-op}"
+if [ ! -x "$CHITTY_OP" ] && [ -f "$(dirname "$0")/../dist/cli/index.js" ]; then
+  CHITTY_OP="node $(dirname "$0")/../dist/cli/index.js"
+fi
+
+run_chitty_op() {
+  local out rc
+  out="$($CHITTY_OP "$@" 2>&1)" && rc=0 || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    jq -nc --arg result "$out" '{ok:true, result:$result}'
+  else
+    jq -nc --arg error "$out" --argjson rc "$rc" '{ok:false, error:$error, exit_code:$rc}'
+  fi
+}
+
+case "$TOOL" in
+  op.get)
+    P="$(echo "$ARGS" | jq -r '.path // empty')"
+    [ -z "$P" ] && { jq -nc '{ok:false, error:"args.path required"}'; exit 0; }
+    run_chitty_op get "$P"
+    ;;
+  op.list)
+    V="$(echo "$ARGS" | jq -r '.vault // empty')"
+    if [ -n "$V" ]; then run_chitty_op list "$V"; else run_chitty_op list; fi
+    ;;
+  op.otp)
+    P="$(echo "$ARGS" | jq -r '.path // empty')"
+    [ -z "$P" ] && { jq -nc '{ok:false, error:"args.path required"}'; exit 0; }
+    run_chitty_op otp "$P"
+    ;;
+  *)
+    jq -nc --arg t "$TOOL" '{ok:false, error:("unknown tool: " + $t)}'
+    ;;
+esac
