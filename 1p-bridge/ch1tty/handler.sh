@@ -11,15 +11,17 @@ if [ -z "$TOOL" ]; then
   jq -nc '{ok:false, error:"missing required field: tool"}'; exit 0
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # chitty-op is at /usr/local/bin in production; for tests, use repo build at dist/cli/index.js
-CHITTY_OP="${CHITTY_OP_BIN:-/usr/local/bin/chitty-op}"
-if [ ! -x "$CHITTY_OP" ] && [ -f "$(dirname "$0")/../dist/cli/index.js" ]; then
-  CHITTY_OP="node $(dirname "$0")/../dist/cli/index.js"
+CHITTY_OP=("${CHITTY_OP_BIN:-/usr/local/bin/chitty-op}")
+if [ ! -x "${CHITTY_OP[0]}" ] && [ -f "$SCRIPT_DIR/../dist/cli/index.js" ]; then
+  CHITTY_OP=(node "$SCRIPT_DIR/../dist/cli/index.js")
 fi
 
 run_chitty_op() {
   local out rc
-  out="$($CHITTY_OP "$@" 2>&1)" && rc=0 || rc=$?
+  out="$("${CHITTY_OP[@]}" "$@" 2>&1)" && rc=0 || rc=$?
   if [ "$rc" -eq 0 ]; then
     jq -nc --arg result "$out" '{ok:true, result:$result}'
   else
