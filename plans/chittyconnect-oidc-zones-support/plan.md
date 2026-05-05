@@ -7,7 +7,7 @@
 
 ## Goal
 
-Today the OIDC route in chittyconnect bypasses `EnhancedCredentialProvisioner` and just returns static stored credentials via `credentialMap` + `broker.get(path)`. As a result, zones cannot be honored on the OIDC path — the only way to get a zone-scoped CF API token is the API-key path. This is the gap called out as a follow-up in `chittyops` PR #54 (`feat(getchitty-creds): add zones input + fix API-key payload shape`). Closing it lets every chittyops worker-deploy workflow obtain a CF token scoped only to the zones it actually serves, without storing a CHITTYCONNECT_API_KEY secret.
+Today the OIDC route in chittyconnect bypasses `EnhancedCredentialProvisioner` and just returns static stored credentials via `credentialMap` + `broker.get(path)`. As a result, zones cannot be honored on the OIDC path — the only way to get a zone-scoped CF API token is the API-key path. This is the gap called out as a follow-up in `chittyops` PR #54 (`feat(getchitty-creds): add zones input + fix API-key payload shape`). Closing it enables the chittyconnect OIDC endpoint to mint zone-scoped Cloudflare credentials when callers send `context.zones`, but existing chittyops worker-deploy workflows will still require separate workflow adoption before they can stop relying on stored `CHITTYCONNECT_API_KEY`, `CLOUDFLARE_API_TOKEN`, or `CLOUDFLARE_ACCOUNT_ID` secrets.
 
 ## Context (from research)
 
