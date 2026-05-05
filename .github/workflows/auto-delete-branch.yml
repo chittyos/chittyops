@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Get branch information
         id: branch-info
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -33,7 +33,7 @@ jobs:
 
       - name: Check if branch is protected
         id: check-protected
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -90,7 +90,7 @@ jobs:
         if: |
           steps.check-protected.outputs.is_protected == 'false' &&
           steps.branch-info.outputs.is_fork == 'false'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
