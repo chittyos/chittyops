@@ -68,3 +68,28 @@ jobs:
         run: |
           shellcheck setup-org-workflows.sh || true
           shellcheck scripts/onboard-service.sh || true
+
+  1p-bridge:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 1p-bridge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test

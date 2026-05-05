@@ -30,11 +30,15 @@ export async function runGet(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`error: ${msg}\n`);
+    // Log a safe error kind only — raw error strings from 1Password SDK can
+    // contain sensitive values (tokens in URLs, debug headers, etc.).
+    const errorKind =
+      err instanceof Error ? err.constructor.name : "UnknownError";
     await logEvent({
       service: "chitty-1p-bridge",
       event: "op.get",
       actor: opts.actor,
-      data: { path: pathArg, ok: false, error: msg },
+      data: { path: pathArg, ok: false, error_kind: errorKind },
     });
     return 1;
   }

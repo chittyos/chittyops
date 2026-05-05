@@ -8,7 +8,7 @@
 | 1P Connect token (write scope, Phase 3+) | Same | Separate token from read scope; can be revoked independently |
 | CF API token (`Secrets Store:Edit`) | Same | Account-scoped, not zone-scoped; rotated quarterly |
 | State cache | `/var/lib/chitty-1p-bridge/state.json` mode 0644 | Contains hashes only — never values |
-| Watchlist | `/etc/chitty-1p-bridge/watchlist.toml` mode 0644 | PR-reviewed; declares paths not values |
+| Watchlist | `/etc/chitty-1p-bridge/watchlist.toml` mode 0640 | PR-reviewed; declares paths not values |
 
 ## Credential handling
 

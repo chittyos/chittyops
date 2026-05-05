@@ -10,9 +10,8 @@ jq . "$PAYLOAD" > /dev/null
 # Resolve registry write token via op CLI (never hardcoded, never typed)
 TOKEN="$(op read 'op://infrastructure/chittyregistry/write_token' 2>/dev/null || echo '')"
 
-# Try v0.1/servers first (MCP-style); fall back to api/v1/sync if 404
+# Try the v0.1/servers service-registration endpoint.
 endpoint_v01="$REGISTRY_URL/v0.1/servers"
-endpoint_v1="$REGISTRY_URL/api/v1/sync"
 
 post_with_auth() {
   local url="$1"
@@ -28,12 +27,14 @@ post_with_auth() {
   fi
 }
 
-echo "==> Trying $endpoint_v01"
-RESPONSE_V01="$(post_with_auth "$endpoint_v01" 2>&1)"
-echo "$RESPONSE_V01"
+echo "==> Posting to $endpoint_v01"
+RESPONSE="$(post_with_auth "$endpoint_v01" 2>&1)"
+echo "$RESPONSE"
 
-if echo "$RESPONSE_V01" | grep -q "HTTP 404\|HTTP 405\|HTTP 501"; then
-  echo
-  echo "==> v0.1 failed, trying $endpoint_v1"
-  post_with_auth "$endpoint_v1"
+if echo "$RESPONSE" | grep -q "HTTP 2"; then
+  echo "==> Registration successful."
+else
+  echo "==> Registration failed or returned a non-2xx status." >&2
+  echo "    Check that the registry is reachable and the payload is valid." >&2
+  exit 1
 fi

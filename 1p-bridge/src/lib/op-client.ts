@@ -63,9 +63,13 @@ export class OpClient {
 
   async listItems(vault: string): Promise<ItemRef[]> {
     const items = (await this.sdk.listItems(vault)) as SdkItem[];
-    return items.map((i) => ({
-      id: i.id ?? "",
-      title: i.title ?? "",
+    return items.map((i, index) => ({
+      id: this.requireNonEmptyString(i.id, "id", `item at index ${index}`),
+      title: this.requireNonEmptyString(
+        i.title,
+        "title",
+        `item '${i.id ?? `at index ${index}`}'`,
+      ),
     }));
   }
 
