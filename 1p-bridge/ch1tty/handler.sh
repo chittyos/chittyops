@@ -8,7 +8,7 @@ INPUT="$(cat)"
 # Validate that stdin is parseable JSON before processing; always emit a JSON
 # envelope so callers receive a structured error even on malformed input.
 if ! echo "$INPUT" | jq -e . > /dev/null 2>&1; then
-  jq -nc '{ok:false, error:"invalid JSON input"}'; exit 0
+  jq -nc '{ok:false, error:"received invalid or malformed JSON input"}'; exit 0
 fi
 
 TOOL="$(echo "$INPUT" | jq -r '.tool // empty')"

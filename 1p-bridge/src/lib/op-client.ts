@@ -53,11 +53,7 @@ export class OpClient {
     const vaults = await this.sdk.listVaults();
     return vaults.map((v, index) => ({
       id: this.requireNonEmptyString(v.id, "id", `vault at index ${index}`),
-      name: this.requireNonEmptyString(
-        v.name,
-        "name",
-        `vault '${v.id ?? `at index ${index}`}'`,
-      ),
+      name: this.requireNonEmptyString(v.name, "name", `vault '${v.id}'`),
     }));
   }
 
@@ -65,11 +61,7 @@ export class OpClient {
     const items = (await this.sdk.listItems(vault)) as SdkItem[];
     return items.map((i, index) => ({
       id: this.requireNonEmptyString(i.id, "id", `item at index ${index}`),
-      title: this.requireNonEmptyString(
-        i.title,
-        "title",
-        `item '${i.id ?? `at index ${index}`}'`,
-      ),
+      title: this.requireNonEmptyString(i.title, "title", `item '${i.id}'`),
     }));
   }
 
