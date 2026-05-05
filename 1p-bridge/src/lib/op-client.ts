@@ -38,9 +38,27 @@ export class OpClient {
     });
   }
 
+  private requireNonEmptyString(
+    value: string | undefined,
+    fieldName: string,
+    entityName: string,
+  ): string {
+    if (typeof value !== "string" || value.trim() === "") {
+      throw new Error(`Invalid ${entityName}: missing required ${fieldName}`);
+    }
+    return value;
+  }
+
   async listVaults(): Promise<VaultRef[]> {
     const vaults = await this.sdk.listVaults();
-    return vaults.map((v) => ({ id: v.id ?? "", name: v.name ?? "" }));
+    return vaults.map((v, index) => ({
+      id: this.requireNonEmptyString(v.id, "id", `vault at index ${index}`),
+      name: this.requireNonEmptyString(
+        v.name,
+        "name",
+        `vault '${v.id ?? `at index ${index}`}'`,
+      ),
+    }));
   }
 
   async listItems(vault: string): Promise<ItemRef[]> {
