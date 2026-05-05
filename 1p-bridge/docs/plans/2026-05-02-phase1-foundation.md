@@ -51,7 +51,7 @@ Each `src/lib/*` file has a single responsibility and one default export. CLI fi
 
 ```json
 {
-  "name": "@chittyos/1p-bridge",
+  "name": "@chittyops/1p-bridge",
   "version": "0.1.0",
   "description": "1Password to Cloudflare Secrets Store bridge + chitty-op CLI for chittyserv-dev",
   "type": "module",
