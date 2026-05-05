@@ -125,7 +125,8 @@ All six decisions locked in (2026-05-04). Override before Phase 1 implementation
 
 **Testing:**
 - Manual: trigger `chittycommand/getchitty-creds-example.yml` (or a new test workflow) against the deployed batch endpoint. Verify all requested credentials are populated in workflow outputs.
-- Add a smoke test workflow in chittyops that runs the action with each combination of inputs and prints (masked) which outputs are populated.
+- Exercise the existing in-repo consumer path in `chittyops/.github/workflows/reusable-package-publish.yml` against the updated action and verify the npm/GitHub/Cloudflare-related outputs it relies on are still populated correctly, with secrets masked in logs.
+- Add a smoke test workflow in chittyops that runs the action with each combination of inputs and prints (masked) which outputs are populated; use it to supplement, not replace, validation of `reusable-package-publish.yml`.
 
 #### Step 2.2: Update example workflow + docs
 **Files:**
