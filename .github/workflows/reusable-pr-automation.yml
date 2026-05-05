@@ -97,7 +97,7 @@ jobs:
 
       - name: Post review
         if: secrets.ANTHROPIC_API_KEY != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ github.token }}
           script: |
@@ -155,7 +155,7 @@ jobs:
 
       - name: Post review
         if: secrets.OPENAI_API_KEY != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ github.token }}
           script: |
@@ -177,7 +177,7 @@ jobs:
     steps:
       - name: Check merge conditions
         id: check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ github.token }}
           script: |
@@ -209,7 +209,7 @@ jobs:
 
       - name: Enable auto-merge
         if: steps.check.outputs.result == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ github.token }}
           script: |
@@ -230,7 +230,7 @@ jobs:
     if: inputs.enable_auto_delete && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged
     steps:
       - name: Delete branch
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ github.token }}
           script: |
