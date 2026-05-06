@@ -1,0 +1,83 @@
+name: 1p-bridge — npm publish
+
+# Publishes @chittyops/1p-bridge to npm when 1p-bridge/** changes on main.
+# Uses ephemeral npm_token from ChittyConnect via getchitty-creds. Idempotent:
+# skips if the package.json version is already on the registry.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '1p-bridge/**'
+      - '.github/workflows/1p-bridge-publish.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # required for getchitty-creds OIDC path
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 1p-bridge
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+          cache-dependency-path: 1p-bridge/package-lock.json
+
+      - name: Read package version
+        id: pkg
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          NAME=$(node -p "require('./package.json').name")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "Package: $NAME@$VERSION"
+
+      - name: Check if version already published (idempotent)
+        id: check
+        run: |
+          if npm view "${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" version 2>/dev/null; then
+            echo "already_published=true" >> $GITHUB_OUTPUT
+            echo "::notice::${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }} already on npm — skipping publish"
+          else
+            echo "already_published=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fetch ephemeral npm token
+        if: steps.check.outputs.already_published == 'false'
+        id: creds
+        uses: ./.github/actions/getchitty-creds
+        with:
+          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
+          purpose: 'npm-publish-1p-bridge'
+          service: '1p-bridge'
+          credentials: 'NPM_TOKEN'
+
+      - name: Install + preflight + build
+        if: steps.check.outputs.already_published == 'false'
+        run: |
+          npm ci
+          npm run preflight
+          npm run build
+
+      - name: Publish to npm
+        if: steps.check.outputs.already_published == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ steps.creds.outputs.npm_token }}
+        run: npm publish --access public
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check.outputs.already_published }}" = "true" ]; then
+            echo "### ${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }} — already published" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### Published ${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          fi
