@@ -1,0 +1,87 @@
+name: 1p-bridge — ChittyRegistry registration
+
+# Registers chitty-1p-bridge with ChittyRegistry by POSTing 1p-bridge/registration.json
+# to {REGISTRY_URL}/v0.1/servers (MCP-style endpoint that accepts payloads).
+#
+# DEFERRED — workflow_dispatch only:
+# This workflow is gated to manual trigger because as of 2026-04-30 the
+# ChittyRegistry catalog-ingestion side is incomplete. The previous
+# org-wide `Registry Sync` workflow (registry-update.yml) was disabled for
+# the same reason. Once ChittyRegister exposes a working catalog-ingestion
+# endpoint with real auth, switch the trigger back to:
+#   on:
+#     push:
+#       branches: [main]
+#       paths: ['1p-bridge/registration.json']
+# Tracking: CHITTYOS/chittyregistry (registry-update.yml header, 2026-04-30).
+
+on:
+  workflow_dispatch:
+    inputs:
+      registry_url:
+        description: 'Registry base URL'
+        required: false
+        default: 'https://registry.chitty.cc'
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 1p-bridge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate registration.json
+        run: |
+          test -f registration.json || { echo 'missing 1p-bridge/registration.json' >&2; exit 1; }
+          jq . registration.json > /dev/null
+          echo "name: $(jq -r .name registration.json)"
+          echo "version: $(jq -r .version registration.json)"
+          echo "canonical_uri: $(jq -r .canonical_uri registration.json)"
+
+      - name: Fetch ephemeral registry write token
+        id: creds
+        uses: ./.github/actions/getchitty-creds
+        with:
+          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
+          purpose: 'chittyregistry-registration'
+          service: '1p-bridge'
+          credentials: 'REGISTER_TOKEN'
+
+      - name: POST to {registry}/v0.1/servers
+        env:
+          REGISTRY_URL: ${{ inputs.registry_url }}
+          TOKEN: ${{ steps.creds.outputs.register_token }}
+        run: |
+          set -e
+          ENDPOINT="$REGISTRY_URL/v0.1/servers"
+          echo "==> POST $ENDPOINT"
+
+          if [ -n "$TOKEN" ]; then
+            RESPONSE=$(curl -sS -w '\nHTTP %{http_code}\n' -X POST "$ENDPOINT" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H 'Content-Type: application/json' \
+              --data @registration.json)
+          else
+            echo '::warning::no register_token from getchitty-creds — attempting unauthenticated POST'
+            RESPONSE=$(curl -sS -w '\nHTTP %{http_code}\n' -X POST "$ENDPOINT" \
+              -H 'Content-Type: application/json' \
+              --data @registration.json)
+          fi
+
+          echo "$RESPONSE"
+
+          # Fail explicitly on non-2xx (do NOT fall back to /api/v1/sync — it
+          # ignores payloads and would mask failure).
+          HTTP_CODE=$(echo "$RESPONSE" | grep -oE 'HTTP [0-9]+' | tail -1 | awk '{print $2}')
+          if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::registration failed (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+          echo "### Registered: $(jq -r .name registration.json) @ $ENDPOINT (HTTP $HTTP_CODE)" >> $GITHUB_STEP_SUMMARY
