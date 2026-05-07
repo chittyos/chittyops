@@ -1,3 +1,14 @@
+---
+uri: chittycanon://docs/ops/procedure/chitty-1p-bridge-agents
+namespace: chittycanon://docs/ops
+type: procedure
+version: 0.1.0
+status: DRAFT
+registered_with: chittycanon://core/services/canon
+title: "chitty-1p-bridge Agent Guidance"
+visibility: PUBLIC
+---
+
 # AGENTS.md
 
 Vendor-neutral guidance for AI coding agents (Claude, Codex, Cursor, Gemini, etc.) working in this repo. Claude-specific addenda live in CLAUDE.md.

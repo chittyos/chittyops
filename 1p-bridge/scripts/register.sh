@@ -1,14 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Local/dev helper. The canonical registration path is the GitHub Actions
+# workflow `.github/workflows/1p-bridge-register.yml`, which routes through
+# ChittyConnect (BINDING: sensitive-intent routing). Use this script only
+# when CI is unavailable; gate behind ALLOW_LOCAL_REGISTER=1.
+if [ "${ALLOW_LOCAL_REGISTER:-0}" != "1" ]; then
+  echo "Refusing to register from local script. Use the CI workflow." >&2
+  echo "Override with ALLOW_LOCAL_REGISTER=1 if CI is unreachable." >&2
+  exit 2
+fi
+
 REGISTRY_URL="${REGISTRY_URL:-https://registry.chitty.cc}"
 PAYLOAD="$(dirname "$0")/../registration.json"
 
 [ -f "$PAYLOAD" ] || { echo "missing $PAYLOAD" >&2; exit 1; }
 jq . "$PAYLOAD" > /dev/null
 
-# Resolve registry write token via op CLI (never hardcoded, never typed)
-TOKEN="$(op read 'op://infrastructure/chittyregistry/write_token' 2>/dev/null || echo '')"
+# Resolve registry write token via op CLI. Distinguish "op failed" from
+# "no token configured" — silent fallback to anonymous registration would
+# mask auth-state regressions.
+if ! TOKEN="$(op read 'op://infrastructure/chittyregistry/write_token' 2>&1)"; then
+  echo "op read failed: $TOKEN" >&2
+  echo "Set ALLOW_ANON_REGISTER=1 to proceed unauthenticated." >&2
+  if [ "${ALLOW_ANON_REGISTER:-0}" != "1" ]; then
+    exit 3
+  fi
+  TOKEN=""
+fi
 
 # Try the v0.1/servers service-registration endpoint.
 endpoint_v01="$REGISTRY_URL/v0.1/servers"

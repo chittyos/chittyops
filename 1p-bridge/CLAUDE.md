@@ -1,3 +1,14 @@
+---
+uri: chittycanon://docs/ops/procedure/chitty-1p-bridge-claude
+namespace: chittycanon://docs/ops
+type: procedure
+version: 0.1.0
+status: DRAFT
+registered_with: chittycanon://core/services/canon
+title: "chitty-1p-bridge Claude Guidance"
+visibility: PUBLIC
+---
+
 # CLAUDE.md
 
 Claude-specific addenda for this repo. For vendor-neutral agent guidance, read AGENTS.md first — that's the canonical source.

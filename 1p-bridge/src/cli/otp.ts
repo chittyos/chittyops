@@ -35,6 +35,14 @@ export async function runOtp(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`error: ${msg}\n`);
+    const errorKind =
+      err instanceof Error ? err.constructor.name : "UnknownError";
+    await logEvent({
+      service: "chitty-1p-bridge",
+      event: "op.otp",
+      actor: opts.actor,
+      data: { path: pathArg, ok: false, error_kind: errorKind },
+    });
     return 1;
   }
 }

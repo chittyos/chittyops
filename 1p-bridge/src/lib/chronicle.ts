@@ -31,12 +31,21 @@ export async function logEvent(event: ChronicleEvent): Promise<void> {
     data: redactSensitive(event.data),
   };
   try {
-    await fetch(CHRONICLE_URL, {
+    const res = await fetch(CHRONICLE_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(2000),
     });
-  } catch {
-    // chronicle is best-effort; never crash the caller
+    if (!res.ok) {
+      process.stderr.write(
+        `[chronicle] audit POST failed: ${res.status} ${event.service}/${event.event}\n`,
+      );
+    }
+  } catch (err) {
+    const kind = err instanceof Error ? err.constructor.name : "Unknown";
+    process.stderr.write(
+      `[chronicle] audit POST error: ${kind} ${event.service}/${event.event}\n`,
+    );
   }
 }

@@ -1,6 +1,8 @@
 {
   "name": "chitty-1p-bridge",
   "version": "0.1.0",
+  "canonical_uri": "chittycanon://core/services/chitty-1p-bridge",
+  "entity_type": "P",
   "transport": "ssh",
   "host": "chittyserv-dev",
   "handler": "/opt/chitty-1p-bridge/ch1tty/handler.sh",

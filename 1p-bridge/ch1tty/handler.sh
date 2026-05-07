@@ -27,12 +27,19 @@ if [ ! -x "${CHITTY_OP[0]}" ] && [ -f "$SCRIPT_DIR/../dist/cli/index.js" ]; then
 fi
 
 run_chitty_op() {
-  local out rc
-  out="$("${CHITTY_OP[@]}" "$@" 2>&1)" && rc=0 || rc=$?
+  local stdout_file stderr_file out err rc
+  stdout_file="$(mktemp)"
+  stderr_file="$(mktemp)"
+  "${CHITTY_OP[@]}" "$@" >"$stdout_file" 2>"$stderr_file" && rc=0 || rc=$?
+  out="$(cat "$stdout_file")"
+  err="$(cat "$stderr_file")"
+  rm -f "$stdout_file" "$stderr_file"
   if [ "$rc" -eq 0 ]; then
     jq -nc --arg result "$out" '{ok:true, result:$result}'
   else
-    jq -nc --arg error "$out" --argjson rc "$rc" '{ok:false, error:$error, exit_code:$rc}'
+    # On failure, prefer stderr for the error field; fall back to stdout.
+    local msg="${err:-$out}"
+    jq -nc --arg error "$msg" --argjson rc "$rc" '{ok:false, error:$error, exit_code:$rc}'
   fi
 }
 

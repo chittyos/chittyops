@@ -1,3 +1,14 @@
+---
+uri: chittycanon://docs/ops/policy/chitty-1p-bridge-security
+namespace: chittycanon://docs/ops
+type: policy
+version: 0.1.0
+status: DRAFT
+registered_with: chittycanon://core/services/canon
+title: "chitty-1p-bridge Security Policy"
+visibility: PUBLIC
+---
+
 # Security
 
 ## Threat model

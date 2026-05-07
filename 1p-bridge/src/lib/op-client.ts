@@ -85,6 +85,10 @@ export class OpClient {
   }
 
   async getOtp(vault: string, item: string): Promise<string> {
-    return await this.sdk.getItemOTP(vault, item);
+    const code = await this.sdk.getItemOTP(vault, item);
+    if (!code || code.trim() === "") {
+      throw new Error(`OTP not configured or empty for ${vault}/${item}`);
+    }
+    return code;
   }
 }
