@@ -1,0 +1,43 @@
+{
+  "name": "chitty-1p-bridge",
+  "version": "0.1.0",
+  "canonical_uri": "chittycanon://core/services/chitty-1p-bridge",
+  "entity_type": "P",
+  "transport": "ssh",
+  "host": "chittyserv-dev",
+  "handler": "/opt/chitty-1p-bridge/ch1tty/handler.sh",
+  "tools": [
+    {
+      "name": "op.get",
+      "description": "Read a credential field from 1Password via the bridge.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "vault/item or vault/item/field" }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "op.list",
+      "description": "List vaults (no arg) or items in a vault.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vault": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "op.otp",
+      "description": "Read a TOTP code from a 1Password item.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "vault/item" }
+        },
+        "required": ["path"]
+      }
+    }
+  ]
+}
