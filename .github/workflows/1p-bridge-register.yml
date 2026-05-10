@@ -63,23 +63,25 @@ jobs:
           ENDPOINT="$REGISTRY_URL/v0.1/servers"
           echo "==> POST $ENDPOINT"
 
+          BODY_FILE=$(mktemp)
           if [ -n "$TOKEN" ]; then
-            RESPONSE=$(curl -sS -w '\nHTTP %{http_code}\n' -X POST "$ENDPOINT" \
+            HTTP_CODE=$(curl -sS -o "$BODY_FILE" -w '%{http_code}' -X POST "$ENDPOINT" \
               -H "Authorization: Bearer $TOKEN" \
               -H 'Content-Type: application/json' \
               --data @registration.json)
           else
             echo '::warning::no register_token from getchitty-creds — attempting unauthenticated POST'
-            RESPONSE=$(curl -sS -w '\nHTTP %{http_code}\n' -X POST "$ENDPOINT" \
+            HTTP_CODE=$(curl -sS -o "$BODY_FILE" -w '%{http_code}' -X POST "$ENDPOINT" \
               -H 'Content-Type: application/json' \
               --data @registration.json)
           fi
 
-          echo "$RESPONSE"
+          echo "HTTP $HTTP_CODE"
+          cat "$BODY_FILE"
+          echo
 
           # Fail explicitly on non-2xx (do NOT fall back to /api/v1/sync — it
           # ignores payloads and would mask failure).
-          HTTP_CODE=$(echo "$RESPONSE" | grep -oE 'HTTP [0-9]+' | tail -1 | awk '{print $2}')
           if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" -ge 400 ]; then
             echo "::error::registration failed (HTTP $HTTP_CODE)"
             exit 1
