@@ -69,7 +69,8 @@ jobs:
           shellcheck setup-org-workflows.sh || true
           shellcheck scripts/onboard-service.sh || true
 
-  1p-bridge:
+  onep-bridge:
+    name: 1p-bridge
     runs-on: ubuntu-latest
     permissions:
       contents: read
