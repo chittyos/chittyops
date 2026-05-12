@@ -1,0 +1,90 @@
+$schema: chittycanon://gov/policy/system-wide-sensitive-intent-contract
+version: 1.0.0
+audit_target: chittycanon-code-cardinal
+purpose: |
+  Canonical audit rules the chittycanon-code-cardinal agent applies when
+  reviewing agent definitions, skill files, plugin manifests, and any
+  generated guidance. Any rule failure is a contract violation and must
+  be reported as such.
+
+rules:
+  - id: agent-def-no-manual-credential-admin
+    severity: blocker
+    applies_to:
+      - "**/agents/*.md"
+      - "**/agents/*.yaml"
+      - "**/skills/**/*.md"
+      - "**/.claude/agents/**"
+      - "**/plugins/**/manifest.json"
+      - "**/plugins/**/CHARTER.md"
+    forbidden_patterns:
+      - regex: '\b(in (the )?(1p|1password|onepassword|cloudflare|cf|github|gh)( admin| dashboard| ui| console)?)'
+        rationale: 'Agent definition references manual provider-admin step (direct_provider_secret_bypass).'
+      - regex: '\b(go (to|into) (the )?(1p|1password|onepassword|cloudflare|cf|github|gh)( (admin|dashboard|ui|console))?)'
+        rationale: 'Agent definition tells the operator to navigate provider admin UI instead of routing through the broker.'
+      - regex: '\b(widen|expand|broaden|loosen|extend) (.{0,80})?(scope|access|allowed[ _-]?(vault|vaults|paths))'
+        rationale: 'Agent definition references scope-widening as a fix instead of broker provisioning.'
+      - regex: '\b(paste|provide|share|give me|hand over|tell me) (.{0,80})?(api[ _-]?key|secret|token|password|credential|.env|env file|dotenv)'
+        rationale: 'Agent definition asks the operator to surface long-lived credentials in chat.'
+      - regex: '\b(manually (rotate|create|issue|generate|provision|mint)) (.{0,40})?(token|key|secret|credential)'
+        rationale: 'Agent definition prescribes manual credential issuance instead of broker-mediated rotation.'
+      - regex: '\b(drop|add|put|stash|store) [^.?!]{0,60}\b(in|into|to)\b [^.?!]{0,40}\b(1p|1password|onepassword|allowed[ _-]?(vault|vaults|paths)|allow[ _-]?list)\b'
+        rationale: 'Agent definition tells the operator to deposit credentials into 1P or expand allow-list manually.'
+
+  - id: agent-def-must-cite-canonical-error-codes
+    severity: warning
+    applies_to:
+      - "**/agents/*.md"
+      - "**/skills/**/*.md"
+    requires_one_of:
+      - 'POLICY_BLOCKED_BROKER_UNAVAILABLE'
+      - 'POLICY_BLOCKED_CHITTYCONNECT_UNAVAILABLE'
+      - 'POLICY_BLOCKED_MANDATORY_BROKER_ROUTE'
+      - 'MISSING_CREDENTIAL_MATERIAL'
+      - 'INSUFFICIENT_SCOPE'
+      - 'POLICY_BLOCKED_DESTINATION_UNVERIFIED'
+    when_topic_matches:
+      - 'credential'
+      - 'token'
+      - 'secret'
+      - 'broker'
+      - 'auth'
+    rationale: |
+      Agent definitions that discuss credentials/tokens/secrets/brokers
+      should cite the canonical error codes so downstream automation has
+      a machine-readable signal to fail closed.
+
+  - id: code-no-direct-provider-secret-prompt
+    severity: blocker
+    applies_to:
+      - "**/*.ts"
+      - "**/*.js"
+      - "**/*.py"
+      - "**/*.sh"
+    forbidden_patterns:
+      - regex: 'paste\s+your\s+(api[ _-]?key|token|secret|password|credential)'
+        rationale: 'Source code asks the operator to paste a credential into stdin/chat.'
+      - regex: 'console\.log\([^)]*(token|secret|password|api[ _-]?key|credential)'
+        rationale: 'Source code logs credential-shaped values to stdout/stderr.'
+    rationale: |
+      Implementation code must never prompt operators for long-lived
+      credentials nor log them. Use the broker module instead.
+
+  - id: code-must-use-policy-gate-for-sensitive-tools
+    severity: warning
+    applies_to:
+      - "**/cli/**/*.ts"
+      - "**/handlers/**/*.ts"
+    requires_one_of:
+      - 'assertBrokerRoutable'
+      - 'assertNoDirectSecretPrompt'
+      - 'assertScope'
+    when_topic_matches:
+      - 'op.get'
+      - 'op.list'
+      - 'op.otp'
+      - 'cf.deploy'
+      - 'secret.put'
+    rationale: |
+      Any CLI/handler entry point that touches sensitive tool surfaces
+      MUST call into 1p-bridge/src/lib/policy.ts gates before execution.
