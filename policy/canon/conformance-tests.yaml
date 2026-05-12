@@ -1,0 +1,60 @@
+$schema: chittycanon://gov/policy/system-wide-sensitive-intent-contract
+version: 1.0.0
+suite: system-wide-sensitive-intent-conformance
+
+scenarios:
+  - id: chat-credential-prompt-blocked
+    description: '"give me Cloudflare API key" via chat-source MUST NOT prompt; MUST emit POLICY_BLOCKED_MANDATORY_BROKER_ROUTE'
+    test: 1p-bridge/tests/conformance.test.ts::chat
+    expected_error_code: POLICY_BLOCKED_MANDATORY_BROKER_ROUTE
+
+  - id: broker-unavailable
+    description: 1Password Connect bootstrap failure surfaces as POLICY_BLOCKED_BROKER_UNAVAILABLE
+    test: 1p-bridge/tests/conformance.test.ts::broker
+    expected_error_code: POLICY_BLOCKED_BROKER_UNAVAILABLE
+
+  - id: chittyconnect-unavailable
+    description: ChittyConnect-specific failure uses POLICY_BLOCKED_CHITTYCONNECT_UNAVAILABLE
+    test: 1p-bridge/tests/policy.test.ts::brokerUnavailable
+    expected_error_code: POLICY_BLOCKED_CHITTYCONNECT_UNAVAILABLE
+
+  - id: destination-unverified
+    description: Off-allowlist destination MUST emit POLICY_BLOCKED_DESTINATION_UNVERIFIED
+    test: 1p-bridge/tests/conformance.test.ts::destination
+    expected_error_code: POLICY_BLOCKED_DESTINATION_UNVERIFIED
+
+  - id: missing-material-envelope
+    description: MISSING_CREDENTIAL_MATERIAL envelope contains all five resolution fields
+    test: 1p-bridge/tests/conformance.test.ts::missing
+    expected_error_code: MISSING_CREDENTIAL_MATERIAL
+    required_envelope_fields:
+      - required_secret_path
+      - required_scope
+      - target_store
+      - approved_resolution_paths
+      - retry_hint
+
+  - id: insufficient-scope
+    description: Scope mismatch MUST emit INSUFFICIENT_SCOPE
+    test: 1p-bridge/tests/conformance.test.ts::scope
+    expected_error_code: INSUFFICIENT_SCOPE
+
+  - id: registry-write-from-chat
+    description: registry.update from chat-source MUST emit POLICY_BLOCKED_MANDATORY_BROKER_ROUTE
+    test: 1p-bridge/tests/conformance.test.ts::registry
+    expected_error_code: POLICY_BLOCKED_MANDATORY_BROKER_ROUTE
+
+  - id: provider-error-scrubbed
+    description: Token-shaped strings in provider errors MUST be scrubbed before stderr/chronicle
+    test: 1p-bridge/tests/cli.test.ts::scrub
+    expected_error_code: EXECUTION_FAILED_PROVIDER_ERROR
+
+  - id: chat-hook-blocks-admin-bypass
+    description: Stop hook blocks "in 1P admin", "drop in 1P", "add to allowed vaults", "expand token scope"
+    test: policy/sensitive-intent/test-hook.sh
+    expected_decision: block
+
+  - id: chat-hook-passes-architecture-discussion
+    description: Stop hook does NOT block discussion of ChittyConnect routing architecture
+    test: policy/sensitive-intent/test-hook.sh
+    expected_decision: pass

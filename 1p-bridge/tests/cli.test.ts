@@ -67,10 +67,12 @@ describe("runGet", () => {
     restoreErr();
   });
 
-  it("returns exit code 1 and does not leak SDK message into chronicle on error", async () => {
-    // SDK error message contains a token-shaped string that must NOT be logged.
+  it("returns exit code 1, scrubs token-shaped strings from envelope, never logs raw provider message", async () => {
+    // SDK error message contains a token-shaped string that must NOT leak.
     mockSdk.getItemByTitle.mockRejectedValue(
-      new Error("https://1p.example?token=eyJleHQreal-secret-shape failed"),
+      new Error(
+        "https://1p.example?token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJyZWFsIn0.realsecretsigvalue failed",
+      ),
     );
     const restoreOut = vi
       .spyOn(process.stdout, "write")
@@ -81,23 +83,31 @@ describe("runGet", () => {
       return true;
     });
 
-    // Capture chronicle POST attempts via global fetch.
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("", { status: 200 }));
 
     const code = await runGet("infrastructure/cloudflare/api_key", {
       actor: "ubuntu",
+      source: "cli",
     });
 
+    // Provider failure (not policy) → exit 1.
     expect(code).toBe(1);
-    // Audit was attempted with error_kind only — body must not include the
-    // raw SDK message (which contained a token-shaped substring).
+
+    // Stderr envelope is canonical and scrubbed.
+    const stderrJoined = stderrCaptured.join("");
+    expect(stderrJoined).toContain('"ok":false');
+    expect(stderrJoined).toContain("EXECUTION_FAILED_PROVIDER_ERROR");
+    expect(stderrJoined).not.toContain("realsecretsigvalue");
+
+    // Chronicle audit was attempted with error_code only — body must not
+    // include the raw SDK message (which contained a token-shaped substring).
     expect(fetchSpy).toHaveBeenCalled();
     const body = String(fetchSpy.mock.calls[0]![1]!.body);
-    expect(body).toContain("error_kind");
+    expect(body).toContain("error_code");
     expect(body).toContain('"ok":false');
-    expect(body).not.toContain("real-secret-shape");
+    expect(body).not.toContain("realsecretsigvalue");
 
     restoreOut.mockRestore();
     fetchSpy.mockRestore();
@@ -138,19 +148,19 @@ describe("runList", () => {
     restoreErr();
   });
 
-  it("logs failure with error_kind on listItems error", async () => {
+  it("logs failure with error_code on listItems error", async () => {
     mockSdk.listItems.mockRejectedValue(new Error("boom"));
     silenceStderr();
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("", { status: 200 }));
 
-    const code = await runList("infrastructure", { actor: "ubuntu" });
+    const code = await runList("infrastructure", { actor: "ubuntu", source: "cli" });
 
     expect(code).toBe(1);
     expect(fetchSpy).toHaveBeenCalled();
     const body = String(fetchSpy.mock.calls[0]![1]!.body);
-    expect(body).toContain("error_kind");
+    expect(body).toContain("error_code");
     fetchSpy.mockRestore();
   });
 });

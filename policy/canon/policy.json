@@ -1,0 +1,83 @@
+{
+  "$schema": "chittycanon://gov/policy/system-wide-sensitive-intent-contract",
+  "version": "1.0.0",
+  "name": "System-Wide Sensitive Intent Contract",
+  "authority_model": {
+    "operator": "operator_only",
+    "credential_authority": [
+      "chittyconnect",
+      "chittyauth",
+      "chittyid",
+      "1password-connect-via-bridge"
+    ],
+    "kv_role": "cache_projection_only"
+  },
+  "sensitive_surfaces": [
+    "credentials",
+    "tokens",
+    "secrets",
+    "auth_material",
+    "deploys",
+    "registry_writes",
+    "service_bindings",
+    "cloudflare",
+    "github",
+    "neon",
+    "dns",
+    "workers"
+  ],
+  "rules": [
+    "classify_before_execute",
+    "mandatory_broker_route",
+    "no_long_lived_credential_prompt",
+    "no_plaintext_credential_emission",
+    "no_chat_credential_fallback",
+    "fail_closed_on_broker_failure"
+  ],
+  "canonical_error_codes": [
+    "POLICY_BLOCKED_BROKER_UNAVAILABLE",
+    "POLICY_BLOCKED_CHITTYCONNECT_UNAVAILABLE",
+    "POLICY_BLOCKED_MANDATORY_BROKER_ROUTE",
+    "POLICY_BLOCKED_DESTINATION_UNVERIFIED",
+    "MISSING_CREDENTIAL_MATERIAL",
+    "INSUFFICIENT_SCOPE",
+    "EXECUTION_DENIED_BY_POLICY",
+    "EXECUTION_FAILED_PROVIDER_ERROR"
+  ],
+  "missing_material_required_fields": [
+    "required_secret_path",
+    "required_scope",
+    "target_store",
+    "approved_resolution_paths",
+    "retry_hint"
+  ],
+  "forbidden_patterns": {
+    "direct_provider_secret_bypass": "Telling the operator to administer credentials directly in provider UI (1P admin, CF dashboard, GitHub settings) instead of routing through the broker",
+    "ask_user_for_long_lived_secret": "Asking the operator to paste/share a long-lived secret in chat",
+    "chat_layer_credential_collection": "Treating chat as a credential ingest path",
+    "unverified_destination_write": "Writing/rotating to a destination that hasn't passed resolveDestination"
+  },
+  "enforcement_layers": [
+    {
+      "layer": "chat_assistant_output",
+      "implementation": "policy/sensitive-intent/block-credential-asking.sh",
+      "binding": "Stop hook in ~/.claude/settings.json (local + chittyserv-vm)"
+    },
+    {
+      "layer": "broker_cli",
+      "implementation": "1p-bridge/src/lib/policy.ts"
+    },
+    {
+      "layer": "broker_handler",
+      "implementation": "1p-bridge/ch1tty/handler.sh"
+    },
+    {
+      "layer": "leak_containment",
+      "implementation": "1p-bridge/src/lib/leak-containment.ts"
+    },
+    {
+      "layer": "destination_resolver",
+      "implementation": "1p-bridge/src/lib/destination-resolver.ts"
+    }
+  ]
+}

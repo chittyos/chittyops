@@ -1,0 +1,50 @@
+{
+  "$schema": "chittycanon://gov/policy/system-wide-sensitive-intent-contract",
+  "version": "1.0.0",
+  "integration_targets": [
+    {
+      "target": "local-developer-machine",
+      "host": "localhost",
+      "settings_path": "~/.claude/settings.json",
+      "hook_destination": "~/.claude/hooks/block-credential-asking.sh",
+      "hook_event": "Stop",
+      "install_via": "policy/sensitive-intent/install.sh"
+    },
+    {
+      "target": "chittyserv-vm",
+      "host": "chittyserv-dev",
+      "settings_path": "~/.claude/settings.json",
+      "hook_destination": "~/.claude/hooks/block-credential-asking.sh",
+      "hook_event": "Stop",
+      "install_via": "policy/sensitive-intent/install.sh --remote chittyserv-dev"
+    }
+  ],
+  "broker_destinations": [
+    {
+      "service": "chitty-1p-bridge",
+      "host": "chittyserv-dev",
+      "transport": "ssh",
+      "handler": "/opt/chitty-1p-bridge/ch1tty/handler.sh",
+      "policy_module": "1p-bridge/src/lib/policy.ts"
+    },
+    {
+      "service": "chittyconnect",
+      "endpoint": "https://connect.chitty.cc",
+      "credential_endpoint": "/api/credentials/:vault/:item/:field",
+      "expected_error_codes": [
+        "POLICY_BLOCKED_BROKER_UNAVAILABLE",
+        "POLICY_BLOCKED_CHITTYCONNECT_UNAVAILABLE",
+        "MISSING_CREDENTIAL_MATERIAL",
+        "INSUFFICIENT_SCOPE",
+        "POLICY_BLOCKED_DESTINATION_UNVERIFIED",
+        "POLICY_BLOCKED_MANDATORY_BROKER_ROUTE",
+        "EXECUTION_DENIED_BY_POLICY",
+        "EXECUTION_FAILED_PROVIDER_ERROR"
+      ]
+    },
+    {
+      "service": "chittyauth",
+      "endpoint": "https://auth.chitty.cc"
+    }
+  ]
+}
