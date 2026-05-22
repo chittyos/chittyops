@@ -13,3 +13,6 @@ __pycache__/
 # macOS metadata in nested folders
 */.DS_Store
 **/.DS_Store
+
+# Cross-machine config sync repo (separate, has own .git)
+ai-parity/
