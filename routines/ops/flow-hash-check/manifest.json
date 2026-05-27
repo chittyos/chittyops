@@ -1,0 +1,57 @@
+{
+  "$schema": "https://chittyops.chitty.cc/schemas/routine.v2.json",
+  "id": "did:chitty:routine:flow-hash-check",
+  "name": "flow-hash-check",
+  "version": "1.0.0",
+  "owner": "did:chitty:user:nick-bianchi",
+  "description": "Daily drift detection for Workspace Studio flows. Fetches deployed flow definitions, hashes, compares to version-controlled snapshots in chittyops/studio-flows/. Alerts on diff.",
+  "trigger": {
+    "type": "cron",
+    "schedule": "0 6 * * *",
+    "tz": "America/Chicago",
+    "note": "Runs at 06:00 CT — before daily-comms-triage at 07:00. Ensures Studio flow drift detected before pipeline depends on its output."
+  },
+  "connectors": [
+    { "service": "chittyagent-gam", "accounts": ["ws_nevershitty", "ws_jeanarlene"], "scope": ["workspace.studio.read"] },
+    { "service": "github", "scope": ["repo.read"], "repo": "chittyos/chittyops", "path_prefix": "chittyops/studio-flows/" }
+  ],
+  "logic": {
+    "for_each_account": ["ws_nevershitty", "ws_jeanarlene"],
+    "steps": [
+      { "action": "fetch_studio_flow", "flow_id": "aribia-daily-inbox-triage" },
+      { "action": "normalize_json", "strip_fields": ["last_run_at", "deployment_metadata"] },
+      { "action": "sha256_hash", "input_var": "normalized" },
+      { "action": "compare_to_repo", "path": "chittyops/studio-flows/aribia-daily-inbox-triage.json" },
+      {
+        "action": "branch",
+        "if": "hash_matches",
+        "then": { "action": "log_only", "level": "info", "msg": "flow hash matches snapshot" },
+        "else": {
+          "action": "alert_and_record",
+          "channels": [
+            { "type": "quo-sms", "to": "nick", "template": "⚠ Studio flow drift detected on {{account}}. Compare in chittyops repo." },
+            { "type": "notion-block", "page": "Nick's Dashboard", "block_type": "callout", "color": "yellow_background" },
+            { "type": "neon-insert", "table": "chittyops.studio_flow_drift_log" }
+          ]
+        }
+      }
+    ]
+  },
+  "schema_addition": {
+    "$comment": "If table doesn't exist, create it as part of Phase 4 migrations:",
+    "ddl": "CREATE TABLE chittyops.studio_flow_drift_log (drift_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), account text NOT NULL, flow_id text NOT NULL, expected_hash text NOT NULL, actual_hash text NOT NULL, diff_summary text, detected_at timestamptz DEFAULT now(), resolved_at timestamptz, resolution text);"
+  },
+  "observability": {
+    "heartbeat": "https://discovery.chitty.cc/heartbeat/flow-hash-check",
+    "max_silence_hours": 25
+  },
+  "rate_limit": {
+    "calls_per_run": 4,
+    "burst": 8
+  },
+  "notes": [
+    "Auto-revert NOT enabled in v1 — operator decides whether drift is intended (manual edit in Studio UI) or unintended (third-party change).",
+    "Resolution path: either commit new flow JSON to chittyops/studio-flows/ (intended) or revert the Studio flow to match snapshot (unintended).",
+    "Address F-R15: covers Studio's vendor-side mutability risk."
+  ]
+}

@@ -1,0 +1,21 @@
+name = "flow-hash-check"
+main = "worker.ts"
+compatibility_date = "2026-05-01"
+account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"  # ChittyCorp LLC
+
+# Cron stays DISABLED until PC1-PC10 pass AND chittyregistry returns 200 for this worker.
+# [triggers]
+# crons = ["0 13 * * *"]  # 08:00 America/Chicago = 13:00 UTC
+
+[vars]
+GAM_TUNNEL_URL = "REPLACE_AT_DEPLOY"  # gam tunnel address (Tailscale)
+NOTION_ALERT_PAGE_ID = "REPLACE_AT_DEPLOY"
+HEARTBEAT_URL = "https://discovery.chitty.cc/heartbeat/flow-hash-check"
+REPO_FLOW_HASH_WS1 = "REPLACE_AT_DEPLOY"  # sha256 of studio-flows/aribia-daily-inbox-triage.json @ ws1
+REPO_FLOW_HASH_WS2 = "REPLACE_AT_DEPLOY"
+
+[observability]
+enabled = true
+
+[[tail_consumers]]
+service = "chittytail"

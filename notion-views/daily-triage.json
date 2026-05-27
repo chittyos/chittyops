@@ -1,0 +1,72 @@
+{
+  "$comment": "Notion API payload to create/update the 'Daily Triage' view on the Business Task Tracker. Apply with notion-mcp / database.update or notion-api directly. Do NOT create a new database — this is a linked view on the existing tracker.",
+  "target_database_id": "f33d20b8-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
+  "view": {
+    "name": "Daily Triage",
+    "type": "table",
+    "description": "Filtered view of today's triaged actions from daily-comms-triage routine. Mobile-optimized single-column layout.",
+    "filter": {
+      "and": [
+        { "property": "Type", "select": { "equals": "Action" } },
+        { "property": "Created", "date": { "this_week": {} } },
+        { "property": "Status", "status": { "does_not_equal": "Done" } },
+        { "property": "Source Routine", "select": { "equals": "daily-comms-triage" } }
+      ]
+    },
+    "sorts": [
+      { "property": "Priority", "direction": "descending" },
+      { "property": "Due", "direction": "ascending" }
+    ],
+    "groups": {
+      "property": "Category",
+      "value_order": ["Legal", "Financial", "Property", "Vendor", "Infra", "Personal-Admin", "Regulatory", "Personal-Social", "Other"]
+    },
+    "visible_properties": [
+      "Action",
+      "Category",
+      "Source",
+      "Priority",
+      "Entity",
+      "Property",
+      "Case",
+      "Recommended Action",
+      "Due",
+      "Confidence",
+      "Sensitivity",
+      "Tier Used"
+    ],
+    "mobile_layout": {
+      "primary": "Action",
+      "secondary": ["Category", "Priority", "Recommended Action"],
+      "hide_on_mobile": ["Confidence", "Tier Used", "Property", "Case"]
+    }
+  },
+  "filter_chips": [
+    { "name": "Pilot Unresolved", "filter": { "property": "Tier Used", "select": { "equals": "manual" } } },
+    { "name": "High Priority", "filter": { "property": "Priority", "number": { "greater_than_or_equal_to": 8 } } },
+    { "name": "Legal Only", "filter": { "property": "Category", "select": { "equals": "Legal" } } },
+    { "name": "Auto-Archived (sample)", "filter": { "property": "Auto Archived", "checkbox": { "equals": true } }, "limit": 20 }
+  ],
+  "schema_additions_required": {
+    "$comment": "Properties to add to the Business Task Tracker if not already present. Schema-discipline rule: DO NOT add without operator approval. Surface these as a diff for review.",
+    "properties": [
+      { "name": "Source Routine", "type": "select", "options": ["daily-comms-triage", "docket-sweep", "rent-roll-reconcile", "other"] },
+      { "name": "Source", "type": "select", "options": ["Gmail", "Quo", "iMessage", "Mercury", "Calendar", "Notion", "M365", "Cloudflare", "Linear", "Cash App", "Docusign", "RMail"] },
+      { "name": "Category", "type": "select", "options": ["Legal", "Financial", "Property", "Vendor", "Infra", "Personal-Admin", "Personal-Social", "Regulatory", "Other"] },
+      { "name": "Recommended Action", "type": "select", "options": ["Reply", "Decide", "Pay", "File", "Schedule", "FYI", "Archive"] },
+      { "name": "Entity", "type": "select", "options": ["ARIBIA", "JAVL", "IT_CAN_BE", "ChittyCorp", "Personal"] },
+      { "name": "Property", "type": "select", "options": ["City Studio", "Cozy Castle", "Lakeside Loft", "Villa Vista"] },
+      { "name": "Case", "type": "select", "options": ["2024D007847", "Villa Vista HOA", "City Studio HOA", "Cozy Castle HOA", "Colombia"] },
+      { "name": "Sensitivity", "type": "select", "options": ["privileged", "pii", "hoa_evidentiary", "public"] },
+      { "name": "Confidence", "type": "number", "format": "percent" },
+      { "name": "Tier Used", "type": "select", "options": ["T0", "T1 Studio", "T1 Personal", "T2 Haiku", "T3 Sonnet", "manual"] },
+      { "name": "Auto Archived", "type": "checkbox" },
+      { "name": "Neon Action ID", "type": "rich_text", "$comment": "did:chitty:action:... identifier; used by accept/reject MCP tools" }
+    ]
+  },
+  "deployment_notes": [
+    "Replace `f33d20b8-XXXX...` with the actual Business Task Tracker database ID before applying.",
+    "If any property in `schema_additions_required` already exists with a conflicting type, surface the diff to operator; do not modify silently.",
+    "Mobile view rendered via Notion's native mobile app — `mobile_layout` is descriptive, not enforced; apply by minimizing visible_properties on mobile."
+  ]
+}

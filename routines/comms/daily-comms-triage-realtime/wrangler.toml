@@ -1,0 +1,21 @@
+name = "daily-comms-triage-realtime"
+main = "worker.ts"
+compatibility_date = "2026-05-01"
+account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"  # ChittyCorp LLC
+
+# Webhook-triggered; no cron. PILOT-DISABLED until exit criteria met (RUNBOOK §Pilot).
+
+[vars]
+DISPATCH_URL = "https://daily-comms-triage.chitty.cc/dispatch"
+HEARTBEAT_URL = "https://discovery.chitty.cc/heartbeat/daily-comms-triage-realtime"
+PILOT_DISABLED = "true"
+
+[[kv_namespaces]]
+binding = "KV_LOCKS"
+id = "REPLACE_AT_DEPLOY"
+
+[observability]
+enabled = true
+
+[[tail_consumers]]
+service = "chittytail"

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://chittyops.chitty.cc/schemas/routine.v2.json",
+  "id": "did:chitty:routine:daily-comms-triage-realtime",
+  "name": "daily-comms-triage-realtime",
+  "version": "1.0.0",
+  "owner": "did:chitty:user:nick-bianchi",
+  "description": "Real-time webhook variant of daily-comms-triage. Emits push only for priority >= 8 OR critical-source events. Same Pentad pipeline, single-item invocations.",
+  "trigger": {
+    "type": "webhook",
+    "endpoints": [
+      { "path": "/webhook/gmail/push", "auth": "gmail-pubsub-jwt" },
+      { "path": "/webhook/quo/sms", "auth": "quo-signature" },
+      { "path": "/webhook/quo/missed-call", "auth": "quo-signature" },
+      { "path": "/webhook/imessage/relay", "auth": "chittymsg-signature" },
+      { "path": "/webhook/cloudflare/alert", "auth": "cf-webhook-secret" },
+      { "path": "/webhook/docusign/envelope", "auth": "docusign-hmac" }
+    ]
+  },
+  "policy": {
+    "emit_threshold_priority": 8,
+    "emit_targets": [
+      { "type": "quo-sms", "to": "nick", "template": "{category} | {subject} | due {due} | open: {url}" },
+      { "type": "notion-row", "view": "Daily Triage" }
+    ],
+    "below_threshold_behavior": "log-to-actions-v1-only"
+  },
+  "shared_dependencies": [
+    "chittyops/routines/comms/daily-comms-triage"
+  ],
+  "policy_flags_inherit": ["PILOT_MODE", "BASELINE_LEARNING"],
+  "budget": { "shares_caps_with": "daily-comms-triage" },
+  "observability": {
+    "heartbeat": "https://discovery.chitty.cc/heartbeat/daily-comms-triage-realtime",
+    "max_silence_hours": 4
+  },
+  "rate_limit": {
+    "per_source_per_minute": 60,
+    "burst": 120,
+    "on_breach": "circuit_break_30s"
+  },
+  "notes": [
+    "Pilot week: disabled. Enable after daily batch run validates Pentad stability.",
+    "Reuses worker code from daily-comms-triage; differs only in trigger + single-item path."
+  ]
+}
