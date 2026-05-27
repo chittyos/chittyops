@@ -1,0 +1,35 @@
+name = "daily-comms-triage"
+main = "worker.ts"
+compatibility_date = "2026-05-01"
+account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"  # ChittyCorp LLC
+
+# Cron stays DISABLED until pilot launch (RUNBOOK §Day 29-42).
+# Uncomment after PC1-PC10 pass AND policy_flags seeded AND chittyregistry returns 200.
+# [triggers]
+# crons = ["0 12 * * *"]  # 07:00 America/Chicago = 12:00 UTC (CST)
+
+[vars]
+AI_GATEWAY_URL = "https://gateway.ai.cloudflare.com/v1/0bc21e3a5a9de1a4cc843be9c3e98121/chittyops/openai"
+DISCOVERY_HEARTBEAT_URL = "https://discovery.chitty.cc/heartbeat/daily-comms-triage"
+COMPTROLLER_BUDGET_URL = "https://comptroller.chitty.cc/budget/daily-comms-triage/status"
+
+# Secrets injected at deploy via `op run --env-file=.../neon.env -- wrangler deploy`
+# Never declared inline — see SECRETS_PROVISIONING.md.
+
+[[hyperdrive]]
+binding = "NEON"
+id = "REPLACE_AT_DEPLOY"  # restless-grass-40598426 pooled Hyperdrive id
+
+[[kv_namespaces]]
+binding = "KV_LOCKS"
+id = "REPLACE_AT_DEPLOY"
+
+[[r2_buckets]]
+binding = "R2_RAW"
+bucket_name = "chittyops-actions-raw"
+
+[observability]
+enabled = true
+
+[[tail_consumers]]
+service = "chittytail"

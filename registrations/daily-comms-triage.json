@@ -1,0 +1,35 @@
+{
+  "name": "daily-comms-triage",
+  "description": "Daily ingestion + categorization + triage + prioritization + pre-analysis across all comms/event sources for a review-and-approve queue. Pentad: P+ -> E -> N -> T -> A. See spec/daily-updates-orchestration-v0.5.md.",
+  "version": "1.0.0",
+  "endpoints": [
+    "https://daily-comms-triage.chitty.cc/health",
+    "https://daily-comms-triage.chitty.cc/api/v1/status",
+    "https://daily-comms-triage.chitty.cc/api/v1/metrics",
+    "https://daily-comms-triage.chitty.cc/dispatch"
+  ],
+  "schema": {
+    "version": "1.0.0",
+    "entities": ["IngestItem", "ScoredAction", "CostLedgerEntry"],
+    "relationships": [
+      { "from": "IngestItem", "to": "ScoredAction", "kind": "produces" },
+      { "from": "ScoredAction", "to": "CostLedgerEntry", "kind": "emits" }
+    ]
+  },
+  "security": {
+    "authentication": "apikey",
+    "encryption": "tls",
+    "headers": ["Authorization", "X-ChittyID-Token"]
+  },
+  "metadata": {
+    "maintainer": "nick@nevershitty.com",
+    "tier": 4,
+    "domain": "daily-comms-triage.chitty.cc",
+    "repo": "CHITTYOS/chittyops",
+    "path": "routines/comms/daily-comms-triage",
+    "organization": "ChittyCorp",
+    "territory": "operations",
+    "tags": ["routine", "comms", "pentad", "pilot"],
+    "pause_exemption": []
+  }
+}

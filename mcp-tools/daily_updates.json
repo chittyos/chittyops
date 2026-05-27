@@ -1,0 +1,165 @@
+{
+  "$schema": "https://mcp.chitty.cc/schemas/tool-set.v1.json",
+  "namespace": "daily_updates",
+  "description": "Surface tools for the daily-comms-triage queue. Exposed on mcp.chitty.cc — any MCP-speaking model can read & mutate the queue.",
+  "version": "1.0.0",
+  "tools": [
+    {
+      "name": "daily_updates.list",
+      "description": "List items in the daily triage queue. Filter syntax: simple expressions like 'category=Legal', 'priority>=8', 'tier_used=manual', 'auto_archived=true', or AND-combinations.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": { "type": ["string", "null"], "description": "Optional filter expression." },
+          "since": { "type": ["string", "null"], "format": "date-time" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+        }
+      },
+      "output_schema": { "type": "array", "items": { "$ref": "#/definitions/ScoredAction" } },
+      "rls_context": "respects actions_v1 RLS — Business context sees business+null routing; Legalink sees all"
+    },
+    {
+      "name": "daily_updates.get",
+      "description": "Retrieve a single action by ID, optionally including thread context for diff rendering.",
+      "input_schema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "include_thread_context": { "type": "boolean", "default": false }
+        }
+      },
+      "output_schema": { "$ref": "#/definitions/ScoredActionWithContext" }
+    },
+    {
+      "name": "daily_updates.accept",
+      "description": "Accept the recommended action for an item. Triggers downstream specialist agent if `recommended_action` requires (e.g., draft email send via Gmail MCP for Reply).",
+      "input_schema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "note": { "type": "string", "description": "Optional user note for the audit trail." },
+          "modifications": { "type": "object", "description": "Optional overrides to recommended_text or due before execution." }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["accepted", "queued_for_execution", "rejected_by_policy"] },
+          "execution_id": { "type": ["string", "null"] }
+        }
+      }
+    },
+    {
+      "name": "daily_updates.reject",
+      "description": "Reject the recommended action. Item retained for evaluation but no execution.",
+      "input_schema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "reason": { "type": "string", "description": "Optional reason (feeds classifier improvement loop)." }
+        }
+      },
+      "output_schema": { "type": "object", "properties": { "status": { "type": "string", "enum": ["rejected"] } } }
+    },
+    {
+      "name": "daily_updates.bulk_accept",
+      "description": "Bulk-accept items matching a filter. REQUIRES sample-of-3 confirmation (F-O5). The caller must include `confirm_sample` showing the items they're consenting to.",
+      "input_schema": {
+        "type": "object",
+        "required": ["filter", "confirm_sample"],
+        "properties": {
+          "filter": { "type": "string" },
+          "confirm_sample": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": { "$ref": "#/definitions/ScoredAction" }
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "count": { "type": "integer" },
+          "accepted_ids": { "type": "array", "items": { "type": "string" } },
+          "rejected_by_policy": { "type": "array", "items": { "type": "string" }, "description": "IDs blocked by TRO/JAVL/etc. policy gates" }
+        }
+      }
+    },
+    {
+      "name": "daily_updates.snooze",
+      "description": "Snooze an item until a future time. Removed from current view, returns at `until`.",
+      "input_schema": {
+        "type": "object",
+        "required": ["id", "until"],
+        "properties": {
+          "id": { "type": "string" },
+          "until": { "type": "string", "description": "ISO 8601 or natural-language like 'tomorrow 9am'." }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["snoozed"] },
+          "until": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    {
+      "name": "daily_updates.restore",
+      "description": "Restore an auto-archived item back to the active queue.",
+      "input_schema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      },
+      "output_schema": { "type": "object", "properties": { "status": { "type": "string", "enum": ["restored"] } } }
+    }
+  ],
+  "definitions": {
+    "ScoredAction": {
+      "type": "object",
+      "required": ["id", "category", "priority", "recommended_action", "confidence", "tier_used", "routing"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^did:chitty:action:" },
+        "accounts": { "type": "array", "items": { "type": "string" } },
+        "cross_inbox_count": { "type": "integer", "minimum": 1 },
+        "category": { "enum": ["Legal", "Financial", "Property", "Vendor", "Infra", "Personal-Admin", "Personal-Social", "Regulatory", "Other"] },
+        "priority": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "entity": { "type": ["string", "null"] },
+        "property": { "type": ["string", "null"] },
+        "case": { "type": ["string", "null"] },
+        "sensitivity": { "enum": ["privileged", "pii", "hoa_evidentiary", "public"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tier_used": { "enum": ["T0", "T1_workspace", "T1_personal", "T2_haiku", "T3_sonnet", "manual"] },
+        "injection_suspected": { "type": "boolean" },
+        "recommended_action": { "enum": ["Reply", "Decide", "Pay", "File", "Schedule", "FYI", "Archive"] },
+        "recommended_text": { "type": "string" },
+        "due": { "type": ["string", "null"], "format": "date-time" },
+        "rationale": { "type": "string" },
+        "routing": { "enum": ["business", "legalink"] },
+        "policy_flags_triggered": { "type": "array", "items": { "type": "string" } },
+        "cost_constrained": { "type": "boolean" },
+        "auto_archived": { "type": "boolean" },
+        "status": { "enum": ["pending", "accepted", "rejected", "snoozed", "restored"] }
+      }
+    },
+    "ScoredActionWithContext": {
+      "allOf": [
+        { "$ref": "#/definitions/ScoredAction" },
+        { "type": "object", "properties": { "thread_context": { "type": "string" } } }
+      ]
+    }
+  },
+  "rate_limits": {
+    "default_per_minute": 60,
+    "bulk_accept_per_minute": 5
+  },
+  "auth": {
+    "required_scopes": ["chittyid:user", "actions:read", "actions:write"],
+    "supports_delegation": true
+  }
+}

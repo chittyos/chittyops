@@ -1,0 +1,92 @@
+{
+  "$schema": "https://chittyops.chitty.cc/schemas/routine.v2.json",
+  "id": "did:chitty:routine:daily-comms-triage",
+  "name": "daily-comms-triage",
+  "version": "1.0.0",
+  "owner": "did:chitty:user:nick-bianchi",
+  "description": "Daily ingestion + categorization + triage + prioritization + pre-analysis across all comms/event sources for review-and-approve queue.",
+  "trigger": {
+    "type": "cron",
+    "schedule": "0 7 * * *",
+    "tz": "America/Chicago"
+  },
+  "connectors": [
+    { "service": "chittyagent-gam", "accounts": ["ws_nevershitty", "ws_jeanarlene"], "scope": ["gmail.readonly", "gmail.send", "sheets.read"] },
+    { "service": "gmail-mcp", "accounts": ["personal_gmail"], "scope": ["gmail.readonly"] },
+    { "service": "quo-mcp", "scope": ["messages.read", "calls.read", "transcripts.read"] },
+    { "service": "chittymsg", "scope": ["imessage.read", "notes.read"] },
+    { "service": "chittymac", "scope": ["calendar.read", "reminders.read", "contacts.read"] },
+    { "service": "mercury-mcp", "scope": ["transactions.read", "invoices.read"] },
+    { "service": "notion-mcp", "scope": ["pages.read", "comments.read"] },
+    { "service": "microsoft365-mcp", "scope": ["mail.read", "calendar.read"] },
+    { "service": "cloudflare-mcp", "scope": ["alerts.read", "workers.read"] },
+    { "service": "linear-mcp", "scope": ["issues.read"] },
+    { "service": "cashapp-mcp", "scope": ["transactions.read"] },
+    { "service": "docusign-mcp", "scope": ["envelopes.read"] },
+    { "service": "rmail-zapier", "scope": ["events.read"] },
+    { "service": "dispatch.chitty.cc", "scope": ["dispatch.invoke"] },
+    { "service": "autoassist.chitty.cc", "scope": ["template.invoke:triage_followup_v1"] },
+    { "service": "orchestrator.chitty.cc", "scope": ["route.invoke"] },
+    { "service": "neon", "instance": "restless-grass-40598426", "scope": ["actions_*.write", "cost_ledger.write", "classification_cache.rw"] },
+    { "service": "comptroller.chitty.cc", "scope": ["budget.read", "tier_signal.subscribe"] }
+  ],
+  "policy_flags": {
+    "PILOT_MODE": true,
+    "BASELINE_LEARNING": true
+  },
+  "budget": {
+    "daily_soft_usd": 1.00,
+    "daily_hard_usd": 2.00,
+    "monthly_soft_usd": 7.50,
+    "monthly_hard_usd": 15.00,
+    "tier_limits": {
+      "T2_haiku": { "soft": 0.50, "hard": 0.50 },
+      "T3_sonnet": { "soft": 0.50, "hard": 0.50 }
+    }
+  },
+  "ai_routing": {
+    "gateway": "https://gateway.chitty.cc",
+    "tiers": {
+      "T0": { "provider": "cf-workers-ai", "model": "@cf/meta/llama-3.2-3b-instruct", "fallback": [] },
+      "T1_workspace": { "provider": "workspace-studio", "flow_id": "aribia-daily-inbox-triage", "fallback": ["T1_personal"] },
+      "T1_personal": { "provider": "google-ai-studio", "model": "gemini-1.5-flash", "fallback": ["T2_haiku"] },
+      "T2_haiku": { "provider": "anthropic", "model": "claude-haiku-4-5", "cached": true, "pilot_disabled": true, "fallback": ["gemini-1.5-pro"] },
+      "T3_sonnet": { "provider": "anthropic", "model": "claude-sonnet-4-6", "cached": true, "pilot_disabled": true, "fallback": ["gemini-1.5-pro"] }
+    },
+    "fallback_timeout_total_ms": 30000
+  },
+  "auto_archive": {
+    "enabled": true,
+    "conditions": {
+      "min_confidence": 0.95,
+      "recommended_actions": ["Archive", "FYI"],
+      "max_priority": 3,
+      "required_sensitivity": "public",
+      "exclude_privileged_domains": true,
+      "no_policy_flags": true
+    },
+    "retention_days": 30,
+    "weekly_digest": { "sample_size": 20, "day_of_week": "monday", "time": "07:00" }
+  },
+  "observability": {
+    "heartbeat": "https://discovery.chitty.cc/heartbeat/daily-comms-triage",
+    "max_silence_hours": 25,
+    "metrics_namespace": "chittyops.routines.daily-comms-triage"
+  },
+  "concurrency": {
+    "lock_key": "lock:daily-comms-triage",
+    "lock_ttl_seconds": 5400,
+    "skip_if_held": true
+  },
+  "retention": {
+    "actions_raw_soft_days": 30,
+    "actions_raw_hard_days": 90,
+    "actions_v1_days": "indefinite",
+    "litigation_hold_override": true
+  },
+  "dependencies": [
+    "chittyops/routines/comms/daily-comms-triage-realtime",
+    "chittyops/services/comptroller",
+    "chittyops/studio-flows/aribia-daily-inbox-triage"
+  ]
+}
