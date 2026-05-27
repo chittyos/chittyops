@@ -32,4 +32,4 @@ bucket_name = "chittyops-actions-raw"
 enabled = true
 
 [[tail_consumers]]
-service = "chittytail"
+service = "chittytrack"

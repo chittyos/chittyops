@@ -105,12 +105,30 @@ export default {
   },
 
   async fetch(req: Request, env: Env): Promise<Response> {
-    // Diagnostic / manual trigger endpoint (auth-gated)
     const url = new URL(req.url);
-    if (url.pathname === "/status") {
-      const locked = await env.KV_LOCKS.get(LOCK_KEY);
-      return Response.json({ locked: locked !== null, manifest_version: env.MANIFEST.version });
+    const now = new Date().toISOString();
+
+    if (url.pathname === "/health") {
+      return Response.json({ status: "ok", service: "daily-comms-triage", version: "1.0.0", ts: now });
     }
+
+    if (url.pathname === "/api/v1/status") {
+      const locked = await env.KV_LOCKS.get(LOCK_KEY);
+      return Response.json({
+        status: "ok",
+        service: "daily-comms-triage",
+        version: "1.0.0",
+        mode: "active",
+        run_locked: locked !== null,
+        manifest_version: env.MANIFEST?.version,
+        ts: now,
+      });
+    }
+
+    if (url.pathname === "/api/v1/metrics") {
+      return Response.json({ status: "ok", service: "daily-comms-triage", note: "metrics endpoint scaffold", ts: now });
+    }
+
     return new Response("daily-comms-triage", { status: 200 });
   },
 };

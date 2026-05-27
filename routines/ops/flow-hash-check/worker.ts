@@ -66,4 +66,28 @@ export default {
       }
     }
   },
+
+  async fetch(req: Request, env: Env): Promise<Response> {
+    const url = new URL(req.url);
+    const now = new Date().toISOString();
+
+    if (url.pathname === "/health") {
+      return new Response(JSON.stringify({ status: "ok", service: "flow-hash-check", version: "1.0.0", ts: now }), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url.pathname === "/api/v1/status") {
+      return new Response(JSON.stringify({
+        status: "ok",
+        service: "flow-hash-check",
+        version: "1.0.0",
+        expected_hash_ws1: env.REPO_FLOW_HASH_WS1,
+        expected_hash_ws2: env.REPO_FLOW_HASH_WS2,
+        ts: now,
+      }), { headers: { "content-type": "application/json" } });
+    }
+
+    return new Response("Not Found", { status: 404 });
+  },
 };

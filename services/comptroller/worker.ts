@@ -50,6 +50,30 @@ export default {
 
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    const now = new Date().toISOString();
+
+    // ===== Compliance endpoints =====
+    if (url.pathname === "/health") {
+      return Response.json({ status: "ok", service: "comptroller", version: "1.0.0", ts: now });
+    }
+
+    if (url.pathname === "/api/v1/status") {
+      const authority = (await env.KV_STATE.get("authority")) ?? "L1";
+      const baselineLearningUntil = await env.KV_STATE.get("baseline_learning_until");
+      return Response.json({
+        status: "ok",
+        service: "comptroller",
+        version: "1.0.0",
+        authority,
+        baseline_learning: baselineLearningUntil ? Date.now() < Date.parse(baselineLearningUntil) : false,
+        baseline_learning_until: baselineLearningUntil,
+        ts: now,
+      });
+    }
+
+    if (url.pathname === "/api/v1/metrics") {
+      return Response.json({ status: "ok", service: "comptroller", note: "metrics endpoint scaffold — see /reports/daily for the full report", ts: now });
+    }
 
     // ===== Public API =====
     if (url.pathname.endsWith("/status") && url.pathname.startsWith("/budget/")) {
