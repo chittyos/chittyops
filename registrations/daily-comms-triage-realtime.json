@@ -1,0 +1,34 @@
+{
+  "name": "daily-comms-triage-realtime",
+  "description": "Webhook variant of daily-comms-triage for priority >= 8 inbound events. PILOT-DISABLED until exit criteria met; returns 503 on every webhook call until enabled.",
+  "version": "1.0.0",
+  "endpoints": [
+    "https://daily-comms-triage-realtime.chitty.cc/health",
+    "https://daily-comms-triage-realtime.chitty.cc/api/v1/status",
+    "https://daily-comms-triage-realtime.chitty.cc/webhook"
+  ],
+  "schema": {
+    "version": "1.0.0",
+    "entities": ["IngestItem", "ScoredAction"],
+    "relationships": [
+      { "from": "IngestItem", "to": "ScoredAction", "kind": "produces" }
+    ]
+  },
+  "security": {
+    "authentication": "apikey",
+    "encryption": "tls",
+    "headers": ["Authorization", "X-ChittyID-Token"]
+  },
+  "metadata": {
+    "maintainer": "nick@nevershitty.com",
+    "tier": 4,
+    "domain": "daily-comms-triage-realtime.chitty.cc",
+    "repo": "CHITTYOS/chittyops",
+    "path": "routines/comms/daily-comms-triage-realtime",
+    "organization": "ChittyCorp",
+    "territory": "operations",
+    "tags": ["routine", "comms", "webhook", "pilot-disabled"],
+    "pause_exemption": [],
+    "pilot_disabled": true
+  }
+}

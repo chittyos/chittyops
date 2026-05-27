@@ -1,0 +1,30 @@
+{
+  "name": "flow-hash-check",
+  "description": "Cron drift detector for Workspace Studio flows. Compares live Studio flow export hash against repo-committed JSON; raises a Notion alert on drift. Read-only.",
+  "version": "1.0.0",
+  "endpoints": [
+    "https://flow-hash-check.chitty.cc/health",
+    "https://flow-hash-check.chitty.cc/api/v1/status"
+  ],
+  "schema": {
+    "version": "1.0.0",
+    "entities": ["DriftAlert"],
+    "relationships": []
+  },
+  "security": {
+    "authentication": "apikey",
+    "encryption": "tls",
+    "headers": ["Authorization"]
+  },
+  "metadata": {
+    "maintainer": "nick@nevershitty.com",
+    "tier": 4,
+    "domain": "flow-hash-check.chitty.cc",
+    "repo": "CHITTYOS/chittyops",
+    "path": "routines/ops/flow-hash-check",
+    "organization": "ChittyCorp",
+    "territory": "operations",
+    "tags": ["routine", "ops", "drift", "studio"],
+    "pause_exemption": []
+  }
+}

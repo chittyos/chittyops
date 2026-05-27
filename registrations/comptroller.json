@@ -1,0 +1,37 @@
+{
+  "name": "comptroller",
+  "description": "ChittyComptroller — independent budget observer + delegated enforcer for all ChittyOS services. L1 (observer) + L2 (throttle) + L3 (pause). Forecasting via EWMA + seasonality; never uses LLM above T0. See spec section 8.",
+  "version": "1.0.0",
+  "endpoints": [
+    "https://comptroller.chitty.cc/health",
+    "https://comptroller.chitty.cc/api/v1/status",
+    "https://comptroller.chitty.cc/api/v1/metrics",
+    "https://comptroller.chitty.cc/budget/:service/status",
+    "https://comptroller.chitty.cc/reports/daily"
+  ],
+  "schema": {
+    "version": "1.0.0",
+    "entities": ["Anomaly", "DegradeSignal", "PauseSignal", "BudgetStatus"],
+    "relationships": [
+      { "from": "Anomaly", "to": "DegradeSignal", "kind": "may_emit" },
+      { "from": "Anomaly", "to": "PauseSignal", "kind": "may_emit_with_sms_confirm" }
+    ]
+  },
+  "security": {
+    "authentication": "apikey",
+    "encryption": "tls",
+    "headers": ["Authorization", "X-ChittyID-Token"]
+  },
+  "metadata": {
+    "maintainer": "nick@nevershitty.com",
+    "tier": 3,
+    "domain": "comptroller.chitty.cc",
+    "repo": "CHITTYOS/chittyops",
+    "path": "services/comptroller",
+    "organization": "ChittyCorp",
+    "territory": "infrastructure",
+    "tags": ["sibling", "comptroller", "budget", "always-on"],
+    "pause_exemption": ["business_critical", "always_on"],
+    "authority_levels": ["L1", "L2", "L3"]
+  }
+}
