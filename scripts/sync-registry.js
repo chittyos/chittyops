@@ -55,17 +55,18 @@ function postJSON(url, data, token) {
     const parsed = new URL(url);
     const transport = parsed.protocol === 'https:' ? https : http;
 
-    const body = JSON.stringify(data);
+    const body = data === null || data === undefined ? '' : JSON.stringify(data);
+    const headers = {
+      'Content-Length': Buffer.byteLength(body),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+    if (body) headers['Content-Type'] = 'application/json';
     const options = {
       hostname: parsed.hostname,
       port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
       path: parsed.pathname,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers,
       timeout: 30000,
     };
 
@@ -92,44 +93,38 @@ function postJSON(url, data, token) {
   });
 }
 
+// Registry is read-only for clients (chittyregistry#68 + chittyregister architecture).
+// Service registrations flow through chittyregister at register.chitty.cc/api/v1/register;
+// the Gatekeeper propagates accepted services to registry.chitty.cc via service binding.
+// This script's job is now just to trigger a maintenance R2 rescan so the registry
+// re-reads any state that changed out-of-band.
 async function main() {
-  console.log('Loading service registry...');
+  console.log('Loading local service registry (chittyops source of truth)...');
   const registry = loadRegistry();
-
   const services = extractActiveServices(registry);
-  console.log(`Found ${services.length} active services`);
-
-  const payload = {
-    source: 'chittyops-compliance',
-    version: registry.version || '1.0.0',
-    timestamp: new Date().toISOString(),
-    services,
-    metadata: {
-      profiles: Object.keys(registry.compliance_profiles || {}),
-      organizations: Object.keys(registry.organizations || {}),
-    },
-  };
+  console.log(`Local catalog: ${services.length} active services`);
 
   const syncUrl = `${REGISTRY_URL}/api/v1/sync`;
-  console.log(`Syncing to ${syncUrl}...`);
+  console.log(`Triggering rescan at ${syncUrl} (empty body)...`);
 
   try {
-    const result = await postJSON(syncUrl, payload, TOKEN);
+    const result = await postJSON(syncUrl, null, TOKEN);
     console.log(`Response: ${result.status}`);
 
     if (result.status >= 200 && result.status < 300) {
-      console.log('Sync successful:', JSON.stringify(result.body, null, 2));
+      console.log('Rescan triggered:', JSON.stringify(result.body, null, 2));
     } else if (result.status === 401 || result.status === 403) {
       console.error('Auth failed — check CHITTYCONNECT_TOKEN');
       console.error('Response:', JSON.stringify(result.body));
       process.exit(1);
+    } else if (result.status === 400 && result.body && result.body.code === 'WRONG_ENDPOINT') {
+      console.error('Endpoint contract violation:', result.body.error);
+      process.exit(1);
     } else {
       console.warn(`Unexpected status ${result.status}:`, JSON.stringify(result.body));
-      // Don't fail on non-auth errors — registry may be updating
     }
   } catch (err) {
-    console.error(`Sync failed: ${err.message}`);
-    // Don't fail the workflow on network errors
+    console.error(`Rescan trigger failed: ${err.message}`);
     console.log('Will retry on next scheduled run');
   }
 

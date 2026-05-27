@@ -1,25 +1,34 @@
 name: Registry Sync
 
-# DISABLED 2026-04-30: This workflow has been failing every 6h since 2026-02-09
-# (~80 days) and even when working did nothing useful. The target endpoint
-# `POST registry.chitty.cc/api/v1/sync` ignores the posted service catalog and
-# just triggers an internal R2 scan — the 62-service payload from
-# compliance/service-registry.yml has never been ingested.
-#
-# Re-enable once chittyregistry exposes a real catalog-ingestion endpoint with
-# real auth. Tracking issue: CHITTYOS/chittyregistry (filed 2026-04-30).
+# Re-enabled 2026-05-27 after chittyregistry#68 was resolved.
+# Registry is read-only for clients; this workflow triggers an R2 rescan
+# (empty-body POST) so registry.chitty.cc picks up out-of-band state
+# changes. Service registrations themselves flow through register.chitty.cc
+# (the Gatekeeper) per service onboarding — NOT through this workflow.
 
 on:
+  schedule:
+    - cron: '0 */6 * * *'  # every 6 hours
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  sync-registry:
+  trigger-rescan:
     runs-on: ubuntu-latest
     steps:
-      - name: Disabled
-        run: |
-          echo "::warning::Registry Sync is disabled — see workflow file header for context"
-          exit 0
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --no-save js-yaml
+
+      - name: Trigger registry rescan
+        env:
+          REGISTRY_URL: https://registry.chitty.cc
+          CHITTYCONNECT_TOKEN: ${{ secrets.CHITTYCONNECT_API_KEY }}
+        run: node scripts/sync-registry.js
