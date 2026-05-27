@@ -1,5 +1,5 @@
 ---
-uri: chittycanon://chittyos/services/chittyops
+uri: chittycanon://core/services/chittyops
 namespace: chittyos.operations.chittyops
 type: service-charter
 version: 2.0.0
@@ -14,7 +14,7 @@ last_updated: 2026-02-09
 # ChittyOps Service Charter
 
 ## Classification
-- **Canonical URI**: `chittycanon://chittyos/services/chittyops`
+- **Canonical URI**: `chittycanon://core/services/chittyops`
 - **Tier**: 3 (Operational)
 - **Organization**: CHITTYOS
 - **Territory**: Operations
@@ -100,10 +100,10 @@ All other credentials (Cloudflare, npm, GitHub tokens) are provisioned on-demand
 
 | Type | Service | Canonical URI | Purpose |
 |------|---------|---------------|---------|
-| Upstream | ChittyConnect | `chittycanon://chittyos/services/chittyconnect` | Ephemeral credential provisioning |
-| Upstream | ChittyGateway | `chittycanon://chittyos/services/chittygateway` | LLM/AI function routing |
-| Peer | ChittyBeacon | `chittycanon://chittyos/services/chittybeacon` | Monitoring integration |
-| Peer | ChittyRegister | `chittycanon://chittyos/services/chittyregister` | Service registration |
+| Upstream | ChittyConnect | `chittycanon://core/services/chittyconnect` | Ephemeral credential provisioning |
+| Upstream | ChittyGateway | `chittycanon://core/services/chittygateway` | LLM/AI function routing |
+| Peer | ChittyBeacon | `chittycanon://core/services/chittybeacon` | Monitoring integration |
+| Peer | ChittyRegister | `chittycanon://core/services/chittyregister` | Service registration |
 | Peer | ChittyCanon | `chittycanon://foundation/services/chittycanon` | Canonical pattern governance |
 | External | GitHub Actions | — | Workflow runtime |
 | External | Cloudflare Workers | — | Deployment target |
