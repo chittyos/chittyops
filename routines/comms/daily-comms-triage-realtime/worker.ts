@@ -17,6 +17,29 @@ interface Env {
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
+    const url = new URL(req.url);
+    const now = new Date().toISOString();
+
+    if (url.pathname === "/health") {
+      return new Response(JSON.stringify({ status: "ok", service: "daily-comms-triage-realtime", version: "1.0.0", ts: now }), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url.pathname === "/api/v1/status") {
+      return new Response(JSON.stringify({
+        status: "ok",
+        service: "daily-comms-triage-realtime",
+        version: "1.0.0",
+        mode: env.PILOT_DISABLED === "true" ? "pilot_disabled" : "active",
+        ts: now,
+      }), { headers: { "content-type": "application/json" } });
+    }
+
+    if (url.pathname !== "/webhook") {
+      return new Response("Not Found", { status: 404 });
+    }
+
     if (env.PILOT_DISABLED === "true") {
       return new Response(JSON.stringify({ status: "pilot_disabled" }), {
         status: 503,

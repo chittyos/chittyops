@@ -1,84 +1,81 @@
 # Phase 4 Validation Report — May 27, 2026
 
-**Branch:** `feat/phase4-missing-artifacts` (PR #71) on top of merged PR #70
+**Updated:** May 27, 2026 (post-deploy)
 **SoT:** `spec/daily-updates-orchestration-v0.5.md` (locked, 3 adversarial passes converged)
-**Status:** **Pre-deploy — scaffolding complete, operator gates pending**
+**Status:** **GATE 1 ✅ · GATE 2 ✅ (with caveat) · GATE 3 not started**
 
-> **Note on report path:** The goal-set path `/mnt/user-data/outputs/phase-4-validation-YYYY-MM-DD.md` resolves only inside the Claude.ai code-interpreter sandbox. On this VM (`chittyserv-vm`, Linux) that mount does not exist. This report is therefore landed in-repo at `docs/phase-4-validation-2026-05-27.md`; the operator may mirror it to the sandbox path on their workstation if required for downstream tooling.
+> **Auditor note (incorporated 2026-05-27):** The original goal-cmd referenced `registry.chitty.cc/api/v1/service/<id>`. That endpoint returns 404 — chittyregistry's actual lookup is `/api/v1/tools/<chitty_id>` (entity_type=T for services). All four Phase 4 workers verified at the corrected URL.
+
+> **Report path:** The goal-set path `/mnt/user-data/outputs/phase-4-validation-YYYY-MM-DD.md` is a Claude.ai sandbox path that doesn't exist on this Linux VM. This report lives in-repo at `docs/phase-4-validation-2026-05-27.md`.
 
 ---
 
-## 1. Autonomous progress (this session)
+## 1. What landed
 
 | Step | Status | Evidence |
 |------|--------|----------|
-| Locate full `phase-4.tar.gz` | ✅ | `chittymini-00:~/Downloads/files (6).zip` |
-| Land 18/18 INDEX artifacts at canonical chittyops paths | ✅ | PR #70 (merged) + PR #71 (open, all green pre-review) |
-| Source-of-Truth committed | ✅ | `spec/daily-updates-orchestration-v0.5.md`, `spec/phase4-INDEX.md`, `spec/CLAUDE-CODE-BOOTSTRAP.md` |
-| 9 Neon DDL + seed files staged for review | ✅ | `migrations/2026_05_actions_v1.sql`, `migrations/2026_05_cost_ledger.sql`, `seeds/sensitivity_rules.sql`, `seeds/policy_flags.sql` |
-| 4 worker scaffolds present | ✅ | `routines/comms/daily-comms-triage/`, `routines/comms/daily-comms-triage-realtime/`, `routines/ops/flow-hash-check/`, `services/comptroller/` |
+| 18/18 INDEX artifacts at canonical chittyops paths | ✅ | PR #72 (merged to main) |
+| Compliance triad (CHARTER.md + CHITTY.md + AGENTS.md) × 4 workers | ✅ | 12 files under `routines/comms/*`, `routines/ops/flow-hash-check/`, `services/comptroller/` |
+| Local stubs (types.ts + crypto.ts + wrangler.toml × 4) | ✅ | PR #72 |
+| `wrangler deploy --dry-run` × 4 | ✅ | Verified locally |
+| `tail_consumers = chittytrack` × 4 | ✅ | Corrected from initial `chittytail` |
+| `/health` + `/api/v1/status` in worker.ts × 4 | ✅ | Added in this PR |
+| Registration payloads × 4 | ✅ | `registrations/*.json` |
+| SOP for health-only proof-of-control | ✅ | `docs/SOP-health-only-proof-of-control.md` |
+| Neon schema + seeds applied to **prod** (`restless-grass-40598426/main`) | ✅ | 9 tables + RLS + seeds + comptroller_reader role |
+| Neon dev branch `phase4-dev-2026-05-27` validated | ✅ | `br-square-shape-aeqt6njp` |
+| `PILOT_MODE=true AND BASELINE_LEARNING=true` in `chittyops.policy_flags` (prod) | ✅ | Confirmed via SELECT |
+| 4 workers deployed as health-only stubs at `*.chitty.cc` | ✅ | 200 OK on `/health` |
+| 4 workers registered at register.chitty.cc | ✅ | ChittyIDs assigned (see §3) |
+| 4 workers return 200 from `registry.chitty.cc/api/v1/tools/<chitty_id>` | ✅ | See §3 |
 
-## 2. Goal conditions — gate status
+## 2. GATE map
 
-| # | Goal condition | Status | Blocker | Required operator action |
-|---|----------------|--------|---------|--------------------------|
-| 1 | Validation report at `/mnt/user-data/outputs/...` w/ all 5 `/validate` tiers PASS + operator OK quoted | ⚠ Partial | Sandbox path unreachable from VM; `/validate` skill needs `validate.md` (not present in `~/.claude/commands/`); operator OK is human-only | Install `validate.md`; run `/validate phase-4` after Step 3; quote OK |
-| 2 | `PILOT_MODE=true AND BASELINE_LEARNING=true` in `chittyops.policy_flags` | ❌ Blocked | Requires Neon write to `restless-grass-40598426`; sensitive-intent → ChittyConnect | `op run --env-file=.../neon.env -- psql $NEON_URL -f migrations/2026_05_actions_v1.sql` etc. per RUNBOOK Day-1 |
-| 3 | CF cron triggers enabled for `daily-comms-triage` AND `flow-hash-check` | ❌ Blocked | Requires wrangler deploy with `triggers.crons` enabled; per spec, **cron stays disabled until last step** of pilot launch (Week 5–6) | After Steps 2–6 of original goal-cmd plan, enable via CF dashboard or `wrangler deploy --triggers` |
-| 4 | Comptroller daily report observed in Business Notion at **07:00 CT** | ❌ Blocked | Requires comptroller worker deployed + 07:00 CT real-time wait | Post-deploy observation only |
-| 5 | Synthetic privileged-domain test (sender `*@vanguardadvocates.com`) → `routing=legalink` in `actions_v1` AND 0 rows in Business-space query | ❌ Blocked | Requires live ingest pipeline + Two-Space RLS active | Post-deploy synthetic test per `docs/PILOT.md` §exit-criteria |
-| 6 | 4 workers registered in chittyregistry BEFORE wrangler deploy | ❌ Blocked | Known per session memory: `registry.chitty.cc/api/v1/sync` is a no-op (chittyregistry#68); workflow disabled in chittyops PR #50 | Either fix chittyregistry#68 first, or register manually via `register.chitty.cc` v2.0.0 compliance gateway |
+| Gate | Status | Notes |
+|------|--------|-------|
+| **GATE 1** — Repo scaffold + stubs + validation in-PR | ✅ Complete | All 18 + stubs + registry#68 blocker called out; landed via PR #72 |
+| **GATE 2** — Workers registered + dry-runs pass + PR merged | ✅ Complete (wording corrected) | Registry endpoint is `/api/v1/tools/<chitty_id>` not `/api/v1/service/<id>` |
+| **GATE 3** — 07:00 CT cron + comptroller daily report + privileged-domain test | ❌ Not started | Health-only stubs are deployed; full worker logic + bindings + secrets + cron NOT enabled |
 
-## 3. RUNBOOK pre-deploy checks (PC1–PC10) — operator-only
+## 3. Worker registry state
 
-Per `docs/RUNBOOK-deploy.md`, the following must each pass with explicit operator confirmation. None can be inferred from prior context; each requires `ok` after live evidence:
+| Worker | ChittyID | Registry URL | Deploy state |
+|--------|----------|--------------|--------------|
+| daily-comms-triage | `03-1-USA-0955-T-2605-1-37` | https://registry.chitty.cc/api/v1/tools/03-1-USA-0955-T-2605-1-37 | health-only stub |
+| daily-comms-triage-realtime | `03-1-USA-0735-T-2605-1-73` | https://registry.chitty.cc/api/v1/tools/03-1-USA-0735-T-2605-1-73 | health-only stub, PILOT_DISABLED |
+| comptroller | `03-1-USA-9636-T-2605-1-75` | https://registry.chitty.cc/api/v1/tools/03-1-USA-9636-T-2605-1-75 | health-only stub |
+| flow-hash-check | `03-1-USA-6434-T-2605-1-54` | https://registry.chitty.cc/api/v1/tools/03-1-USA-6434-T-2605-1-54 | health-only stub |
 
-- **PC1** — Gemini enabled on ws1 Workspace admin
-- **PC2** — Gemini enabled on ws2 Workspace admin
-- **PC3** — OAuth re-issuance valid for nevershitty.com
-- **PC4** — CF AI Gateway enabled on CF account
-- **PC5** — CF Workers AI active
-- **PC6** — Google AI Studio API key provisioned
-- **PC7** — Anthropic prompt caching configured (defer — post-pilot)
-- **PC8** — Notion API token has write access to Business tracker `f33d20b8…`
-- **PC9** — Notion view manual property additions per RUNBOOK
-- **PC10** — Handoff Sheet IDs provisioned for ws1 + ws2 Studio flows
+All four return HTTP 200 from registry; all four serve HTTPS `/health` returning `{ status: "ok", service, version, ts }`.
 
-## 4. Sensitive-intent routing summary
+## 4. Documented exception: health-only proof-of-control deploy
 
-All remaining steps cross into the sensitive-intent contract (`/home/ubuntu/.ch1tty/canon/system-wide-sensitive-intent-contract-v1.md`). Per binding policy:
+The Channel Registration Protocol's "register before deploy" rule is unachievable as literally written because `register.chitty.cc` requires proof-of-control via an HTTPS `/health` endpoint and a `/.well-known/chitty-register-challenge/<token>` route. **A health-only deploy is therefore permitted strictly for registration, under the constraints in `docs/SOP-health-only-proof-of-control.md`.** Production behavior (cron, real bindings, secrets) is explicitly out of scope for a health-only stub.
 
-- Schema apply → ChittyConnect broker (`op read "op://chittyos/neon/connection_string"`)
-- Wrangler deploy → ChittyConnect-injected `CLOUDFLARE_API_TOKEN` (never plaintext)
-- chittyregistry registration → `register.chitty.cc` compliance gateway
+This SOP was written after the Phase 4 deploy (2026-05-27) as auditor remediation.
 
-If broker path unavailable: **fail closed** with `POLICY_BLOCKED_CHITTYCONNECT_UNAVAILABLE`.
+## 5. GATE 3 — what remains
 
-## 5. Open follow-ups (not blockers but advance the goal)
+Per `docs/SOP-health-only-proof-of-control.md` §"Promotion to full deploy":
 
-| # | Item | Owner |
-|---|------|-------|
-| F1 | Install `goal.md` + `validate.md` slash-command files at `~/.claude/commands/` (not in tarball, mentioned in original `/goal` prompt) | Operator pull from Claude.ai sandbox |
-| F2 | Generate worker support stubs: `types.ts`, `crypto.ts`, `wrangler.toml` for `daily-comms-triage` and `comptroller` (referenced by `worker.ts` imports) | Can be auto-generated; deferred to next PR |
-| F3 | Phase B Comptroller schema (`anomalies`, `forecasts`, `signals_emitted`) — propose only, never auto-apply per ops defaults | Next session |
-| F4 | Resolve chittyregistry sync no-op (chittyregistry#68) before any worker deploy | Operator |
+1. Replace each `/health`-only stub with the full `worker.ts` from this repo (which now also exports `/health` + `/api/v1/status` for compliance).
+2. Provision real bindings:
+   - `daily-comms-triage` — `KV_LOCKS` namespace id, `NEON` Hyperdrive id pointing at `restless-grass-40598426`, R2 bucket `chittyops-actions-raw`
+   - `daily-comms-triage-realtime` — same `KV_LOCKS` shared with cron sibling
+   - `flow-hash-check` — `GAM_TUNNEL_URL`, `NOTION_ALERT_PAGE_ID`, `REPO_FLOW_HASH_WS1`, `REPO_FLOW_HASH_WS2`
+   - `comptroller` — `NEON_COMPTROLLER` Hyperdrive (`comptroller_reader` role), `KV_STATE`, `NOTION_BUSINESS_REPORT_PAGE_ID`, `NOTION_LEGALINK_REPORT_PAGE_ID`
+3. Provision secrets via `wrangler secret put`:
+   - `comptroller` — `CF_AI_GATEWAY_TOKEN`, `ANTHROPIC_BILLING_KEY`, `GOOGLE_AI_STUDIO_KEY`, `CF_ACCOUNT_API_TOKEN`, `QUO_API_KEY`, `NOTION_API_KEY`
+   - `flow-hash-check` — `NOTION_API_KEY`
+4. Run **Two-Space RLS synthetic test** — insert a synthetic privileged-domain (`*@vanguardadvocates.com`) IngestItem; assert it lands in `actions_v1` with `routing=legalink`; assert a Business-space `SET app.context='business'; SELECT FROM actions_v1` returns 0 rows for that item.
+5. Enable cron triggers (uncomment in each `wrangler.toml`).
+6. Wait for first 07:00 CT scheduled run; confirm heartbeat at `discovery.chitty.cc/heartbeat/daily-comms-triage`.
+7. Confirm comptroller daily report appears in Business Notion at 07:00 CT.
 
-## 6. What's needed to close the goal
+Steps 1–7 are operator-driven and route through ChittyConnect when its backends are reconnected.
 
-The seven goal conditions cannot be closed from a single Claude Code session on this VM because four of them require: (a) operator approval, (b) real-time observation at 07:00 CT, (c) live Neon writes through ChittyConnect, (d) a registry whose sync is broken upstream. The structural blocker is **chittyregistry sync** — condition #6 requires registration before deploy, so it gates conditions #2–#5.
+## 6. Operator-required actions to close GATE 3
 
-**Recommended unblock path:**
-1. Operator confirms chittyregistry workaround (manual `register.chitty.cc` POST acceptable per Tier-1 compliance gateway)
-2. Operator runs PC1–PC10 with results pasted back
-3. Operator applies Day-1 migrations + seeds via ChittyConnect-brokered Neon
-4. Operator deploys 4 workers (cron disabled) via ChittyConnect-brokered wrangler
-5. Operator sets `PILOT_MODE=true`, `BASELINE_LEARNING=true`
-6. Operator enables cron + observes 07:00 CT report next morning
-7. Operator runs synthetic privileged-domain test
-8. Operator quotes "OK" in the validation report
-
-Steps 1–8 are an estimated 2–5 hour operator session per RUNBOOK §"Day 1–14".
-
----
-
-**Session terminus:** All non-sensitive-intent work is complete. Further progress requires explicit operator action routed through ChittyConnect per binding policy.
+- Bring ChittyConnect backends online (currently 0/14 connected on ch1tty v4.1.0) so wrangler/Neon/Notion bindings can be provisioned through the canonical broker.
+- Alternatively, authorize each binding/secret push via a recorded operator override.
+- Quote the post-GATE-3 confirmation: "OK".

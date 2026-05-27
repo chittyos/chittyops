@@ -31,4 +31,4 @@ id = "REPLACE_AT_DEPLOY"
 enabled = true
 
 [[tail_consumers]]
-service = "chittytail"
+service = "chittytrack"
