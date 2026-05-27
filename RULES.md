@@ -1,5 +1,5 @@
 ---
-uri: chittycanon://chittyos/services/chittyops/rules
+uri: chittycanon://core/services/chittyops/rules
 namespace: chittyos.operations.chittyops.rules
 type: scope-rules
 version: 1.0.0
