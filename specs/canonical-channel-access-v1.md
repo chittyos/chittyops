@@ -162,7 +162,9 @@ target. Targets verify via the JWT signature (offline) or call
 
 ## 3 · Recovery routine (binding for every channel)
 
-When a channel hits 401/403 on a target, it MUST execute, in order:
+Valid once §0.1 proposed routes ship (chittyconnect#364); until then the legacy
+shared-token recovery path applies — see §4. When a channel hits 401/403 on a
+target, it MUST execute, in order:
 
 ```
 1. Re-mint:    POST /api/v1/tokens/mint  with same audience+scope, fresh ttl.
@@ -284,10 +286,11 @@ because both issues are about credential paths that depend on those routes.
   wrong path. Redirect: update INGESTION.md to use
   `/api/v1/tokens/mint` (per §2) and stop referencing
   `op://Chitty-Services/...`. **Close only after §9.3 verification.**
-- **chittyentity#306** (parked tracking task) — Fires under §3 recovery
-  routine once §4 migration lands on `chittyagent-tasks`. Until then, fires
-  via legacy path with a freshly-rotated `CHITTY_AUTH_SERVICE_TOKEN`
-  (tracked as a `policy_blocked_channel_access` event).
+- **chittyentity#306** — emit landed via legacy shared-token path:
+  `task_id dadb508b-0420-4d36-aa71-a09f5b3f1439` (classifier tagged
+  `sensitivity: privileged, routing: legalink`). #306 remains the open
+  anchor for the §4 migration that retires the shared-token path; closure
+  ties to §9.3 verification, not to this emit.
 
 ## 9 · Implementation order
 
