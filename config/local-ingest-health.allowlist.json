@@ -1,0 +1,67 @@
+{
+  "_comment": "Allowlist of systemd units that MUST be running on chittyserv-vm for local->remote ingest to flow. See chittyentity#369 for rationale. Add new units here as they're deployed; the audit treats 'unit doesn't exist on host' as drift (catches deploy regressions early).",
+  "version": 1,
+  "host": "chittyserv-vm",
+  "must_run_units": [
+    {
+      "unit": "chittymarket-flush.service",
+      "kind": "service",
+      "purpose": "Flush ch1tty ingest buffers (~/.claude/chittycontext/buffers) to Neon via chittymarket-sync-daemon",
+      "owner_repo": "chittyos/chittymarket",
+      "tracking_issue": "chittyos/chittyentity#369"
+    },
+    {
+      "unit": "chittymarket-flush.timer",
+      "kind": "timer",
+      "purpose": "Triggers chittymarket-flush.service on a schedule",
+      "owner_repo": "chittyos/chittymarket",
+      "tracking_issue": "chittyos/chittyentity#369"
+    },
+    {
+      "unit": "chittyevidence-drop-watcher.service",
+      "kind": "service",
+      "purpose": "Pull workflows_ops:INTAKE -> R2 -> /collect; record submissions in pending.tsv for status polling",
+      "owner_repo": "chittyos/chittyevidence-db",
+      "tracking_issue": "chittyos/chittyentity#369"
+    },
+    {
+      "unit": "chittyevidence-drop-watcher.timer",
+      "kind": "timer",
+      "purpose": "Triggers chittyevidence-drop-watcher.service every 5 minutes",
+      "owner_repo": "chittyos/chittyevidence-db",
+      "tracking_issue": "chittyos/chittyentity#369"
+    },
+    {
+      "unit": "chittyevidence-drop-status.service",
+      "kind": "service",
+      "purpose": "Poll /collect/status for pending submissions, drains pending.tsv",
+      "owner_repo": "chittyos/chittyevidence-db",
+      "tracking_issue": "chittyos/chittyentity#369"
+    }
+  ],
+  "buffer_paths": [
+    {
+      "path": "/home/ubuntu/.claude/chittycontext/buffers",
+      "purpose": "ch1tty session-scoped JSONL ingest buffers; drained by chittymarket-sync-daemon -> Neon",
+      "max_total_bytes": 5368709120,
+      "max_age_hours": 24
+    },
+    {
+      "path": "/tmp/claude-1001",
+      "purpose": "Claude harness scratch + tool result spillover",
+      "max_total_bytes": 5368709120,
+      "max_age_hours": 24
+    },
+    {
+      "path": "/var/lib/chittyevidence-watcher",
+      "purpose": "chittyevidence drop-watcher pending.tsv ledger (status-polling queue)",
+      "max_total_bytes": 268435456,
+      "max_age_hours": 72
+    }
+  ],
+  "disk_thresholds": {
+    "root_mount": "/",
+    "warn_percent": 85,
+    "page_percent": 95
+  }
+}
