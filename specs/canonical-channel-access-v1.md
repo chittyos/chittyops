@@ -31,17 +31,34 @@ references:
 related:
   - chittycanon://docs/ops/policy/chittyconnect-charter
   - chittycanon://docs/ops/architecture/chittyconnect
+decisions:
+  - id: panel-2026-06-10-q1
+    forum: three-wise-men dynamic panel (chittyclaw via Cloudflare AI Gateway)
+    date: 2026-06-10
+    subject: "§10.1 DID-vs-ChittyID reconciliation"
+    verdict: "Option A — DID-as-display-label; ChittyID is canonical/authoritative"
+    dissent: none
+  - id: panel-2026-06-10-q2
+    forum: three-wise-men dynamic panel (chittyclaw via Cloudflare AI Gateway)
+    date: 2026-06-10
+    subject: "§10.2 P/L/T/E/A classification of channel surfaces"
+    verdict: "Option B — heterogeneous per-surface typing (P for agentic surfaces, L for venues)"
+    dissent: none
 ---
 
 <!-- @canon: chittycanon://gov/governance#core-types -->
 <!-- @canon: chittycanon://docs/ops/policy/chittyconnect-charter -->
 <!-- @canon: chittycanon://docs/ops/architecture/chittyconnect -->
 
-> **Open architectural questions (operator decision required — see §10):**
-> 1. DID-vs-ChittyID reconciliation for `did:chitty:channel:*`
-> 2. Entity-type classification of channel surfaces against P/L/T/E/A
+> **Architectural rulings applied (2026-06-10, three-wise-men panel via chittyclaw):**
+> 1. **§10.1 — Option A**: `did:chitty:channel:*` is a derived display-label only;
+>    the canonical ChittyID (`VV-G-LLL-SSSS-T-YM-C-X`) is authoritative in storage,
+>    lookup, audit, and ledger. Unanimous.
+> 2. **§10.2 — Option B**: heterogeneous per-surface typing. Agentic surfaces
+>    (VM Claude Code, ChatGPT MCP) are **P (Synthetic)**; venues (Workers, GitHub
+>    Actions runners, homelab nodes) are **L** (virtual or physical). Unanimous.
 >
-> These are tracked in §10 and must be resolved before this spec exits DRAFT.
+> Both blockers resolved. See §10 for the closed rulings.
 
 # Canonical Channel Access — One System Through ChittyConnect
 
@@ -65,10 +82,12 @@ Compliance is enforced by the `chittyops` audit engine (new dimension:
 
 - **ChittyEntity** — an actor with agency that holds credentials and acts (e.g.
   a Claude Code session, a deployed agent, a homelab daemon). Classified as
-  Person (P, Synthetic). See §10 Q2.
+  Person (P, Synthetic) per `chittycanon://gov/governance#core-types`.
 - **Channel** — the access surface through which a ChittyEntity (or a service)
-  reaches a target. A worker, a route, a node fingerprint. Likely classified
-  as Location (L, Virtual). See §10 Q2.
+  reaches a target. Per the §10.2 ruling (Option B, 2026-06-10), channel
+  surfaces are typed heterogeneously: agentic surfaces are **P (Synthetic)**;
+  venue surfaces (workers, runners, nodes) are **L** (virtual or physical).
+  See §6 for the per-surface map.
 
 Where prior drafts wrote "channel/agent" interchangeably, this revision uses
 **ChittyEntity** when an actor with agency is meant and **channel** when the
@@ -133,8 +152,10 @@ chittyconnect#364 lands; it returns 404 today.
 1. **Registration is the only onboarding step.** A new channel registers once via
    `POST connect.chitty.cc/api/v1/channels/register` (target alias
    `agent.chitty.cc/api/v1/channels/register` once chittyconnect#364 lands; the
-   alias 404s today). It receives a `channel_id`
-   (`did:chitty:channel:<host>-<surface>-<n>`) and an `X-ChittyOS-API-Key` that
+   alias 404s today). The registration response returns the canonical
+   `chitty_id` (`VV-G-LLL-SSSS-T-YM-C-X`, authoritative — per §10.1 ruling) and a
+   derived display-label `did:chitty:channel:<host>-<surface>-<n>` (alias only,
+   never the storage/lookup key). It also returns an `X-ChittyOS-API-Key` that
    is **broker-scoped, not target-scoped** — it can only mint, it cannot call target
    services directly.
 
@@ -289,15 +310,22 @@ script and refuse to render any credential/access blocker text otherwise.
 
 ## 6 · Wiring per channel surface
 
-| Surface | Registration trigger | Where broker key lives |
-|---------|----------------------|------------------------|
-| **VM-resident Claude Code** | `SessionStart` hook on first run, idempotent | `op://ChittyOS-Core/<host>-channel-broker/credential` (per-host item, auto-created on registration) |
-| **Cloudflare Worker** | `wrangler deploy` post-hook, registers as `did:chitty:channel:worker-<name>-<env>` | Worker secret `CHITTYCONNECT_BROKER_KEY` (set by chittyops reusable deploy workflow) |
-| **GitHub Actions** | Workflow `getchitty-creds` action runs registration if no cached channel_id | Repo secret `CHITTYCONNECT_API_KEY` |
-| **Homelab node** | `chittymarket-sync-daemon.sh` on first boot | `~/.ops/channel-broker-key` (mode 600, written by registration response) |
-| **ChatGPT cloud MCP** | Gateway-mediated registration via `ch1tty.com/mcp` (server-side policy + sync, per global CLAUDE.md Capability Registration §) | ChittyConnect-held; never exposed to the client | 
-| **Mobile** | OAuth flow returns channel_id + broker key (slim-MCP `search` + `execute`) | Provider's secure keystore |
-| **Future channels** | Register → Receive → Sync → Report → Enforce (per Channel Registration Protocol) | Channel-specific; broker-only key |
+<!-- @canon: chittycanon://gov/governance#core-types -->
+Entity type per §10.2 ruling (Option B, 2026-06-10): agentic surfaces are
+**P (Synthetic)**; venue surfaces are **L** (virtual or physical). Per §10.1
+ruling, every row is identified by canonical ChittyID
+(`VV-G-LLL-SSSS-T-YM-C-X`) at the wire; the `did:chitty:channel:*` form is a
+display label only.
+
+| Surface | Entity type | Registration trigger | Where broker key lives |
+|---------|-------------|----------------------|------------------------|
+| **VM-resident Claude Code** | **P (Synthetic)** | `SessionStart` hook on first run, idempotent | `op://ChittyOS-Core/<host>-channel-broker/credential` (per-host item, auto-created on registration) |
+| **Cloudflare Worker** | **L (Virtual)** | `wrangler deploy` post-hook | Worker secret `CHITTYCONNECT_BROKER_KEY` (set by chittyops reusable deploy workflow) |
+| **GitHub Actions runner** | **L (Virtual)** | Workflow `getchitty-creds` action runs registration if no cached chitty_id | Repo secret `CHITTYCONNECT_API_KEY` |
+| **Homelab node** | **L (Physical)** | `chittymarket-sync-daemon.sh` on first boot | `~/.ops/channel-broker-key` (mode 600, written by registration response) |
+| **ChatGPT cloud MCP** | **P (Synthetic)** | Gateway-mediated registration via `ch1tty.com/mcp` (server-side policy + sync, per global CLAUDE.md Capability Registration §) | ChittyConnect-held; never exposed to the client |
+| **Mobile** | **L (Virtual)** acting on behalf of a **P** | OAuth flow returns chitty_id + broker key (slim-MCP `search` + `execute`) | Provider's secure keystore |
+| **Future channels** | classified at registration | Register → Receive → Sync → Report → Enforce (per Channel Registration Protocol) | Channel-specific; broker-only key |
 
 ## 7 · Compliance dimension (new)
 
@@ -372,101 +400,71 @@ because both issues are about credential paths that depend on those routes.
 8. **Only now**: close chittyconnect#231 + chittyentity#343 with redirect
    to this spec, citing §9.2 verification evidence.
 
-## 10 · Open architectural questions (operator decision required)
+## 10 · Architectural rulings (closed)
 
-These two questions cannot be resolved by the spec author without violating
-canonical governance (`chittycanon://gov/governance`). They are surfaced here
-rather than answered silently. This spec stays DRAFT until both are decided.
+Both architectural questions previously open in this section were adjudicated
+on **2026-06-10** by the three-wise-men dynamic panel (chittyclaw via
+Cloudflare AI Gateway). Both verdicts were **unanimous (no dissent)**. The
+rulings below are binding for this spec and downstream implementations.
 
-### 10.1 · Q1 — DID-vs-ChittyID reconciliation
+### 10.1 · Q1 — DID-vs-ChittyID reconciliation → **RULING: Option A**
 
-**Tension.** Throughout this spec, channels are identified by:
+<!-- @canon: chittycanon://gov/governance#identityRules -->
 
-```
-did:chitty:channel:<host>-<surface>-<n>
-e.g. did:chitty:channel:chittyserv-vm-claude-code
-     did:chitty:channel:worker-chittyagent-tasks-prod
-```
+**Verdict.** DID syntax (`did:chitty:channel:<host>-<surface>-<n>`) is retained
+as a **human-readable alias only**. The canonical ChittyID
+(`VV-G-LLL-SSSS-T-YM-C-X`) is minted alongside at registration and is the
+**authoritative identifier** in storage, lookup, audit, and ledger.
 
-But canonical ChittyID format (`chittycanon://gov/governance`,
-`chittyIdFormat: "VV-G-LLL-SSSS-T-YM-C-X"`) and identity rules state:
+**Reasoning.** Respects `chittycanon://gov/governance#identityRules.prohibition`
+("secondary internal numbering schemes that duplicate ChittyID semantics are
+prohibited") while preserving the human-grep affordance of readable channel
+naming. No new canonical identifier class is created.
 
-> *"ChittyID … is the sole internal identifier for all entities. It is always
-> the PRIMARY KEY."*
->
-> *"Secondary internal numbering schemes that duplicate ChittyID semantics
-> … are prohibited."*
+**Wire effect.**
 
-A `did:chitty:channel:*` value is a secondary internal scheme. Either it
-must be reframed as a *display label* derived from a ChittyID, or it must be
-formally declared a distinct identifier class with an explicit canonical
-mapping.
+- `POST /api/v1/channels/register` returns `chitty_id` as the canonical key;
+  `did` is returned as a derived display label.
+- All API payloads, audit log records, ledger entries, and KV/D1 storage
+  use `chitty_id` as the primary key.
+- The `did:chitty:channel:*` string appears only in human-rendering surfaces
+  (status lines, dashboards, log prefixes) and is reconstructable from
+  `chitty_id` + host/surface metadata.
 
-**Options for operator decision:**
+**Dissent:** none.
 
-- **Option A — DID-as-display-label.** Every channel gets a real ChittyID
-  (T-segment per Q2 below). `did:chitty:channel:<host>-<surface>-<n>` is a
-  derived display label only; the wire payload from
-  `/api/v1/channels/register` returns `chitty_id` as canonical and the DID
-  string is constructed at render time. Pros: zero canonical conflict.
-  Cons: requires ChittyID minting on every channel registration; touches
-  ChittyID service.
-- **Option B — Distinct identifier class.** Declare `did:chitty:channel:*` a
-  separate identifier class governed by a new canonical URI
-  (e.g. `chittycanon://gov/identifiers/channel-did`) with an explicit mapping
-  to/from ChittyID. Requires a new governance spec from ChittyID / ChittyCanon
-  owners. Pros: keeps the DID grammar visible at the wire. Cons: introduces a
-  second identity layer, exactly the thing the canon prohibits.
-- **Option C — Drop the DID grammar.** Channels are referenced by ChittyID
-  directly in API payloads and logs. The DID literal `did:chitty:channel:*`
-  never appears on the wire. Pros: cleanest. Cons: loses the human-grep
-  affordance of the current `worker-<name>-<env>` style.
+### 10.2 · Q2 — P/L/T/E/A classification of channel surfaces → **RULING: Option B (heterogeneous)**
 
-**Recommendation (not binding):** Option A. It preserves the canonical
-identity layer while letting the DID string remain as a UX affordance.
-Requires confirmation from the ChittyID + ChittyCanon owners.
+<!-- @canon: chittycanon://gov/governance#core-types -->
 
-### 10.2 · Q2 — Entity-type classification of channel surfaces (P/L/T/E/A)
+**Verdict.** Channel surfaces are classified **heterogeneously**, per surface,
+by their actual semantics. The earlier "channels are uniformly L" framing is
+**overridden**.
 
-**Tension.** This spec treats "channels" as a single concept, but the
-canonical 5-type ontology (`chittycanon://gov/governance#core-types`) requires
-each registered entity to have a definite type from {P, L, T, E, A}.
+| Surface class | Canonical type |
+|---------------|----------------|
+| Cloudflare Workers, GitHub Actions runners | **L (Location, virtual)** |
+| VM Claude Code, ChatGPT MCP, agent surfaces | **P (Person, Synthetic)** |
+| Homelab nodes | **L (Location, physical)** |
+| Mobile client (handset) | **L (Virtual)** acting on behalf of a **P** |
 
-The set of "channels" enumerated in §6 is heterogeneous and likely splits
-across two types:
+**Reasoning.** Uniform L flattens distinct semantics. Per global CLAUDE.md
+("Claude contexts are Person (P), Synthetic characterization — NEVER Thing")
+and `chittycanon://gov/governance#core-types`, surfaces with agency are P;
+surfaces that are venues without agency are L. Per-surface typing aligns
+classification with actual agency vs. venue and prevents the canonical
+"Claude-as-Thing" / "agent-as-L" heresies.
 
-| §6 surface | Likely type | Rationale |
-|------------|-------------|-----------|
-| VM-resident Claude Code | **P (Synthetic)** — ChittyEntity | Actor with agency; decides, acts, accountable |
-| Cloudflare Worker | **L (Virtual)** | Access surface in virtual space; no agency on its own |
-| GitHub Actions runner | **L (Virtual)** | Ephemeral execution surface |
-| Homelab node | **L (Physical)** | Physical node fingerprint |
-| ChatGPT cloud MCP | **P (Synthetic)** | Actor with agency, gateway-mediated |
-| Mobile client | **L (Virtual)** acting on behalf of a **P** | The handset is L; the operator/agent using it is P |
-| Future channels | depends | Must be classified at registration |
+**Wire effect.**
 
-**Options for operator decision:**
+- `POST /api/v1/channels/register` requires `entity_type ∈ {P, L}` at
+  registration (per §6 map).
+- Policy bundle, broker key semantics, and recovery routine may differ by
+  type (e.g. P surfaces may carry session-scoped capabilities that L
+  surfaces cannot).
+- §6 wiring table reflects the per-surface typing canonically.
 
-- **Option A — One field, branched type.** `POST /api/v1/channels/register`
-  requires an explicit `entity_type ∈ {P, L}` field at registration. The
-  policy bundle, broker key semantics, and recovery routine may differ by
-  type. Pros: ontologically clean. Cons: requires §1, §3, §6 to be
-  type-aware.
-- **Option B — Channels are always L; ChittyEntities are separately
-  registered.** Channels (this spec's scope) are uniformly Location (L,
-  Virtual or Physical). A separate ChittyEntity registration (already
-  partially specified in `specs/context-entity-provisioning-v2.md`) binds a
-  P to one or more channels. Pros: separates "where you are" from "who you
-  are". Cons: requires §1, §3 to talk about (ChittyEntity, channel) pairs
-  rather than channels alone.
-- **Option C — Channels are always P (Synthetic).** Treat every channel as
-  a synthetic person. Pros: simplest grammar. Cons: violates the canon —
-  workers and runners do not have agency.
-
-**Recommendation (not binding):** Option B. It matches the ChittyEntity
-canon (`chittycanon://gov/governance#chittyEntity`) and the existing
-context-entity-provisioning-v2 spec, and it cleanly separates the access
-surface (L) from the actor (P).
+**Dissent:** none.
 
 ### 10.3 · Other open items
 
@@ -481,4 +479,5 @@ surface (L) from the actor (P).
 
 - Filed by: ChittyConnect concierge (see frontmatter `author`)
 - Originated: 2026-06-04
-- Last revision: 2026-06-10 (canonical remediation per Code Cardinal audit)
+- Last revision: 2026-06-10 (three-wise-men panel rulings applied: §10.1 Option A, §10.2 Option B; both unanimous)
+- Prior revision: 2026-06-10 (canonical remediation per Code Cardinal audit, commit 743fcf9)
