@@ -11,7 +11,7 @@ author: ChittyConnect concierge
 contributors:
   - ChittyConnect concierge
   - ChittyCanon Code Cardinal
-certifier: pending
+certifier: chittycanon://core/services/chittycertify
 created: 2026-06-04
 modified: 2026-06-10
 visibility: PUBLIC
@@ -50,6 +50,14 @@ decisions:
     subject: "Canonical lifecycle promotion"
     verdict: "DRAFT → PENDING (all 5 blockers + 5 nits + 2 architectural questions resolved; open for certifier review)"
     authorizer: operator
+    dissent: none
+  - id: certifier-assignment-2026-06-10
+    forum: ecosystem discovery
+    date: 2026-06-10
+    subject: "Certifier assignment"
+    verdict: "certifier := chittycanon://core/services/chittycertify"
+    rationale: "ChittyCertify is the canonical owner of the certification lifecycle per CHITTYFOUNDATION/chittycertify/CHARTER.md (uri: chittycanon://docs/ops/policy/chitty-certify-charter). Distinct from ChittyCert."
+    authorizer: chittycanon://core/services/chittycertify
     dissent: none
 ---
 
