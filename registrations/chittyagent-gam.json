@@ -32,7 +32,7 @@
     "consumers": ["daily-comms-triage"],
     "accounts": {
       "ws_jeanarlene": { "email": "nick@jeanarlene.com", "type": "workspace", "status": "provisioned" },
-      "ws_nevershitty": { "email": "nick@nevershitty.com", "type": "workspace", "status": "pending_oauth" }
+      "ws_nevershitty": { "email": "nick@nevershitty.com", "type": "workspace", "status": "provisioned" }
     },
     "privilege_policy": "F-L10 metadata-only: From/Subject/Date headers only; no body or snippet crosses the domain boundary for Workspace accounts"
   }

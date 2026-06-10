@@ -27,14 +27,15 @@ const GAM_BIN = path.join(process.env.HOME, "bin/gamadv-xtd3/gamadv-xtd3/gam");
 const PORT = process.env.GAM_PORT || 9098;
 
 // Workspace account allowlist. Logical account -> { email, select }.
-// `select` is the GAM config section (gam.cfg). ws_jeanarlene is the
-// configured [DEFAULT]; ws_nevershitty awaits its OAuth/service-account
-// profile (see RUNBOOK-oauth.md) and will surface account_not_provisioned
-// until that lands. The personal consumer inbox is intentionally absent:
-// GAM cannot reach @gmail.com, and per spec Q4 it uses readonly Gmail MCP.
+// `select` is the GAM config section (gam.cfg). The configured default OAuth
+// is authorized across BOTH Workspace domains (verified: it reads
+// nick@jeanarlene.com and nick@nevershitty.com directly), so both map to the
+// default profile — no per-domain section is required. The personal consumer
+// inbox is intentionally absent: GAM cannot reach @gmail.com ("Gmail API
+// Service/App not enabled"), so per spec Q4 it uses readonly Gmail REST/MCP.
 const WORKSPACE_ACCOUNTS = {
   ws_jeanarlene: { email: "nick@jeanarlene.com", select: "default" },
-  ws_nevershitty: { email: "nick@nevershitty.com", select: "nevershitty" },
+  ws_nevershitty: { email: "nick@nevershitty.com", select: "default" },
 };
 
 // Metadata-only header set. Adding "body"/"snippet"/"showbody" here would

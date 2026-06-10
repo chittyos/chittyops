@@ -17,9 +17,13 @@ TLS termination happen at the tunnel edge.
 
 | Logical account  | Inbox                     | Type      | Path        | Status        |
 |------------------|---------------------------|-----------|-------------|---------------|
-| `ws_jeanarlene`  | `nick@jeanarlene.com`     | Workspace | this connector | ✅ provisioned (GAM `[DEFAULT]`) |
-| `ws_nevershitty` | `nick@nevershitty.com`    | Workspace | this connector | ⚠️ pending OAuth — see [RUNBOOK-oauth.md](./RUNBOOK-oauth.md) |
+| `ws_jeanarlene`  | `nick@jeanarlene.com`     | Workspace | this connector | ✅ live (GAM default OAuth) |
+| `ws_nevershitty` | `nick@nevershitty.com`    | Workspace | this connector | ✅ live (same default OAuth — authorized across both domains) |
 | `personal_gmail` | `nichobianchi@gmail.com`  | consumer  | **NOT here** — readonly Gmail REST in the worker | ⚠️ pending OAuth token |
+
+The configured GAM default OAuth is authorized across **both** Workspace domains
+(verified: it reads `nick@jeanarlene.com` and `nick@nevershitty.com` directly), so
+both accounts use the `default` profile — no per-domain section is needed.
 
 GAM only reaches **Google Workspace** domains via domain-wide delegation. The
 consumer `@gmail.com` account is intentionally **out of scope** for this connector
