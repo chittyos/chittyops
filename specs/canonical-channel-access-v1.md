@@ -3,7 +3,7 @@ uri: chittycanon://docs/ops/spec/canonical-channel-access-v1
 namespace: chittycanon://docs/ops
 type: spec
 version: 1.0.0
-status: DRAFT
+status: PENDING
 registered_with: chittycanon://core/services/canon
 title: "Canonical Channel Access — One System Through ChittyConnect"
 owner: chittycanon://core/services/chittyconnect
@@ -43,6 +43,13 @@ decisions:
     date: 2026-06-10
     subject: "§10.2 P/L/T/E/A classification of channel surfaces"
     verdict: "Option B — heterogeneous per-surface typing (P for agentic surfaces, L for venues)"
+    dissent: none
+  - id: lifecycle-2026-06-10-promotion
+    forum: operator sign-off
+    date: 2026-06-10
+    subject: "Canonical lifecycle promotion"
+    verdict: "DRAFT → PENDING (all 5 blockers + 5 nits + 2 architectural questions resolved; open for certifier review)"
+    authorizer: operator
     dissent: none
 ---
 
@@ -95,7 +102,8 @@ access surface is meant.
 
 ## 0.1 · Implementation status (READ FIRST)
 
-This spec is **DRAFT**. The endpoint surface in §2 is a mix of **live** and
+This spec is **PENDING** (promoted from DRAFT 2026-06-10 by operator sign-off; open
+for certifier review). The endpoint surface in §2 is a mix of **live** and
 **proposed** routes. Do not implement against `proposed` routes until the
 linked in-flight PR lands.
 
@@ -479,5 +487,7 @@ classification with actual agency vs. venue and prevents the canonical
 
 - Filed by: ChittyConnect concierge (see frontmatter `author`)
 - Originated: 2026-06-04
-- Last revision: 2026-06-10 (three-wise-men panel rulings applied: §10.1 Option A, §10.2 Option B; both unanimous)
+- Last revision: 2026-06-10 (lifecycle promotion DRAFT → PENDING, operator sign-off)
+- Prior revision: 2026-06-10 (three-wise-men panel rulings applied: §10.1 Option A, §10.2 Option B; both unanimous, commit 67a63f9)
 - Prior revision: 2026-06-10 (canonical remediation per Code Cardinal audit, commit 743fcf9)
+- Lifecycle: DRAFT (2026-06-04) → PENDING (2026-06-10, operator sign-off)
