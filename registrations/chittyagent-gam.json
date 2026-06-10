@@ -1,0 +1,39 @@
+{
+  "name": "chittyagent-gam",
+  "description": "ChittyAgent-GAM — multi-account Google Workspace connector. Backs the ChittyMCP `gam_execute` capability and serves the two Workspace inboxes (nick@nevershitty.com, nick@jeanarlene.com) metadata-only per F-L10 for daily-comms-triage. Local executor (GAMADV-XTD3) on the VM, exposed via the ch1tty tunnel (gam.chitty.cc -> 127.0.0.1:9098). Consumer @gmail.com inboxes are out of scope (GAM cannot reach them; they use readonly Gmail MCP/REST).",
+  "version": "1.0.0",
+  "endpoints": [
+    "https://gam.chitty.cc/health",
+    "https://gam.chitty.cc/gam",
+    "https://gam.chitty.cc/gmail/metadata"
+  ],
+  "schema": {
+    "version": "1.0.0",
+    "entities": ["GamCommand", "GmailMessageMetadata"],
+    "relationships": [
+      { "from": "GamCommand", "to": "GmailMessageMetadata", "kind": "produces" }
+    ]
+  },
+  "security": {
+    "authentication": "apikey",
+    "encryption": "tls",
+    "headers": ["Authorization", "X-ChittyID-Token"]
+  },
+  "metadata": {
+    "maintainer": "nick@nevershitty.com",
+    "tier": 3,
+    "domain": "gam.chitty.cc",
+    "repo": "CHITTYOS/chittyops",
+    "path": "connectors/chittyagent-gam",
+    "organization": "ChittyCorp",
+    "territory": "operations",
+    "tags": ["connector", "gam", "google-workspace", "gmail", "metadata-only", "F-L10"],
+    "pause_exemption": [],
+    "consumers": ["daily-comms-triage"],
+    "accounts": {
+      "ws_jeanarlene": { "email": "nick@jeanarlene.com", "type": "workspace", "status": "provisioned" },
+      "ws_nevershitty": { "email": "nick@nevershitty.com", "type": "workspace", "status": "pending_oauth" }
+    },
+    "privilege_policy": "F-L10 metadata-only: From/Subject/Date headers only; no body or snippet crosses the domain boundary for Workspace accounts"
+  }
+}

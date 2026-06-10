@@ -22,9 +22,14 @@ interface Env {
   AI_GATEWAY_URL: string;
   DISCOVERY_HEARTBEAT_URL: string;
   COMPTROLLER_BUDGET_URL: string;
-  // Secrets (1Password-injected)
-  GAM_WS_NEVERSHITTY_TOKEN: string;
-  GAM_WS_JEANARLENE_TOKEN: string;
+  // chittyagent-gam connector (gam.chitty.cc tunnel -> VM executor 127.0.0.1:9098).
+  // Serves the two Workspace inboxes metadata-only (F-L10). Set in [vars]; the
+  // API key (secret) gates the tunnel.
+  CHITTYGAM_URL: string;
+  // Secrets (1Password / ChittyConnect-injected)
+  CHITTYGAM_API_KEY: string;
+  // Personal consumer inbox: readonly Gmail REST (spec Q4). OAuth access token
+  // provisioned/refreshed via ChittyConnect; absent until granted (source degrades).
   GMAIL_PERSONAL_TOKEN: string;
   QUO_API_KEY: string;
   MERCURY_API_KEY: string;
@@ -32,7 +37,6 @@ interface Env {
   CHITTYDISPATCH_URL: string;
   AUTOASSIST_URL: string;
   ORCHESTRATOR_URL: string;
-  STUDIO_HANDOFF_SHEET_ID: string;
   // Manifest
   MANIFEST: RoutineManifest;
 }
@@ -148,8 +152,8 @@ async function releaseLock(kv: KVNamespace, key: string): Promise<void> {
 // --- Ingest ---
 async function ingestAllSources(env: Env, runId: string): Promise<IngestItem[]> {
   const sources = [
-    ingestStudioHandoffSheet(env, "ws_nevershitty", env.STUDIO_HANDOFF_SHEET_ID),
-    ingestStudioHandoffSheet(env, "ws_jeanarlene", env.STUDIO_HANDOFF_SHEET_ID),
+    ingestWorkspaceGmail(env, "ws_nevershitty"),
+    ingestWorkspaceGmail(env, "ws_jeanarlene"),
     ingestPersonalGmail(env),
     ingestQuo(env),
     ingestIMessage(env),
@@ -173,35 +177,97 @@ async function ingestAllSources(env: Env, runId: string): Promise<IngestItem[]> 
   return items;
 }
 
-// --- Per-source ingestors (skeletons — real impls call MCPs via mcp.chitty.cc) ---
-async function ingestStudioHandoffSheet(env: Env, account: string, sheetId: string): Promise<IngestItem[]> {
-  // Read structured rows from the Workspace Studio handoff Sheet via gam tunnel
-  const url = `https://gam.chitty.cc/sheets/${sheetId}?account=${account}`;
-  const token = account === "ws_nevershitty" ? env.GAM_WS_NEVERSHITTY_TOKEN : env.GAM_WS_JEANARLENE_TOKEN;
-  const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!resp.ok) throw new Error(`gam sheets fetch ${account}: ${resp.status}`);
-  const rows: any[] = await resp.json();
-  return rows.map(r => normalizeStudioRow(r, account));
+// --- Gmail ingestors ---
+// Two paths, per spec Q4 (hybrid): the two Workspace inboxes flow through the
+// chittyagent-gam connector (GAM/GAMADV-XTD3), metadata-only per F-L10 — message
+// bodies/snippets never cross the domain boundary. The personal consumer inbox
+// (which GAM cannot reach) uses readonly Gmail REST. Both degrade to [] when a
+// source is unprovisioned, so one missing credential never blocks the run (F-R3).
+
+// Workspace Gmail (ws_nevershitty, ws_jeanarlene) — metadata-only via connector.
+// The connector returns headers only (from/subject/date); `preview` is left empty
+// because privileged-domain snippets must not leave the boundary (F-L10). In-domain
+// Studio-flow triage can later enrich `pre_evaluated_sensitivity` on these items.
+async function ingestWorkspaceGmail(env: Env, account: "ws_nevershitty" | "ws_jeanarlene"): Promise<IngestItem[]> {
+  const resp = await fetch(`${env.CHITTYGAM_URL}/gmail/metadata`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.CHITTYGAM_API_KEY}` },
+    body: JSON.stringify({ account, query: "in:inbox newer_than:1d", max: 200 }),
+  });
+  if (!resp.ok) {
+    // 424 = account_not_provisioned (e.g. ws_nevershitty before OAuth lands),
+    // 403 = account_not_permitted, 5xx = executor/tunnel down. Degrade (F-R3).
+    const detail = await resp.text().catch(() => "");
+    console.warn(`[gam ${account}] non-ok ${resp.status}: ${detail.slice(0, 200)}`);
+    return [];
+  }
+  const data = await resp.json() as { items?: Array<Record<string, string>> };
+  return (data.items ?? []).map(m => {
+    // A single malformed Date header must not reject the whole map (which would
+    // drop the entire inbox for the run); fall back to epoch on unparseable dates.
+    const d = m.date ? new Date(m.date) : null;
+    const received_at = d && !isNaN(d.getTime()) ? d.toISOString() : new Date(0).toISOString();
+    return {
+    source: "gmail",
+    account,
+    source_id: m.message_id,
+    received_at,
+    subject: m.subject ?? "",
+    preview: "", // F-L10: no snippet for privileged Workspace domains
+    raw_ref: `gam://${account}/${m.message_id}`,
+    sensitivity_hint: "unknown",
+    entity_prior: account === "ws_nevershitty" ? "ChittyCorp" : "JAVL",
+    hints: { from: m.from, subject: m.subject, thread_id: m.thread_id, message_id: m.message_id },
+    };
+  });
 }
 
+// Personal consumer Gmail (nichobianchi@gmail.com) — readonly Gmail REST, metadata
+// format. Not a privileged domain, so the snippet preview is retained. Requires an
+// OAuth access token (ChittyConnect-provisioned); degrades to [] until granted.
 async function ingestPersonalGmail(env: Env): Promise<IngestItem[]> {
-  // Direct Gmail MCP read; no Studio (consumer account)
-  const resp = await fetch("https://mcp.chitty.cc/gmail/search_threads?q=in:inbox newer_than:1d", {
-    headers: { Authorization: `Bearer ${env.GMAIL_PERSONAL_TOKEN}` },
-  });
-  const threads = await resp.json() as any[];
-  return threads.map(t => ({
-    source: "gmail",
-    account: "personal_gmail",
-    source_id: t.message_id,
-    received_at: t.received_at,
-    subject: t.subject,
-    preview: t.snippet,
-    raw_ref: `mcp://gmail/${t.id}`,
-    sensitivity_hint: "unknown",
-    entity_prior: "Personal",
-    hints: { from: t.from, subject: t.subject, thread_id: t.thread_id, message_id: t.message_id },
+  if (!env.GMAIL_PERSONAL_TOKEN) {
+    console.warn("[gmail personal] no token provisioned; skipping (F-R3)");
+    return [];
+  }
+  const auth = { Authorization: `Bearer ${env.GMAIL_PERSONAL_TOKEN}` };
+  const listResp = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=" +
+      encodeURIComponent("in:inbox newer_than:1d") + "&maxResults=100",
+    { headers: auth },
+  );
+  if (!listResp.ok) {
+    console.warn(`[gmail personal] list non-ok: ${listResp.status}`);
+    return [];
+  }
+  const { messages = [] } = await listResp.json() as { messages?: Array<{ id: string }> };
+  const items = await Promise.all(messages.map(async (m): Promise<IngestItem | null> => {
+    const r = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}` +
+        "?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date",
+      { headers: auth },
+    );
+    if (!r.ok) return null;
+    const msg = await r.json() as {
+      threadId?: string; internalDate?: string; snippet?: string;
+      payload?: { headers?: Array<{ name: string; value: string }> };
+    };
+    const h: Record<string, string> = {};
+    for (const x of msg.payload?.headers ?? []) h[x.name.toLowerCase()] = x.value;
+    return {
+      source: "gmail",
+      account: "personal_gmail",
+      source_id: m.id,
+      received_at: new Date(parseInt(msg.internalDate ?? "0", 10)).toISOString(),
+      subject: h.subject ?? "",
+      preview: msg.snippet ?? "",
+      raw_ref: `gmail://personal_gmail/${m.id}`,
+      sensitivity_hint: "unknown",
+      entity_prior: "Personal",
+      hints: { from: h.from, subject: h.subject, thread_id: msg.threadId, message_id: m.id },
+    };
   }));
+  return items.filter((i): i is IngestItem => i !== null);
 }
 
 // Stubs for other sources — call respective MCPs
@@ -229,22 +295,6 @@ async function mcpIngest(env: Env, service: string, tool: string, args: Record<s
   }
   const data = await resp.json() as any[];
   return data.map(d => normalizeMcpRow(d, service));
-}
-
-function normalizeStudioRow(r: any, account: string): IngestItem {
-  return {
-    source: "gmail",
-    account,
-    source_id: r.message_id,
-    received_at: r.received_at,
-    subject: r.subject,
-    preview: r.preview,
-    raw_ref: `gmail://${account}/${r.message_id}`,
-    sensitivity_hint: r.sensitivity_hint ?? "unknown",
-    pre_evaluated_sensitivity: r.pre_evaluated_sensitivity,
-    entity_prior: account === "ws_nevershitty" ? "ChittyCorp" : "JAVL",
-    hints: { from: r.from, subject: r.subject, thread_id: r.thread_id, message_id: r.message_id },
-  };
 }
 
 function normalizeMcpRow(d: any, service: string): IngestItem {
