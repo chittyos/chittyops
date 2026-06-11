@@ -27,7 +27,13 @@ interface HyperdriveLike {
   connectionString: string;
 }
 
+// Workers-AI binding (T0). Typed locally to avoid pulling full @cloudflare/workers-types Ai.
+interface AiLike {
+  run(model: string, inputs: Record<string, unknown>): Promise<unknown>;
+}
+
 interface Env {
+  AI: AiLike; // Workers-AI (T0) — narrative generation for /api/v1/insights ONLY
   NEON_COMPTROLLER: HyperdriveLike; // comptroller_reader role (read-only)
   NEON_COMPTROLLER_WRITER?: HyperdriveLike; // RW role — Phase-A writer (provision separately)
   KV_STATE: KVNamespace;
@@ -224,6 +230,17 @@ async function handleFetch(req: Request, env: Env): Promise<Response> {
 
     if (url.pathname === "/anomalies") {
       return Response.json(await listAnomalies(env));
+    }
+
+    // AI-categorization + deeper insight (Workers-AI T0). Numbers from SQL; model writes prose only.
+    // Cached ~6h in KV (insights:{chicago-date}); ?refresh=1 bypasses. Never on the 5-min poll.
+    if (url.pathname === "/api/v1/insights") {
+      try {
+        const refresh = url.searchParams.get("refresh") === "1";
+        return Response.json(await fetchInsights(env, refresh));
+      } catch (e) {
+        return Response.json({ status: "error", service: "comptroller", error: String(e), ts: now }, { status: 500 });
+      }
     }
 
     if (url.pathname === "/_admin/authority" && req.method === "POST") {
@@ -459,6 +476,300 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
     await env.KV_STATE.put(hwmKey, new Date(maxSeen).toISOString());
   }
   if (inserted > 0) console.log(`[ingest] ${gw}: inserted ${inserted} cost_ledger rows`);
+}
+
+// ===================================================================================
+// AI insights (Workers-AI T0) — categorization + grounded recommendations
+//
+// HARD RULE: every NUMBER is computed in SQL/JS and assembled here. The LLM receives the
+// finished figures and emits ONLY narrative fields (category, characterization, drivers
+// prose, trend prose, recommendations). It is forbidden to invent or restate costs. This
+// makes "grounded, no fabrication" structurally true, not prompt-dependent.
+// ===================================================================================
+
+const INSIGHTS_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+const INSIGHTS_TTL_SECONDS = 6 * 3600;
+
+/** Chicago calendar date (YYYY-MM-DD) — matches the day boundaries used everywhere else. */
+function chicagoDate(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+interface InsightsAggregates {
+  generated_at: string;
+  window: { today: string; trend_days: number };
+  totals: {
+    today_cost_usd: number;
+    today_calls: number;
+    all_time_cost_usd: number;
+    all_time_rows: number;
+    workers_ai_cost_usd: number;
+    external_provider_cost_usd: number;
+    workers_ai_calls: number;
+    external_provider_calls: number;
+  };
+  per_service_today: Array<{
+    service: string;
+    cost_usd: number;
+    calls: number;
+    tokens_in: number;
+    tokens_out: number;
+    top_provider: string;
+    top_tier: string;
+  }>;
+  daily_trend: Array<{ day: string; cost_usd: number; calls: number }>;
+  top_models_by_cost: Array<{ model: string; provider: string; cost_usd: number; calls: number }>;
+  top_models_by_calls: Array<{ model: string; provider: string; cost_usd: number; calls: number }>;
+}
+
+/** Pull every figure the insight needs straight from cost_ledger. No model involvement. */
+async function queryInsightsAggregates(env: Env): Promise<InsightsAggregates> {
+  const db = getDb(env);
+
+  const perService = (await db`
+    SELECT service,
+           coalesce(sum(cost_usd),0)::float8 AS cost_usd,
+           count(*)::int AS calls,
+           coalesce(sum(tokens_in),0)::bigint AS tokens_in,
+           coalesce(sum(tokens_out),0)::bigint AS tokens_out,
+           (array_agg(provider ORDER BY cost_usd DESC NULLS LAST))[1] AS top_provider,
+           (array_agg(tier ORDER BY cost_usd DESC NULLS LAST))[1] AS top_tier
+    FROM chittyops.cost_ledger
+    WHERE ts >= date_trunc('day', now() AT TIME ZONE 'America/Chicago')
+    GROUP BY service
+    ORDER BY cost_usd DESC
+  `) as any[];
+
+  const trend = (await db`
+    SELECT (ts AT TIME ZONE 'America/Chicago')::date::text AS day,
+           coalesce(sum(cost_usd),0)::float8 AS cost_usd,
+           count(*)::int AS calls
+    FROM chittyops.cost_ledger
+    WHERE ts >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') - interval '6 days'
+    GROUP BY 1
+    ORDER BY 1
+  `) as any[];
+
+  const modelsByCost = (await db`
+    SELECT model, (array_agg(provider))[1] AS provider,
+           coalesce(sum(cost_usd),0)::float8 AS cost_usd, count(*)::int AS calls
+    FROM chittyops.cost_ledger
+    WHERE ts >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') - interval '6 days'
+    GROUP BY model
+    ORDER BY cost_usd DESC
+    LIMIT 5
+  `) as any[];
+
+  const modelsByCalls = (await db`
+    SELECT model, (array_agg(provider))[1] AS provider,
+           coalesce(sum(cost_usd),0)::float8 AS cost_usd, count(*)::int AS calls
+    FROM chittyops.cost_ledger
+    WHERE ts >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') - interval '6 days'
+    GROUP BY model
+    ORDER BY calls DESC
+    LIMIT 5
+  `) as any[];
+
+  const split = (await db`
+    SELECT
+      coalesce(sum(cost_usd) FILTER (WHERE provider = 'workers-ai'),0)::float8 AS wai_cost,
+      coalesce(sum(cost_usd) FILTER (WHERE provider <> 'workers-ai'),0)::float8 AS ext_cost,
+      coalesce(count(*) FILTER (WHERE provider = 'workers-ai'),0)::int AS wai_calls,
+      coalesce(count(*) FILTER (WHERE provider <> 'workers-ai'),0)::int AS ext_calls
+    FROM chittyops.cost_ledger
+  `) as any[];
+
+  const allTime = (await db`
+    SELECT count(*)::int AS rows, coalesce(sum(cost_usd),0)::float8 AS cost FROM chittyops.cost_ledger
+  `) as any[];
+
+  const todayCost = perService.reduce((s, r) => s + Number(r.cost_usd), 0);
+  const todayCalls = perService.reduce((s, r) => s + Number(r.calls), 0);
+  const sp = split[0] ?? {};
+
+  const round = (n: number, d = 6) => Number(Number(n).toFixed(d));
+
+  return {
+    generated_at: new Date().toISOString(),
+    window: { today: chicagoDate(), trend_days: 7 },
+    totals: {
+      today_cost_usd: round(todayCost),
+      today_calls: todayCalls,
+      all_time_cost_usd: round(Number(allTime[0]?.cost ?? 0)),
+      all_time_rows: Number(allTime[0]?.rows ?? 0),
+      workers_ai_cost_usd: round(Number(sp.wai_cost ?? 0)),
+      external_provider_cost_usd: round(Number(sp.ext_cost ?? 0)),
+      workers_ai_calls: Number(sp.wai_calls ?? 0),
+      external_provider_calls: Number(sp.ext_calls ?? 0),
+    },
+    per_service_today: perService.map((r) => ({
+      service: r.service,
+      cost_usd: round(Number(r.cost_usd)),
+      calls: Number(r.calls),
+      tokens_in: Number(r.tokens_in),
+      tokens_out: Number(r.tokens_out),
+      top_provider: r.top_provider ?? "unknown",
+      top_tier: r.top_tier ?? "unknown",
+    })),
+    daily_trend: trend.map((r) => ({ day: r.day, cost_usd: round(Number(r.cost_usd)), calls: Number(r.calls) })),
+    top_models_by_cost: modelsByCost.map((r) => ({
+      model: r.model,
+      provider: r.provider ?? "unknown",
+      cost_usd: round(Number(r.cost_usd)),
+      calls: Number(r.calls),
+    })),
+    top_models_by_calls: modelsByCalls.map((r) => ({
+      model: r.model,
+      provider: r.provider ?? "unknown",
+      cost_usd: round(Number(r.cost_usd)),
+      calls: Number(r.calls),
+    })),
+  };
+}
+
+/** Narrative-only schema the model fills. NO numeric fields — those come from SQL. */
+interface InsightsNarrative {
+  per_service: Array<{ service: string; category: string; characterization: string }>;
+  drivers: string[];
+  trends: string[];
+  recommendations: string[];
+}
+
+async function runInsightsModel(env: Env, agg: InsightsAggregates): Promise<{ narrative: InsightsNarrative | null; raw: string }> {
+  const services = agg.per_service_today.map((s) => s.service).join(", ") || "(none today)";
+  const systemPrompt =
+    "You are a FinOps analyst for the ChittyOS AI-spend ledger. You are given PRE-COMPUTED figures " +
+    "from a Postgres cost ledger. You MUST only use the provided numbers — never invent, restate, or " +
+    "recompute any cost. Costs are in USD and may be sub-cent; do not editorialize magnitude beyond what " +
+    "the numbers show (do not call sub-dollar totals 'high'). Characterize each service by what its AI " +
+    "usage pattern implies (e.g. high tokens_in with ~0 tokens_out = embedding/classification workload; " +
+    "balanced in/out = generative chat). Reply with ONLY a JSON object, no prose outside it, matching: " +
+    '{"per_service":[{"service":string,"category":string,"characterization":string}],' +
+    '"drivers":[string],"trends":[string],"recommendations":[string]}. ' +
+    "category is a short label (2-4 words). characterization, drivers, trends, recommendations are one " +
+    "sentence each, every claim grounded in a provided figure. Give 2-4 recommendations.";
+
+  const userPrompt =
+    `Services active today: ${services}.\n` +
+    `Figures (JSON):\n${JSON.stringify({
+      totals: agg.totals,
+      per_service_today: agg.per_service_today,
+      daily_trend: agg.daily_trend,
+      top_models_by_cost: agg.top_models_by_cost,
+      top_models_by_calls: agg.top_models_by_calls,
+    })}\n` +
+    "Produce the JSON object now.";
+
+  const out = (await env.AI.run(INSIGHTS_MODEL, {
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    max_tokens: 1024,
+    temperature: 0.2,
+  })) as { response?: string };
+
+  const raw = typeof out?.response === "string" ? out.response : JSON.stringify(out);
+  const narrative = parseNarrative(raw, agg);
+  return { narrative, raw };
+}
+
+/** Extract the JSON object from the model text. Returns null on failure (no fabricated fallback). */
+function parseNarrative(raw: string, agg: InsightsAggregates): InsightsNarrative | null {
+  let text = raw.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) text = fence[1].trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    const obj = JSON.parse(text.slice(start, end + 1));
+    const allowed = new Set(agg.per_service_today.map((s) => s.service));
+    const perService = Array.isArray(obj.per_service)
+      ? obj.per_service
+          .filter((p: any) => p && typeof p.service === "string" && allowed.has(p.service))
+          .map((p: any) => ({
+            service: String(p.service),
+            category: String(p.category ?? "uncategorized"),
+            characterization: String(p.characterization ?? ""),
+          }))
+      : [];
+    const asStrings = (v: any): string[] =>
+      Array.isArray(v) ? v.filter((x) => typeof x === "string").map((x) => String(x)) : [];
+    return {
+      per_service: perService,
+      drivers: asStrings(obj.drivers),
+      trends: asStrings(obj.trends),
+      recommendations: asStrings(obj.recommendations),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchInsights(env: Env, refresh: boolean): Promise<any> {
+  const cacheKey = `insights:${chicagoDate()}`;
+  if (!refresh) {
+    const cached = await env.KV_STATE.get(cacheKey);
+    if (cached) {
+      const obj = JSON.parse(cached);
+      obj.cached = true;
+      return obj;
+    }
+  }
+
+  const agg = await queryInsightsAggregates(env);
+
+  // Empty-state: do not ask the model to characterize nothing.
+  if (agg.totals.today_calls === 0 && agg.totals.all_time_rows === 0) {
+    return {
+      status: "ok",
+      service: "comptroller",
+      generated_at: agg.generated_at,
+      window: agg.window,
+      empty: true,
+      reason: "cost_ledger has no rows in the window — no insight generated (no fabrication)",
+      totals: agg.totals,
+      model_used: null,
+    };
+  }
+
+  const { narrative, raw } = await runInsightsModel(env, agg);
+
+  const result: any = {
+    status: "ok",
+    service: "comptroller",
+    generated_at: agg.generated_at,
+    window: agg.window,
+    totals: agg.totals,
+    per_service: narrative?.per_service ?? [],
+    drivers: narrative?.drivers ?? [],
+    trends: narrative?.trends ?? [],
+    recommendations: narrative?.recommendations ?? [],
+    daily_trend: agg.daily_trend,
+    top_models_by_cost: agg.top_models_by_cost,
+    top_models_by_calls: agg.top_models_by_calls,
+    model_used: INSIGHTS_MODEL,
+    cached: false,
+  };
+
+  // If the model produced no parseable narrative, surface the raw text — never fabricate.
+  if (!narrative) {
+    result.narrative_error = "model output did not parse as JSON narrative";
+    result.model_raw = raw.slice(0, 2000);
+  }
+
+  // Cache the grounded result (~6h) so it's not recomputed per request (avoids meta-cost).
+  await env.KV_STATE.put(cacheKey, JSON.stringify({ ...result, cached: false }), {
+    expirationTtl: INSIGHTS_TTL_SECONDS,
+  });
+
+  return result;
 }
 
 // ===================================================================================

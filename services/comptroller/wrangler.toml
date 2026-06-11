@@ -39,6 +39,11 @@ id = "4427ea043c524bb1a22a5b4e0953d297"
 binding = "KV_STATE"
 id = "03cd968da5eb41d6bc13c9ee48d22254"
 
+# Workers-AI binding (T0 — free, on-account). Drives GET /api/v1/insights narrative ONLY.
+# SPEC: "NEVER uses LLM above T0". @cf/* models are T0. Numbers come from SQL, never the model.
+[ai]
+binding = "AI"
+
 [observability]
 enabled = true
 
