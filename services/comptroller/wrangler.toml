@@ -1,31 +1,43 @@
 name = "comptroller"
 main = "worker.ts"
 compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
 account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"  # ChittyCorp LLC
 
 # Comptroller is Tier-Infrastructure: must always run.
 # L1 only at cold-start for 24h. L2/L3 require BASELINE_LEARNING=false in policy_flags.
 
+routes = [
+  { pattern = "comptroller.chitty.cc", custom_domain = true }
+]
+
 [triggers]
 crons = ["*/5 * * * *"]  # 5-min budget poll, always on
-
-routes = [
-  { pattern = "comptroller.chitty.cc/*", custom_domain = true }
-]
 
 [vars]
 REGISTRY_URL = "https://registry.chitty.cc"
 HEARTBEAT_URL = "https://discovery.chitty.cc/heartbeat/comptroller"
 NOTION_BUSINESS_REPORT_PAGE_ID = "REPLACE_AT_DEPLOY"
 NOTION_LEGALINK_REPORT_PAGE_ID = "REPLACE_AT_DEPLOY"
+CF_ACCOUNT_ID = "0bc21e3a5a9de1a4cc843be9c3e98121"
 
+# READ path: comptroller_reader (read-only) on restless-grass-40598426 / ChittyOS-Core, direct host
 [[hyperdrive]]
 binding = "NEON_COMPTROLLER"
-id = "REPLACE_AT_DEPLOY"  # comptroller_reader role on restless-grass-40598426
+id = "90b3bda653a64a96ae79580991623d31"
+
+# WRITE path (Phase-A ingest): SEPARATE Hyperdrive binding over the comptroller_writer role
+# (append-only INSERT on chittyops.cost_ledger + chittyops.anomalies) on the SAME Neon project
+# (restless-grass-40598426 / ChittyOS-Core). porsager `postgres` needs a TCP socket, which on
+# Workers only comes from Hyperdrive's connectionString. getWriteDb() fails closed if absent.
+# origin: ep-green-water-ael1lksw.c-2.us-east-2.aws.neon.tech / db neondb / role comptroller_writer
+[[hyperdrive]]
+binding = "NEON_COMPTROLLER_WRITER"
+id = "4427ea043c524bb1a22a5b4e0953d297"
 
 [[kv_namespaces]]
 binding = "KV_STATE"
-id = "REPLACE_AT_DEPLOY"
+id = "03cd968da5eb41d6bc13c9ee48d22254"
 
 [observability]
 enabled = true
