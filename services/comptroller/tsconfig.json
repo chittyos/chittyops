@@ -12,5 +12,5 @@
     "resolveJsonModule": true,
     "isolatedModules": true
   },
-  "include": ["worker.ts", "crypto.ts", "types.ts"]
+  "include": ["worker.ts", "crypto.ts", "types.ts", "node-async-hooks.d.ts"]
 }

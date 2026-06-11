@@ -18,6 +18,9 @@
  */
 
 import postgres from "postgres";
+// AsyncLocalStorage is provided at runtime by the `nodejs_compat` flag. Its type comes
+// from a minimal ambient declaration (node-async-hooks.d.ts) rather than all of @types/node.
+import { AsyncLocalStorage } from "node:async_hooks";
 
 // ---- Cloudflare Workers Hyperdrive binding (typed locally to avoid pulling full env types) ----
 interface HyperdriveLike {
@@ -73,36 +76,75 @@ const DEFAULT_HARD_CAP_MTD_USD = 50.0;
 
 type Sql = ReturnType<typeof postgres>;
 
-let _readDb: Sql | null = null;
-let _writeDb: Sql | null = null;
+/**
+ * Per-invocation DB scope.
+ *
+ * On Cloudflare Workers, a porsager `postgres` client opens a TCP socket bound to the
+ * request/invocation that created it. Reusing a module-global client across invocations
+ * (cron + concurrent fetch) throws "Cannot perform I/O on behalf of a different request"
+ * once a later invocation touches that socket — and is a cross-request state leak.
+ *
+ * We therefore create the client(s) ONCE per invocation and store them in an
+ * AsyncLocalStorage scope (concurrency-safe: each scheduled() run and each fetch()
+ * request gets its own clients). getDb/getWriteDb resolve from the active scope, so the
+ * ~14 callsites stay untouched. withDbScope() ends the clients via ctx.waitUntil() after
+ * the handler returns, so no connections leak.
+ */
+interface DbScope {
+  read: Sql;
+  write: Sql | null;
+}
 
-/** Read-only connection (comptroller_reader via Hyperdrive). */
-function getDb(env: Env): Sql {
-  if (!_readDb) {
-    _readDb = postgres(env.NEON_COMPTROLLER.connectionString, {
-      max: 5,
-      fetch_types: false,
-      prepare: false,
-    });
-  }
-  return _readDb;
+const dbScope = new AsyncLocalStorage<DbScope>();
+
+function makeReadDb(env: Env): Sql {
+  return postgres(env.NEON_COMPTROLLER.connectionString, {
+    max: 5,
+    fetch_types: false,
+    prepare: false,
+  });
+}
+
+function makeWriteDb(env: Env): Sql | null {
+  if (!env.NEON_COMPTROLLER_WRITER?.connectionString) return null;
+  return postgres(env.NEON_COMPTROLLER_WRITER.connectionString, {
+    max: 5,
+    fetch_types: false,
+    prepare: false,
+  });
 }
 
 /**
- * Writer connection (RW role via a SEPARATE Hyperdrive binding).
+ * Run `fn` inside a fresh per-invocation DB scope and guarantee the clients are
+ * closed afterwards. Closing is deferred to ctx.waitUntil so an in-flight query in
+ * a floating promise can drain, but we never leave sockets open across invocations.
+ */
+async function withDbScope<T>(env: Env, ctx: ExecutionContext, fn: () => Promise<T>): Promise<T> {
+  const scope: DbScope = { read: makeReadDb(env), write: makeWriteDb(env) };
+  try {
+    return await dbScope.run(scope, fn);
+  } finally {
+    ctx.waitUntil(scope.read.end({ timeout: 5 }).catch(() => {}));
+    if (scope.write) ctx.waitUntil(scope.write.end({ timeout: 5 }).catch(() => {}));
+  }
+}
+
+/** Read-only connection (comptroller_reader via Hyperdrive), scoped to this invocation. */
+function getDb(_env: Env): Sql {
+  const scope = dbScope.getStore();
+  if (!scope) throw new Error("getDb() called outside a DB scope — wrap the handler in withDbScope()");
+  return scope.read;
+}
+
+/**
+ * Writer connection (RW role via a SEPARATE Hyperdrive binding), scoped to this invocation.
  * FAILS CLOSED: returns null when the writer binding is not provisioned. Callers MUST
  * treat null as "skip the write, log a clear reason" — never crash the poll.
  */
-function getWriteDb(env: Env): Sql | null {
-  if (!env.NEON_COMPTROLLER_WRITER?.connectionString) return null;
-  if (!_writeDb) {
-    _writeDb = postgres(env.NEON_COMPTROLLER_WRITER.connectionString, {
-      max: 5,
-      fetch_types: false,
-      prepare: false,
-    });
-  }
-  return _writeDb;
+function getWriteDb(_env: Env): Sql | null {
+  const scope = dbScope.getStore();
+  if (!scope) throw new Error("getWriteDb() called outside a DB scope — wrap the handler in withDbScope()");
+  return scope.write;
 }
 
 // ===================================================================================
@@ -110,22 +152,29 @@ function getWriteDb(env: Env): Sql | null {
 // ===================================================================================
 
 export default {
-  async scheduled(event: ScheduledEvent, env: Env, _ctx: ExecutionContext) {
-    await ensureColdStartState(env);
-    const cronSpec = event.cron;
-    if (cronSpec === "*/5 * * * *") {
-      await pollMetrics(env);
-    } else if (cronSpec === "0 7 * * *") {
-      await emitDailyReport(env);
-    } else if (cronSpec === "0 7 * * 1") {
-      await emitWeeklyForecast(env);
-    } else if (cronSpec === "0 9 1 * *") {
-      await emitMonthlyCloseout(env);
-    }
-    await heartbeat(env);
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    await withDbScope(env, ctx, async () => {
+      await ensureColdStartState(env);
+      const cronSpec = event.cron;
+      if (cronSpec === "*/5 * * * *") {
+        await pollMetrics(env);
+      } else if (cronSpec === "0 7 * * *") {
+        await emitDailyReport(env);
+      } else if (cronSpec === "0 7 * * 1") {
+        await emitWeeklyForecast(env);
+      } else if (cronSpec === "0 9 1 * *") {
+        await emitMonthlyCloseout(env);
+      }
+      await heartbeat(env);
+    });
   },
 
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return withDbScope(env, ctx, () => handleFetch(req, env));
+  },
+};
+
+async function handleFetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     const now = new Date().toISOString();
 
@@ -185,9 +234,37 @@ export default {
       return await handleBaselineLearningEnd(req, env);
     }
 
+    // Auth-gated manual poll trigger — forces a CF AI Gateway ingest + anomaly pass now
+    // instead of waiting for the */5 cron. Bearer token must equal COMPTROLLER_HMAC_KEY
+    // (constant-time compare). Same data path as the scheduled "*/5 * * * *" cron.
+    if (url.pathname === "/_admin/poll" && req.method === "POST") {
+      if (!(await requireAdminBearer(req, env))) {
+        return new Response("forbidden", { status: 403 });
+      }
+      try {
+        await ensureColdStartState(env);
+        await pollMetrics(env);
+        return Response.json({ status: "ok", triggered: "pollMetrics", ts: now });
+      } catch (e) {
+        return Response.json({ status: "error", error: String(e), ts: now }, { status: 500 });
+      }
+    }
+
     return Response.json({ service: "comptroller", version: "1.0.0", status: "ok" });
-  },
-};
+}
+
+/** Constant-time bearer-token check against COMPTROLLER_HMAC_KEY for admin routes. */
+async function requireAdminBearer(req: Request, env: Env): Promise<boolean> {
+  const key = env.COMPTROLLER_HMAC_KEY;
+  if (!key) return false;
+  const auth = req.headers.get("Authorization") ?? "";
+  const presented = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const enc = new TextEncoder();
+  const a = enc.encode(presented);
+  const b = enc.encode(key);
+  if (a.byteLength !== b.byteLength) return false;
+  return crypto.subtle.timingSafeEqual(a, b);
+}
 
 // ===================================================================================
 // Cold-start / baseline-learning state

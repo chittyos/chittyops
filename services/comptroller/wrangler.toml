@@ -26,14 +26,14 @@ CF_ACCOUNT_ID = "0bc21e3a5a9de1a4cc843be9c3e98121"
 binding = "NEON_COMPTROLLER"
 id = "90b3bda653a64a96ae79580991623d31"
 
-# WRITE path (Phase-A ingest): provision a SEPARATE Hyperdrive binding over an RW role
-# (e.g. core_app_rw or a dedicated comptroller_writer) on the SAME Neon project.
-# porsager `postgres` needs a TCP socket, which on Workers only comes from Hyperdrive's
-# connectionString — a bare writer-URL secret will NOT work. Until this binding exists,
-# getWriteDb() fails closed and cost_ledger/anomalies ingest is skipped (logged), not errored.
-# [[hyperdrive]]
-# binding = "NEON_COMPTROLLER_WRITER"
-# id = "<provision-rw-hyperdrive-id>"
+# WRITE path (Phase-A ingest): SEPARATE Hyperdrive binding over the comptroller_writer role
+# (append-only INSERT on chittyops.cost_ledger + chittyops.anomalies) on the SAME Neon project
+# (restless-grass-40598426 / ChittyOS-Core). porsager `postgres` needs a TCP socket, which on
+# Workers only comes from Hyperdrive's connectionString. getWriteDb() fails closed if absent.
+# origin: ep-green-water-ael1lksw.c-2.us-east-2.aws.neon.tech / db neondb / role comptroller_writer
+[[hyperdrive]]
+binding = "NEON_COMPTROLLER_WRITER"
+id = "4427ea043c524bb1a22a5b4e0953d297"
 
 [[kv_namespaces]]
 binding = "KV_STATE"
