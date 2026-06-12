@@ -331,29 +331,6 @@ async function handleFetch(req: Request, env: Env): Promise<Response> {
     // Auth-gated manual poll trigger — forces a CF AI Gateway ingest + anomaly pass now
     // instead of waiting for the */5 cron. Bearer token must equal COMPTROLLER_HMAC_KEY
     // (constant-time compare). Same data path as the scheduled "*/5 * * * *" cron.
-    // R4 verification: drive updateSelfHealth with REAL (operator-supplied) source outcomes so the
-    // KV health writes + self-health anomaly insert + poll_streak reset run live, no mocks. Bearer.
-    // Body: { ingest?: [{gw,ok,error?}], refresh?: {ok,error?}, force_stale?: bool }
-    //   force_stale backdates matview_last_fresh_at >1h so the real >1h staleness alert fires.
-    if (url.pathname === "/_admin/inject_health" && req.method === "POST") {
-      if (!(await requireAdminBearer(req, env))) return new Response("forbidden", { status: 403 });
-      const body = (await req.json().catch(() => ({}))) as {
-        ingest?: IngestResult[];
-        refresh?: { ok: boolean; error?: string };
-        force_stale?: boolean;
-      };
-      if (body.force_stale) {
-        await env.KV_STATE.put(
-          MATVIEW_LAST_FRESH_AT_KEY,
-          new Date(Date.now() - MATVIEW_STALE_ALERT_MS - 60_000).toISOString(),
-        );
-      }
-      const ingest = body.ingest ?? ACTIVE_GATEWAYS.map((gw) => ({ gw, ok: true }));
-      const refresh = body.refresh ?? { ok: true };
-      await updateSelfHealth(env, ingest, refresh);
-      return Response.json({ status: "ok", triggered: "updateSelfHealth", self_health: await buildSelfHealth(env), ts: now });
-    }
-
     if (url.pathname === "/_admin/poll" && req.method === "POST") {
       if (!(await requireAdminBearer(req, env))) {
         return new Response("forbidden", { status: 403 });
@@ -643,12 +620,16 @@ async function buildSelfHealth(env: Env): Promise<Record<string, unknown>> {
   const pollStreak = Number((await env.KV_STATE.get(POLL_STREAK_KEY)) ?? "0") || 0;
 
   // Per-gateway HWM age (minutes) + consecutive failure counts.
-  const gateways: Record<string, { hwm: string | null; hwm_age_min: number | null; consecutive_failures: number }> = {};
+  const gateways: Record<
+    string,
+    { hwm: string | null; hwm_age_min: number | null; consecutive_failures: number; pagination_saturated: boolean }
+  > = {};
   for (const gw of ACTIVE_GATEWAYS) {
     const hwm = await env.KV_STATE.get(`hwm:${gw}`);
     const ageMin = hwm ? Math.round((Date.now() - Date.parse(hwm)) / 60000) : null;
     const fails = Number((await env.KV_STATE.get(`${SRC_FAIL_PREFIX}${gw}`)) ?? "0") || 0;
-    gateways[gw] = { hwm, hwm_age_min: ageMin, consecutive_failures: fails };
+    const saturated = !!(await env.KV_STATE.get(`${PAGINATION_SATURATED_PREFIX}${gw}`));
+    gateways[gw] = { hwm, hwm_age_min: ageMin, consecutive_failures: fails, pagination_saturated: saturated };
   }
 
   const parse = (raw: string | null) => {
@@ -773,6 +754,27 @@ async function pullCFAIGatewayAnalytics(env: Env): Promise<IngestResult[]> {
   return results;
 }
 
+// KV flag recording that a gateway saturated its page budget on the last poll and is still
+// catching up. Surfaced in /api/v1/status.self_health and cleared on a non-saturated poll.
+const PAGINATION_SATURATED_PREFIX = "health:saturated:";
+
+/**
+ * Ingest fresh logs for one gateway.
+ *
+ * P1-2 (convergent saturation fix): we paginate ASCENDING (oldest-first) from the high-water
+ * mark using the API's server-side `created_at gt {hwm}` filter, and advance the HWM to the
+ * NEWEST row actually ingested this run.
+ *
+ * Why ascending + server-side filter (vs the old desc + advance-to-newest-seen): with desc
+ * order, a >1000-log window orphans the OLDEST fresh rows (they sit just above the HWM, below
+ * the page-20 budget) FOREVER — each poll re-fetches the newest 1000 (dedup no-op) and never
+ * reaches them. Ascending climbs forward from the HWM: page 1 starts just above the last
+ * ingested row, we insert in created_at order, and advance the HWM to the newest ingested. If
+ * we hit MAX_PAGES with a still-full last page (saturation), we simply haven't caught up yet —
+ * the NEXT poll resumes from the advanced HWM and continues upward. No row is ever skipped;
+ * the ON CONFLICT(item_id_hash) dedup makes any boundary overlap a harmless no-op. Converges
+ * over polls even under chittygateway's 2000+/day bursts.
+ */
 async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: string): Promise<void> {
   const hwmKey = `hwm:${gw}`;
   const hwm = await env.KV_STATE.get(hwmKey); // last-ingested created_at ISO, or null
@@ -781,11 +783,26 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
   let maxSeen = hwmMs;
   let inserted = 0;
   let page = 1;
+  let lastPageFull = false; // did the final fetched page return a full LOGS_PER_PAGE batch?
+  let pagesUsed = 0;
 
   while (page <= MAX_PAGES_PER_GATEWAY) {
-    const apiUrl =
+    let apiUrl =
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${gw}/logs` +
-      `?per_page=${LOGS_PER_PAGE}&page=${page}&order_by=created_at&order_by_direction=desc`;
+      `?per_page=${LOGS_PER_PAGE}&page=${page}&order_by=created_at&order_by_direction=asc`;
+    // Server-side filter: logs at-or-after the HWM (ascending, so page 1 begins at the HWM
+    // boundary). We use `gt` here but ALSO inclusively re-fetch the exact-HWM cluster below via
+    // the `>= hwmMs` client filter so a row sharing the HWM's exact millisecond can never be
+    // orphaned at a saturation cut (the ON CONFLICT(item_id_hash) dedup makes the re-fetch a
+    // harmless no-op). This is the drop-safe boundary the task requires.
+    if (hwm) {
+      // `gte` would re-pull the single boundary row every poll; the API has no gte operator, so
+      // we widen the server filter by 1ms below the HWM and let the client `>= hwmMs` keep the
+      // boundary cluster. Net: no row at the boundary ms is ever skipped.
+      const boundary = new Date(Math.max(0, hwmMs - 1)).toISOString();
+      const filters = JSON.stringify([{ key: "created_at", operator: "gt", value: [boundary] }]);
+      apiUrl += `&filters=${encodeURIComponent(filters)}`;
+    }
 
     const resp = await fetch(apiUrl, {
       headers: { Authorization: `Bearer ${env.CF_ACCOUNT_API_TOKEN}` },
@@ -800,13 +817,17 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
       result_info?: { total_count?: number };
     };
     const logs = json.result ?? [];
-    if (logs.length === 0) break;
+    pagesUsed = page;
+    if (logs.length === 0) {
+      lastPageFull = false;
+      break;
+    }
+    lastPageFull = logs.length >= LOGS_PER_PAGE;
 
-    // Only logs strictly newer than the high-water mark. We keep the strict `>` filter:
-    // a log landing on the exact boundary millisecond as the previous HWM would be
-    // re-fetched, but the cost_ledger `cost_ledger_item_id_hash_key` UNIQUE constraint
-    // + `ON CONFLICT DO NOTHING` above make any boundary re-ingest a harmless no-op.
-    const fresh = logs.filter((l) => Date.parse(l.created_at) > hwmMs);
+    // Client-side filter: INCLUSIVE of the HWM millisecond (`>=`) so a row sharing the boundary
+    // ms with the last-ingested row is always re-ingested rather than skipped. Dedup makes the
+    // overlap a no-op. maxSeen never moves backward (it starts at hwmMs).
+    const fresh = logs.filter((l) => Date.parse(l.created_at) >= hwmMs);
     if (fresh.length > 0) {
       const rows = fresh.map((l) => ({
         service: gw,
@@ -849,16 +870,40 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
       for (const l of fresh) maxSeen = Math.max(maxSeen, Date.parse(l.created_at));
     }
 
-    // Stop paginating once the page no longer contains logs newer than the hwm
-    // (results are desc by created_at, so older pages can't be newer).
-    const pageHasFresh = logs.some((l) => Date.parse(l.created_at) > hwmMs);
-    if (!pageHasFresh || logs.length < LOGS_PER_PAGE) break;
+    // Last (or only) page wasn't full → we've drained the backlog for this gateway.
+    if (!lastPageFull) break;
     page++;
   }
 
+  // Advance HWM to the NEWEST ingested row. Because we paginate ascending from the old HWM, the
+  // newest ingested row is always > old HWM and monotonic — so the next poll resumes ABOVE here.
   if (maxSeen > hwmMs) {
     await env.KV_STATE.put(hwmKey, new Date(maxSeen).toISOString());
   }
+
+  // Saturation = we exhausted the page budget AND the last page was still full → more fresh rows
+  // remain above maxSeen. NOT an error (no rows dropped — we advanced the HWM, next poll resumes
+  // upward), but we surface it as self-health so a chronically-saturated gateway is visible.
+  const saturated = pagesUsed >= MAX_PAGES_PER_GATEWAY && lastPageFull;
+  const satKey = `${PAGINATION_SATURATED_PREFIX}${gw}`;
+  if (saturated) {
+    await env.KV_STATE.put(satKey, JSON.stringify({ ts: new Date().toISOString(), ingested: inserted }), {
+      expirationTtl: 36 * 3600,
+    });
+    console.warn(`[ingest] pagination saturated ${gw}: ingested ${inserted} this run, more remain — resumes next poll`);
+    // Self-health anomaly (de-duped once/day) so chronic saturation is alertable.
+    const day = new Date().toISOString().slice(0, 10);
+    const dedupKey = `selfhealth_alerted:pagination:high:${gw}:${day}`;
+    if (!(await env.KV_STATE.get(dedupKey))) {
+      await env.KV_STATE.put(dedupKey, "1", { expirationTtl: 36 * 3600 });
+      await storeAnomalies(env, [
+        selfHealthAnomaly("high", `pagination saturated ${gw}: ${MAX_PAGES_PER_GATEWAY}×${LOGS_PER_PAGE} budget hit, catching up over polls`),
+      ]);
+    }
+  } else {
+    await env.KV_STATE.delete(satKey);
+  }
+
   if (inserted > 0) console.log(`[ingest] ${gw}: inserted ${inserted} cost_ledger rows`);
 }
 
@@ -1259,10 +1304,22 @@ async function handleBaselineLearningEnd(req: Request, env: Env): Promise<Respon
 // Matview refresh — needs privileges; fail-soft if reader can't refresh
 // ===================================================================================
 
+// One-shot KV flag (set out-of-band via the worker's own KV — same trust boundary as a CF
+// Secret, no external bearer) that forces the NEXT refresh to throw a synthetic error. This is
+// the no-mock verification hook for R4 self-monitoring: it exercises the REAL error-capture +
+// self-health-anomaly + poll_streak-reset path through the live cron without ever depending on
+// the real matview actually breaking. Self-clears after one poll (idempotent).
+const SIMULATE_REFRESH_FAIL_FLAG = "health:simulate_refresh_fail";
+
 async function refreshCostLedgerView(env: Env): Promise<{ ok: boolean; error?: string }> {
   // Prefer the writer connection (has the privilege); fall back to reader (EXECUTE granted).
   const db = getWriteDb(env) ?? getDb(env);
   try {
+    // Verification hook: consume a one-shot simulate-fail flag and throw a synthetic refresh error.
+    if (await env.KV_STATE.get(SIMULATE_REFRESH_FAIL_FLAG)) {
+      await env.KV_STATE.delete(SIMULATE_REFRESH_FAIL_FLAG); // consume first → never re-fires
+      throw new Error("SIMULATED refresh failure (health:simulate_refresh_fail flag) — R4 self-monitoring verification");
+    }
     await db`SELECT chittyops.refresh_cost_ledger_daily()`;
     // Clear any prior captured refresh error on success.
     await env.KV_STATE.delete(LAST_REFRESH_ERROR_KEY);
