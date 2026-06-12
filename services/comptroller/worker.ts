@@ -105,6 +105,31 @@ const DEFAULT_HARD_CAP_DAILY_USD = 2.0;
 // Soft-warn threshold: emit a 'high' warn anomaly when usage crosses this fraction of cap.
 const SOFT_WARN_FRACTION = 0.8;
 
+// ===================================================================================
+// Anomaly-math tunables (R5 — low-false-positive, statistically sound)
+// ===================================================================================
+// Absolute-dollar floor: an anomaly is NEVER flagged unless the projected full-day spend
+// clears this floor. Kills the "$0.0001 → $0.002 = +1000%!" class of false positives that
+// dominate a $0-heavy daily distribution. Tuned above observed sub-cent daily noise.
+const ANOMALY_ABS_FLOOR_USD = 0.25;
+// Floor below which the EWMA/median is treated as "effectively zero" — we then refuse to
+// compute a relative-% (would be Infinity/huge) and lean entirely on the absolute path.
+const ANOMALY_BASELINE_FLOOR_USD = 0.01;
+// Sigma multiplier for the spread test. Robust spread = 1.4826 * MAD (≈ stdev for a normal),
+// with sample-stdev as a fallback when MAD collapses to 0 (e.g. a near-all-zero series with a
+// couple of tiny nonzero days). 3.5 robust-sigmas + the absolute floor = conservative.
+const ANOMALY_K_SIGMA = 3.5;
+// Minimum dense-history length (days, excluding today) to trust the sigma/robust path.
+const ANOMALY_MIN_HISTORY = 7;
+// New-service (history < ANOMALY_MIN_HISTORY) absolute hard-$ daily trip. Below the daily
+// hard-cap (which checkHardCaps already enforces via MTD/daily) but high enough that a brand-new
+// service with a genuine hard-$ spike is NOT invisible to anomaly control for its first week.
+const ANOMALY_NEW_SERVICE_ABS_USD = 1.0;
+// Don't trust the partial-day projection before this fraction of the Chicago day has elapsed —
+// early-day noise (one $0.50 call at 00:30) would project to $24/day and reintroduce the exact
+// false positives we're hardening against.
+const ANOMALY_MIN_DAY_FRACTION = 0.25;
+
 interface ServiceBudget {
   daily_cap_usd: number;
   monthly_cap_usd: number;
@@ -923,52 +948,187 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
 // Anomaly detection (EWMA + 3-sigma)
 // ===================================================================================
 
+/**
+ * R5 anomaly detection — densified, robust, partial-day-aware.
+ *
+ * P2-1 (timezone): the 14-day window is anchored on an explicit Chicago-DATE expression,
+ *   `(now() AT TIME ZONE 'America/Chicago')::date - interval '14 days'`. This is a
+ *   `timestamp WITHOUT time zone` (midnight Chicago wall-clock) — the SAME type as `day_ct`
+ *   (`date_trunc('day', ts AT TIME ZONE 'America/Chicago')`). No timestamptz↔timestamp coercion
+ *   across the UTC offset. (Verified on a Neon branch: boundary type = `timestamp without time zone`.)
+ *
+ * DENSIFICATION: `cost_ledger_daily` has NO row for $0 days — it's a `GROUP BY` matview over real
+ *   spend, so the series is SPARSE (verified: chittyclaw/T0 = 13 rows over 16 days). Computing
+ *   EWMA/stdev over only-nonzero days inflates the baseline and hides the $0-heavy reality. We
+ *   LEFT JOIN each (service,tier) key against a generate_series Chicago date spine and coalesce
+ *   missing days to $0, so the math runs over the TRUE dense daily distribution.
+ *
+ * P2-1 (partial day): the last spine day is TODAY — a partial day (only hours so far) that would
+ *   deflate today and bias the comparison. We EXCLUDE today from the baseline series and evaluate
+ *   it separately by PRO-RATING today's spend-to-date to a full-day projection
+ *   (`actual / fractionOfChicagoDayElapsed`), guarded by ANOMALY_MIN_DAY_FRACTION so early-day
+ *   noise can't project a few cents into a fake $20/day spike. (Option (b) "same-time-of-day vs
+ *   prior days" was REJECTED: the daily matview has no intra-day granularity — it would require
+ *   joining raw cost_ledger, a much larger change.)
+ *
+ * P2-2 (robust stats): primary spread = robust-sigma (1.4826·MAD) around the median, which a
+ *   single huge day barely moves (vs sample-stdev, which it poisons for ~13 days). Sample stdev
+ *   (n-1, guarded n<2) is the fallback when MAD collapses to 0. Alarm requires BOTH an absolute
+ *   floor (projected > ANOMALY_ABS_FLOOR_USD) AND projected > center + k·spread, and relative-%
+ *   is only computed when the center clears ANOMALY_BASELINE_FLOOR_USD (no Infinity/NaN on $0 series).
+ *
+ * New services (<ANOMALY_MIN_HISTORY dense days): the sigma path is untrustworthy, so we don't run
+ *   it — but they're NOT blind: checkHardCaps already enforces MTD/daily caps, and here we add a
+ *   daily absolute-$ trip (ANOMALY_NEW_SERVICE_ABS_USD) so a genuine hard-$ spike in week one is caught.
+ */
 async function detectAnomalies(env: Env): Promise<Anomaly[]> {
   const db = getDb(env);
-  let rows: Array<{ service: string; tier: string; day_ct: string; total_cost_usd: string | number }>;
+  let rows: Array<{ service: string; tier: string; series: number[] | string }>;
   try {
     rows = (await db`
-      SELECT service, tier, day_ct, total_cost_usd
-      FROM chittyops.cost_ledger_daily
-      WHERE day_ct >= now() - interval '14 days'
-      ORDER BY service, tier, day_ct
+      WITH params AS (
+        SELECT (now() AT TIME ZONE 'America/Chicago')::date AS today_ct
+      ),
+      keys AS (
+        SELECT DISTINCT service, tier FROM chittyops.cost_ledger_daily
+      ),
+      spine AS (
+        SELECT k.service, k.tier, gs::date AS d
+        FROM keys k
+        CROSS JOIN params p
+        CROSS JOIN generate_series(
+          p.today_ct - interval '14 days', p.today_ct, interval '1 day'
+        ) gs
+      ),
+      dense AS (
+        SELECT s.service, s.tier, s.d,
+               coalesce(c.total_cost_usd::float8, 0) AS cost
+        FROM spine s
+        LEFT JOIN chittyops.cost_ledger_daily c
+          ON c.service = s.service AND c.tier = s.tier AND c.day_ct = s.d
+      )
+      SELECT service, tier, array_agg(cost ORDER BY d) AS series
+      FROM dense
+      GROUP BY service, tier
+      ORDER BY service, tier
     `) as any;
   } catch (e) {
     console.error("[detectAnomalies] query failed:", e);
     return [];
   }
 
-  const byKey = groupBy(rows, (r) => `${r.service}:${r.tier}`);
+  // Fraction of the current Chicago day elapsed (used to pro-rate today's partial spend).
+  const dayFraction = chicagoDayFractionElapsed();
   const anomalies: Anomaly[] = [];
 
-  for (const [key, series] of byKey.entries()) {
-    if (series.length < 7) continue;
-    const today = series[series.length - 1];
+  for (const r of rows) {
+    const raw = Array.isArray(r.series) ? r.series : JSON.parse(r.series as string);
+    const series: number[] = raw.map((v: any) => Number(v) || 0);
+    if (series.length < 2) continue;
+
+    // Last spine day is TODAY (partial); everything before is the dense baseline history.
+    const todayActualToDate = series[series.length - 1];
     const history = series.slice(0, -1);
 
-    const ewma = computeEWMA(history.map((r) => Number(r.total_cost_usd)));
-    const stdev = computeStdev(history.map((r) => Number(r.total_cost_usd)));
-    const todayActual = Number(today.total_cost_usd);
-    const threshold = ewma + 3 * stdev;
+    // Pro-rate today's spend-to-date to a full-day projection. Below the min-fraction guard the
+    // projection is too noisy to trust, so fall back to the raw spend-to-date (conservative — it
+    // can only be smaller, never inflate into a false positive).
+    const projectedToday =
+      dayFraction >= ANOMALY_MIN_DAY_FRACTION
+        ? todayActualToDate / dayFraction
+        : todayActualToDate;
 
-    if (todayActual > threshold && stdev > 0) {
-      const [service, tier] = key.split(":");
-      anomalies.push({
-        id: crypto.randomUUID(),
-        service,
-        tier,
-        severity: todayActual > threshold * 2 ? "critical" : "high",
-        actual: todayActual,
-        expected_max: threshold,
-        ewma,
-        msg: `${service}/${tier}: $${todayActual.toFixed(4)} vs forecast $${ewma.toFixed(4)} (+${((todayActual / ewma - 1) * 100).toFixed(0)}%)`,
-        detected_at: new Date().toISOString(),
-        suggests_l3: todayActual > 5 * threshold,
-      });
-    }
+    const ewma = computeEWMA(history); // forecast center, for the message + ewma column
+    const a = evaluateAnomaly(r.service, r.tier, projectedToday, todayActualToDate, history, ewma);
+    if (a) anomalies.push(a);
   }
 
   return anomalies;
+}
+
+/**
+ * Decide whether one (service,tier) key is anomalous and, if so, build the Anomaly row.
+ * Returns null when not anomalous. Pure given its inputs (no I/O) → unit-testable.
+ */
+function evaluateAnomaly(
+  service: string,
+  tier: string,
+  projectedToday: number,
+  actualToDate: number,
+  history: number[],
+  ewma: number,
+): Anomaly | null {
+  // Robust center + spread over the dense history.
+  const med = median(history);
+  const mad = medianAbsoluteDeviation(history, med);
+  const robustSigma = 1.4826 * mad;
+  const sampleSigma = computeStdev(history); // sample variance, n-1, guarded
+  // Prefer robust spread; fall back to sample stdev when MAD collapses (near-constant series).
+  const spread = robustSigma > 0 ? robustSigma : sampleSigma;
+  // Center for the threshold: EWMA tracks recent trend; floor at the median so a downward-drifting
+  // EWMA can't drop the bar below the typical day.
+  const center = Math.max(ewma, med);
+
+  const newService = history.length < ANOMALY_MIN_HISTORY;
+
+  let flagged = false;
+  let threshold: number;
+  if (newService) {
+    // New service: no trustworthy sigma. Catch only a clear hard-$ daily spike (absolute path).
+    threshold = ANOMALY_NEW_SERVICE_ABS_USD;
+    flagged = projectedToday > ANOMALY_NEW_SERVICE_ABS_USD;
+  } else {
+    threshold = center + ANOMALY_K_SIGMA * spread;
+    // Require BOTH: projected clears the absolute floor AND exceeds the statistical threshold.
+    // spread>0 guard: an all-equal history (e.g. all-zero) has no statistical signal — defer to
+    // the absolute floor alone so a first nonzero day over the floor still trips.
+    if (spread > 0) {
+      flagged = projectedToday > ANOMALY_ABS_FLOOR_USD && projectedToday > threshold;
+    } else {
+      flagged = projectedToday > ANOMALY_ABS_FLOOR_USD && projectedToday > center;
+    }
+  }
+
+  if (!flagged) return null;
+
+  // Relative-% only when the center is meaningfully nonzero — otherwise Infinity/NaN.
+  const pctStr =
+    center > ANOMALY_BASELINE_FLOOR_USD
+      ? ` (+${((projectedToday / center - 1) * 100).toFixed(0)}%)`
+      : "";
+  const proj = projectedToday !== actualToDate ? ` [projected full-day from $${actualToDate.toFixed(4)} so far]` : "";
+
+  return {
+    id: crypto.randomUUID(),
+    service,
+    tier,
+    severity: projectedToday > threshold * 2 ? "critical" : "high",
+    actual: projectedToday,
+    expected_max: threshold,
+    ewma,
+    msg: `${service}/${tier}: $${projectedToday.toFixed(4)} vs forecast $${center.toFixed(4)}${pctStr}${proj}`,
+    detected_at: new Date().toISOString(),
+    suggests_l3: projectedToday > 5 * threshold,
+  };
+}
+
+/** Fraction (0,1] of the current America/Chicago calendar day elapsed, by wall-clock. */
+function chicagoDayFractionElapsed(now: Date = new Date()): number {
+  // Chicago wall-clock parts via Intl (DST-correct, no tz library).
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  let h = get("hour");
+  if (h === 24) h = 0; // some ICU builds emit 24 for midnight
+  const secondsElapsed = h * 3600 + get("minute") * 60 + get("second");
+  const frac = secondsElapsed / 86400;
+  // Clamp away from 0 so a poll in the first second never divides by ~0.
+  return Math.min(1, Math.max(frac, 1 / 86400));
 }
 
 // ===================================================================================
@@ -2082,11 +2242,30 @@ function computeEWMA(series: number[], alpha = 0.3): number {
   return ewma;
 }
 
+// SAMPLE standard deviation (variance / (n-1)) — the series is a small sample (~13 days), so
+// population variance (/n) systematically underestimates spread and inflates false positives.
+// Guards n<2 (undefined sample variance).
 function computeStdev(series: number[]): number {
-  if (series.length < 2) return 0;
-  const mean = series.reduce((a, b) => a + b, 0) / series.length;
-  const variance = series.reduce((s, v) => s + (v - mean) ** 2, 0) / series.length;
+  const n = series.length;
+  if (n < 2) return 0;
+  const mean = series.reduce((a, b) => a + b, 0) / n;
+  const variance = series.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1);
   return Math.sqrt(variance);
+}
+
+function median(series: number[]): number {
+  if (series.length === 0) return 0;
+  const s = [...series].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
+}
+
+// Median absolute deviation — a robust spread estimator. Unlike stdev, a single huge day moves it
+// by at most one rank, so a spike can't poison the baseline for the next ~13 days.
+function medianAbsoluteDeviation(series: number[], med?: number): number {
+  if (series.length === 0) return 0;
+  const m = med ?? median(series);
+  return median(series.map((v) => Math.abs(v - m)));
 }
 
 function degradeTo(tier: string): string {
