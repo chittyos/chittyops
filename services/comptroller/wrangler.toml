@@ -12,7 +12,12 @@ routes = [
 ]
 
 [triggers]
-crons = ["*/5 * * * *"]  # 5-min budget poll, always on
+crons = [
+  "*/5 * * * *",  # 5-min budget poll + CF AI Gateway ingest, always on
+  "0 7 * * *",    # 7 AM CT daily report (emitDailyReport)
+  "0 7 * * 1",    # Mon 7 AM CT weekly forecast (emitWeeklyForecast)
+  "0 9 1 * *",    # 1st of month 9 AM CT monthly closeout (emitMonthlyCloseout)
+]
 
 [vars]
 REGISTRY_URL = "https://registry.chitty.cc"
@@ -38,6 +43,11 @@ id = "4427ea043c524bb1a22a5b4e0953d297"
 [[kv_namespaces]]
 binding = "KV_STATE"
 id = "03cd968da5eb41d6bc13c9ee48d22254"
+
+# Workers-AI (T0) — narrative generation for GET /api/v1/insights ONLY. SQL/JS owns every
+# number; the model emits prose only. Runs in-account (no external billing key).
+[ai]
+binding = "AI"
 
 [observability]
 enabled = true
