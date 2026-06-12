@@ -12,7 +12,12 @@ routes = [
 ]
 
 [triggers]
-crons = ["*/5 * * * *"]  # 5-min budget poll, always on
+crons = [
+  "*/5 * * * *",  # 5-min budget poll + CF AI Gateway ingest, always on
+  "0 7 * * *",    # 7 AM CT daily report (emitDailyReport)
+  "0 7 * * 1",    # Mon 7 AM CT weekly forecast (emitWeeklyForecast)
+  "0 9 1 * *",    # 1st of month 9 AM CT monthly closeout (emitMonthlyCloseout)
+]
 
 [vars]
 REGISTRY_URL = "https://registry.chitty.cc"
