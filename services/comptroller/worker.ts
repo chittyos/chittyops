@@ -208,6 +208,10 @@ export default {
       await ensureColdStartState(env);
       const cronSpec = event.cron;
       if (cronSpec === "*/5 * * * *") {
+        // Operator-triggerable internal dry-run self-test: consumes a one-shot KV flag
+        // (set out-of-band) so verification needs no external bearer/secret — the worker
+        // already holds COMPTROLLER_HMAC_KEY. Self-clears; result lands in signals_emitted.
+        await maybeRunDryRunSelfTest(env);
         await pollMetrics(env);
       } else if (cronSpec === "0 7 * * *") {
         await emitDailyReport(env);
@@ -789,8 +793,47 @@ async function emitL3Signal(env: Env, anomaly: Anomaly, dryRun = false): Promise
  *   while run-rate is unchanged (→ 'escalated' or 'effective'), once with an already-elapsed
  *   expiry (→ 'resolved', marker cleared). All real KV + real append rows, no waiting on cron.
  */
+const DRYRUN_SELFTEST_FLAG = "dryrun_selftest_pending";
+const DRYRUN_SELFTEST_RESULT = "dryrun_selftest_result";
+
+/**
+ * Consume a one-shot dry-run self-test flag from KV (set by an operator/CI out-of-band) and
+ * run the SAME dry-run path as the bearer-gated route — but with no external auth, since the
+ * worker already holds COMPTROLLER_HMAC_KEY. Self-clears the flag and stashes the result JSON
+ * in KV (DRYRUN_SELFTEST_RESULT) so it can be read back without the bearer.
+ */
+async function maybeRunDryRunSelfTest(env: Env): Promise<void> {
+  const raw = await env.KV_STATE.get(DRYRUN_SELFTEST_FLAG);
+  if (!raw) return;
+  await env.KV_STATE.delete(DRYRUN_SELFTEST_FLAG); // consume first → idempotent, no re-run
+  let opts: { service?: string; level?: string; gated?: boolean } = {};
+  try {
+    opts = JSON.parse(raw);
+  } catch {
+    /* empty flag → defaults */
+  }
+  try {
+    const result = await runDryRun(env, opts);
+    await env.KV_STATE.put(DRYRUN_SELFTEST_RESULT, JSON.stringify({ ...result, ran_at: new Date().toISOString() }), {
+      expirationTtl: 3600,
+    });
+  } catch (e) {
+    await env.KV_STATE.put(DRYRUN_SELFTEST_RESULT, JSON.stringify({ status: "error", error: String(e) }), {
+      expirationTtl: 3600,
+    });
+  }
+}
+
 async function handleDryRunSignal(req: Request, env: Env): Promise<Response> {
   const body = (await req.json().catch(() => ({}))) as { service?: string; level?: string; gated?: boolean };
+  return Response.json(await runDryRun(env, body));
+}
+
+/** Shared dry-run/gated exercise used by both the bearer route and the KV self-test. */
+async function runDryRun(
+  env: Env,
+  body: { service?: string; level?: string; gated?: boolean },
+): Promise<Record<string, unknown>> {
   const service = body.service ?? "chittyrouter";
   const level = body.level === "L3" ? "L3" : "L2";
 
@@ -847,7 +890,7 @@ async function handleDryRunSignal(req: Request, env: Env): Promise<Response> {
     };
   }
 
-  return Response.json({
+  return {
     status: "ok",
     mode: body.gated === true ? "gated" : "dry_run",
     level,
@@ -856,7 +899,7 @@ async function handleDryRunSignal(req: Request, env: Env): Promise<Response> {
     feedback,
     note: "no lasting effect — override (if any) self-reverts in <=60s",
     ts: new Date().toISOString(),
-  });
+  };
 }
 
 async function handleAuthorityChange(req: Request, env: Env): Promise<Response> {
