@@ -60,8 +60,9 @@ const ACTIVE_GATEWAYS = ["chittygateway", "chittycounsel", "default", "chittycla
 const LOGS_PER_PAGE = 50;
 const MAX_PAGES_PER_GATEWAY = 20;
 
-// Phase-A hard caps (per-service MTD ceiling, USD). Real comparison; const map until
-// per-service caps live in the registry/manifest.
+// Per-service hard caps (USD). These are the FALLBACK only — the live source of truth is
+// chittyops.service_budgets (read via loadServiceBudgets). The const map is used when a
+// service has no row there, or the budgets read fails.
 const HARD_CAP_MTD_USD: Record<string, number> = {
   chittygateway: 50.0,
   chittycounsel: 100.0,
@@ -69,6 +70,56 @@ const HARD_CAP_MTD_USD: Record<string, number> = {
   chittyclaw: 50.0,
 };
 const DEFAULT_HARD_CAP_MTD_USD = 50.0;
+
+// Per-service daily caps (USD) fallback. Daily cap was previously hardcoded to 2.0 in
+// budgetStatus; it now resolves through the same service_budgets source with this fallback.
+const HARD_CAP_DAILY_USD: Record<string, number> = {
+  chittygateway: 5.0,
+  chittycounsel: 10.0,
+  default: 2.0,
+  chittyclaw: 5.0,
+};
+const DEFAULT_HARD_CAP_DAILY_USD = 2.0;
+
+// Soft-warn threshold: emit a 'high' warn anomaly when usage crosses this fraction of cap.
+const SOFT_WARN_FRACTION = 0.8;
+
+interface ServiceBudget {
+  daily_cap_usd: number;
+  monthly_cap_usd: number;
+}
+
+/**
+ * Resolve per-service budgets from chittyops.service_budgets (live config), falling back to
+ * the const maps above per-service. Read via the reader connection (getDb). On any failure
+ * we fall back entirely to the const maps so cap enforcement never silently disappears.
+ */
+async function loadServiceBudgets(env: Env): Promise<Map<string, ServiceBudget>> {
+  const out = new Map<string, ServiceBudget>();
+  const db = getDb(env);
+  try {
+    const rows = (await db`
+      SELECT service, daily_cap_usd, monthly_cap_usd FROM chittyops.service_budgets
+    `) as Array<{ service: string; daily_cap_usd: string | number; monthly_cap_usd: string | number }>;
+    for (const r of rows) {
+      out.set(r.service, {
+        daily_cap_usd: Number(r.daily_cap_usd),
+        monthly_cap_usd: Number(r.monthly_cap_usd),
+      });
+    }
+  } catch (e) {
+    console.warn("[loadServiceBudgets] read failed — using const fallback:", String(e));
+  }
+  return out;
+}
+
+function resolveBudget(service: string, budgets: Map<string, ServiceBudget>): ServiceBudget {
+  const cfg = budgets.get(service);
+  return {
+    daily_cap_usd: cfg?.daily_cap_usd ?? HARD_CAP_DAILY_USD[service] ?? DEFAULT_HARD_CAP_DAILY_USD,
+    monthly_cap_usd: cfg?.monthly_cap_usd ?? HARD_CAP_MTD_USD[service] ?? DEFAULT_HARD_CAP_MTD_USD,
+  };
+}
 
 // ===================================================================================
 // DB helpers
@@ -338,15 +389,35 @@ interface CFLog {
  * Deterministic tier from model name. MUST return a value allowed by the
  * chittyops.cost_ledger CHECK constraint `cost_ledger_tier_check`:
  *   T0 · T1_workspace · T1_personal · T2_haiku · T3_sonnet · T2_pro · T3_opus · manual
- * @cf/* → Workers AI (T0). Anthropic families map to their tier. Unknown external → 'manual'.
+ * @cf/* → Workers AI (T0). Anthropic families map to their tier. OpenAI + Google map to
+ * the closest tier by capability/price band. Routers (dynamic/*) and unknowns → 'manual'.
+ *
+ * NOTE: "mini"/"flash" (cheap small models) are checked BEFORE the broad family token,
+ * because e.g. "gpt-4o-mini" contains "gpt-4o" — small-model checks must win.
  */
 function tierFromModel(model: string | undefined): string {
   if (!model) return "manual";
   const m = model.toLowerCase();
   if (m.startsWith("@cf/")) return "T0";
+
+  // Anthropic
   if (m.includes("opus")) return "T3_opus";
   if (m.includes("sonnet")) return "T3_sonnet";
   if (m.includes("haiku")) return "T2_haiku";
+
+  // OpenAI — small/cheap first, then flagship band.
+  if (m.includes("gpt") && (m.includes("mini") || m.includes("nano"))) return "T2_haiku";
+  if (m.includes("o1-mini") || m.includes("o3-mini") || m.includes("o4-mini")) return "T2_haiku";
+  // gpt-4o / gpt-4.1 / gpt-4-turbo / o1 / o3 flagship-class → frontier tier.
+  if (m.includes("gpt-4") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return "T3_sonnet";
+  if (m.includes("gpt-3.5")) return "T2_haiku";
+
+  // Google Gemini — flash (cheap) first, then pro.
+  if (m.includes("gemini") && m.includes("flash")) return "T2_haiku";
+  if (m.includes("gemini") && m.includes("pro")) return "T2_pro";
+  if (m.includes("gemini")) return "T2_pro";
+
+  // Routers (e.g. dynamic/three-wise-men) + unknown external → manual.
   return "manual";
 }
 
@@ -405,7 +476,10 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
     const logs = json.result ?? [];
     if (logs.length === 0) break;
 
-    // Only logs strictly newer than the high-water mark.
+    // Only logs strictly newer than the high-water mark. We keep the strict `>` filter:
+    // a log landing on the exact boundary millisecond as the previous HWM would be
+    // re-fetched, but the cost_ledger `cost_ledger_item_id_hash_key` UNIQUE constraint
+    // + `ON CONFLICT DO NOTHING` above make any boundary re-ingest a harmless no-op.
     const fresh = logs.filter((l) => Date.parse(l.created_at) > hwmMs);
     if (fresh.length > 0) {
       const rows = fresh.map((l) => ({
@@ -443,6 +517,7 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
           "ts",
           "cost_constrained",
         )}
+        ON CONFLICT DO NOTHING
       `;
       inserted += rows.length;
       for (const l of fresh) maxSeen = Math.max(maxSeen, Date.parse(l.created_at));
@@ -665,8 +740,8 @@ async function budgetStatus(env: Env, serviceId: string): Promise<any> {
   } catch (e) {
     console.error("[budgetStatus] query failed:", e);
   }
-  const dailyCap = 2.0;
-  const monthlyCap = HARD_CAP_MTD_USD[serviceId] ?? DEFAULT_HARD_CAP_MTD_USD;
+  const budgets = await loadServiceBudgets(env);
+  const { daily_cap_usd: dailyCap, monthly_cap_usd: monthlyCap } = resolveBudget(serviceId, budgets);
   const today = Number(row?.today ?? 0);
   const mtd = Number(row?.mtd ?? 0);
   return {
@@ -836,25 +911,91 @@ async function storeAnomalies(env: Env, list: Anomaly[]): Promise<void> {
   }
 }
 
+/**
+ * Real hard-cap enforcement (P0-2). For every service, compute MTD + daily spend and compare
+ * against the resolved caps (service_budgets config, const fallback). On breach we:
+ *   - WRITE a real anomaly row (severity 'critical' for a hard breach, 'high' for the 80%
+ *     soft-warn) via the existing storeAnomalies path — so breaches are DETECTED, visible in
+ *     /anomalies, and auditable even before L2/L3 delivery is wired (R3).
+ *   - Attempt the L2/L3 signal + Quo alert (gated by safe-state / baseline-learning, exactly
+ *     like detectAnomalies). These may no-op/404 until R3 — that's expected and logged.
+ *
+ * Per-service+dimension+severity alert de-dup: once/day via KV, so a persistent breach does
+ * not write ~288 rows/day.
+ */
 async function checkHardCaps(env: Env): Promise<void> {
   const db = getDb(env);
-  let rows: any[] = [];
+  let rows: Array<{ service: string; mtd: number; daily: number }> = [];
   try {
     rows = (await db`
-      SELECT service, coalesce(sum(cost_usd),0)::float8 AS mtd
+      SELECT service,
+        coalesce(sum(cost_usd) FILTER (
+          WHERE ts >= date_trunc('month', now() AT TIME ZONE 'America/Chicago')),0)::float8 AS mtd,
+        coalesce(sum(cost_usd) FILTER (
+          WHERE ts >= date_trunc('day', now() AT TIME ZONE 'America/Chicago')),0)::float8 AS daily
       FROM chittyops.cost_ledger
       WHERE ts >= date_trunc('month', now() AT TIME ZONE 'America/Chicago')
       GROUP BY service
-    `) as any[];
+    `) as any;
   } catch (e) {
     console.error("[checkHardCaps] query failed:", e);
     return;
   }
+
+  const budgets = await loadServiceBudgets(env);
+  const safeState = await isSafeStateActive(env);
+  const baselineLearning = await isBaselineLearningActive(env);
+  const today = new Date().toISOString().slice(0, 10);
+  const breaches: Anomaly[] = [];
+
   for (const r of rows) {
-    const cap = HARD_CAP_MTD_USD[r.service] ?? DEFAULT_HARD_CAP_MTD_USD;
-    const mtd = Number(r.mtd);
-    if (mtd >= cap) {
-      console.warn(`[checkHardCaps] BREACH ${r.service}: MTD $${mtd.toFixed(2)} >= cap $${cap.toFixed(2)}`);
+    const { daily_cap_usd, monthly_cap_usd } = resolveBudget(r.service, budgets);
+    const dims: Array<{ dim: "mtd" | "daily"; used: number; cap: number }> = [
+      { dim: "mtd", used: Number(r.mtd), cap: monthly_cap_usd },
+      { dim: "daily", used: Number(r.daily), cap: daily_cap_usd },
+    ];
+    for (const { dim, used, cap } of dims) {
+      if (cap <= 0) continue;
+      let severity: "critical" | "high" | null = null;
+      if (used >= cap) severity = "critical";
+      else if (used >= cap * SOFT_WARN_FRACTION) severity = "high";
+      if (!severity) continue;
+
+      // once/day per service+dim+severity
+      const dedupKey = `hardcap_alerted:${r.service}:${dim}:${severity}:${today}`;
+      if (await env.KV_STATE.get(dedupKey)) continue;
+      await env.KV_STATE.put(dedupKey, "1", { expirationTtl: 36 * 3600 });
+
+      const label = dim === "mtd" ? "MTD" : "daily";
+      const a: Anomaly = {
+        id: crypto.randomUUID(),
+        service: r.service,
+        tier: "all", // service-level breach spans all tiers (anomalies.tier has no CHECK)
+        severity,
+        actual: used,
+        expected_max: cap,
+        ewma: cap,
+        msg: `hard cap ${severity === "critical" ? "breach" : "warn"}: $${used.toFixed(2)}/$${cap.toFixed(2)} ${label}`,
+        detected_at: new Date().toISOString(),
+        suggests_l3: severity === "critical",
+      };
+      breaches.push(a);
+      console.warn(`[checkHardCaps] ${a.msg} (${r.service})`);
+    }
+  }
+
+  if (breaches.length === 0) return;
+
+  // Record breaches regardless of gating (detection is always durable + auditable).
+  await storeAnomalies(env, breaches);
+
+  // Attempt delivery: L2/L3 only outside safe-state/baseline window; Quo always tried.
+  for (const a of breaches) {
+    if (!safeState && !baselineLearning) {
+      if (a.severity === "high") await emitL2Signal(env, a);
+      if (a.severity === "critical" && a.suggests_l3) await emitL3Signal(env, a);
+    } else {
+      if (a.severity === "critical") await sendQuoAlert(env, a, "baseline/safe-state — alert only, no L2/L3");
     }
   }
 }
