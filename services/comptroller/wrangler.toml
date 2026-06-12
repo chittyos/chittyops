@@ -39,6 +39,11 @@ id = "4427ea043c524bb1a22a5b4e0953d297"
 binding = "KV_STATE"
 id = "03cd968da5eb41d6bc13c9ee48d22254"
 
+# Workers-AI (T0) — narrative generation for GET /api/v1/insights ONLY. SQL/JS owns every
+# number; the model emits prose only. Runs in-account (no external billing key).
+[ai]
+binding = "AI"
+
 [observability]
 enabled = true
 

@@ -27,7 +27,13 @@ interface HyperdriveLike {
   connectionString: string;
 }
 
+// Workers-AI binding (T0). Typed locally to avoid pulling full @cloudflare/workers-types Ai.
+interface AiLike {
+  run(model: string, inputs: Record<string, unknown>): Promise<unknown>;
+}
+
 interface Env {
+  AI: AiLike; // Workers-AI (T0) — narrative generation for /api/v1/insights ONLY
   NEON_COMPTROLLER: HyperdriveLike; // comptroller_reader role (read-only)
   NEON_COMPTROLLER_WRITER?: HyperdriveLike; // RW role — Phase-A writer (provision separately)
   KV_STATE: KVNamespace;
@@ -332,6 +338,18 @@ async function handleFetch(req: Request, env: Env): Promise<Response> {
 
     if (url.pathname === "/anomalies") {
       return Response.json(await listAnomalies(env));
+    }
+
+    // P2-3: forward-looking insights — month-end spend PROJECTION (EWMA + seasonality) per
+    // service, cap-breach flags, and grounded LLM prose. Numbers from SQL/JS; LLM writes prose
+    // only. Cached ~6h in KV (insights:{chicago-date}); ?refresh=1 bypasses. Never on the cron.
+    if (url.pathname === "/api/v1/insights") {
+      try {
+        const refresh = url.searchParams.get("refresh") === "1";
+        return Response.json(await fetchInsights(env, refresh));
+      } catch (e) {
+        return Response.json({ status: "error", error: String(e), ts: now }, { status: 500 });
+      }
     }
 
     // P1-3: recent signal audit rows (newest first).
@@ -947,6 +965,391 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
   }
 
   if (inserted > 0) console.log(`[ingest] ${gw}: inserted ${inserted} cost_ledger rows`);
+}
+
+// ===================================================================================
+// P2-3 — Predictive insights: forward MONTH-END spend projection (EWMA + seasonality)
+//
+// HARD RULE (preserved from the descriptive version): every NUMBER is computed in SQL/JS
+// here; the LLM receives the finished figures and emits ONLY prose. It may not invent or
+// restate a cost. "Grounded, no fabrication" is structural, not prompt-dependent.
+//
+// Projection decomposition (single canonical form — no double-counting of today):
+//   projected_month_end = mtd_through_yesterday          (completed days, actual)
+//                       + today_projected_full           (today_actual / dayFraction, guarded)
+//                       + EWMA_daily · seasonalityFactor[dow]  summed over each day AFTER today
+// The `mtd_actual` SURFACED in the response is the real MTD incl. today's actual-so-far; it is
+// a DIFFERENT variable from `mtd_through_yesterday` used inside the projection sum.
+//
+// Seasonality (day-of-week): earned only on non-sparse history. With < ANOMALY_MIN_NONZERO_DAYS
+// nonzero days the DOW factors are explosive noise, so we fall back to a flat factor of 1 (the
+// same sparse-guard discipline R5 anomaly detection uses). When applied, DOW factors are
+// normalized to mean 1 over the projected span so seasonality only REDISTRIBUTES the EWMA level,
+// never biases the total up or down.
+// ===================================================================================
+
+const INSIGHTS_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+const INSIGHTS_TTL_SECONDS = 6 * 3600;
+
+/** Chicago calendar date (YYYY-MM-DD) — matches the day boundaries used everywhere else. */
+function chicagoDate(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+interface ServiceProjection {
+  service: string;
+  mtd_actual: number; // real MTD incl. today's actual-so-far (surfaced figure)
+  ewma_daily: number; // EWMA over the densified trailing-14 completed-day history
+  today_projected_full: number; // today's partial spend pro-rated to a full day (guarded)
+  days_remaining_after_today: number;
+  seasonality_applied: boolean;
+  projected_month_end: number;
+  monthly_cap: number; // from chittyops.service_budgets, const fallback
+  projected_overrun: boolean;
+  projected_pct_of_cap: number; // projected_month_end / monthly_cap * 100
+}
+
+interface InsightsProjection {
+  month: string; // YYYY-MM (Chicago)
+  days_in_month: number;
+  day_of_month: number; // today's Chicago day-of-month (1-based)
+  day_fraction_elapsed: number;
+  total_mtd_actual: number;
+  total_projected_month_end: number;
+  total_monthly_cap: number;
+  total_projected_overrun: boolean;
+  services_projected_to_breach: string[];
+  per_service: ServiceProjection[];
+}
+
+/**
+ * Pull, per service, the densified daily series for (a) the current Chicago month and (b) the
+ * trailing 14 COMPLETED days (ending yesterday). Rolls up SUM across tier+provider — the matview
+ * can hold multiple rows per (service,day) across providers (UNIQUE on day_ct,service,tier,provider),
+ * so a service-level daily total MUST sum them (same lesson as R5 detectAnomalies).
+ */
+async function queryProjectionSeries(env: Env): Promise<{
+  generated_at: string;
+  month: string;
+  days_in_month: number;
+  day_of_month: number;
+  rows: Array<{ service: string; month_series: number[]; hist_series: number[]; hist_dows: number[]; mtd_actual: number }>;
+}> {
+  const db = getDb(env);
+  const rows = (await db`
+    WITH params AS (
+      SELECT (now() AT TIME ZONE 'America/Chicago')::date AS today_ct,
+             date_trunc('month', (now() AT TIME ZONE 'America/Chicago')::date)::date AS month_start
+    ),
+    keys AS (SELECT DISTINCT service FROM chittyops.cost_ledger_daily),
+    -- current-month spine: month_start .. today (inclusive of today's partial day)
+    month_spine AS (
+      SELECT k.service, gs::date AS d
+      FROM keys k CROSS JOIN params p
+      CROSS JOIN generate_series(p.month_start, p.today_ct, interval '1 day') gs
+    ),
+    month_dense AS (
+      SELECT s.service, s.d,
+             coalesce(sum(c.total_cost_usd::float8), 0) AS cost
+      FROM month_spine s
+      LEFT JOIN chittyops.cost_ledger_daily c ON c.service = s.service AND c.day_ct = s.d
+      GROUP BY s.service, s.d
+    ),
+    -- trailing 14 COMPLETED days (ending yesterday) — EWMA baseline + DOW seasonality source
+    hist_spine AS (
+      SELECT k.service, gs::date AS d
+      FROM keys k CROSS JOIN params p
+      CROSS JOIN generate_series(p.today_ct - interval '14 days', p.today_ct - interval '1 day', interval '1 day') gs
+    ),
+    hist_dense AS (
+      SELECT s.service, s.d, extract(dow from s.d)::int AS dow,
+             coalesce(sum(c.total_cost_usd::float8), 0) AS cost
+      FROM hist_spine s
+      LEFT JOIN chittyops.cost_ledger_daily c ON c.service = s.service AND c.day_ct = s.d
+      GROUP BY s.service, s.d
+    )
+    SELECT m.service,
+           (SELECT array_agg(cost ORDER BY d) FROM month_dense md WHERE md.service = m.service) AS month_series,
+           (SELECT array_agg(cost ORDER BY d) FROM hist_dense hd WHERE hd.service = m.service) AS hist_series,
+           (SELECT array_agg(dow ORDER BY d) FROM hist_dense hd WHERE hd.service = m.service) AS hist_dows,
+           (SELECT sum(cost) FROM month_dense md WHERE md.service = m.service) AS mtd_actual
+    FROM (SELECT DISTINCT service FROM month_dense) m
+    ORDER BY m.service
+  `) as Array<{
+    service: string;
+    month_series: number[] | string;
+    hist_series: number[] | string;
+    hist_dows: number[] | string;
+    mtd_actual: number | string;
+  }>;
+
+  const meta = (await db`
+    SELECT (now() AT TIME ZONE 'America/Chicago')::date AS today_ct,
+           to_char((now() AT TIME ZONE 'America/Chicago')::date, 'YYYY-MM') AS month,
+           extract(day from (date_trunc('month', (now() AT TIME ZONE 'America/Chicago')::date)
+                             + interval '1 month - 1 day'))::int AS days_in_month,
+           extract(day from (now() AT TIME ZONE 'America/Chicago')::date)::int AS day_of_month
+  `) as Array<{ today_ct: string; month: string; days_in_month: number; day_of_month: number }>;
+
+  // postgres.js returns array_agg from a correlated subquery as a Postgres array LITERAL string
+  // (e.g. "{0,0.05,0.11}"), not a JS array or JSON. Handle JS array, JSON "[...]", and "{...}".
+  const toNums = (v: number[] | string | null): number[] => {
+    if (v == null) return [];
+    if (Array.isArray(v)) return v.map((x) => Number(x) || 0);
+    const s = String(v).trim();
+    const inner = s.startsWith("{") && s.endsWith("}") ? s.slice(1, -1) : s.replace(/^\[|\]$/g, "");
+    if (inner.length === 0) return [];
+    return inner.split(",").map((x) => Number(x) || 0);
+  };
+
+  return {
+    generated_at: new Date().toISOString(),
+    month: meta[0].month,
+    days_in_month: Number(meta[0].days_in_month),
+    day_of_month: Number(meta[0].day_of_month),
+    rows: rows.map((r) => ({
+      service: r.service,
+      month_series: toNums(r.month_series),
+      hist_series: toNums(r.hist_series),
+      // dows align 1:1 with hist_series by the same ORDER BY d
+      hist_dows: toNums(r.hist_dows),
+      mtd_actual: Number(r.mtd_actual) || 0,
+    })),
+  };
+}
+
+/**
+ * Build day-of-week multiplicative factors from a history series + its day-of-week labels.
+ * Returns a 7-element array (index = dow 0..6) of factors normalized to mean 1 across the days
+ * actually being projected. Falls back to all-1 (flat) when history is sparse.
+ */
+function seasonalityFactors(hist: number[], dows: number[], projectedDows: number[]): { factors: number[]; applied: boolean } {
+  const flat = { factors: [1, 1, 1, 1, 1, 1, 1], applied: false };
+  const nonzero = hist.filter((v) => v > 0).length;
+  if (nonzero < ANOMALY_MIN_NONZERO_DAYS) return flat;
+  const overall = hist.reduce((a, b) => a + b, 0) / hist.length;
+  if (overall <= 0) return flat;
+
+  // Mean spend per dow (only dows present in history); missing dows default to the overall mean.
+  const sum = new Array(7).fill(0);
+  const cnt = new Array(7).fill(0);
+  for (let i = 0; i < hist.length; i++) {
+    const d = dows[i] ?? 0;
+    sum[d] += hist[i];
+    cnt[d] += 1;
+  }
+  const raw = new Array(7).fill(1);
+  for (let d = 0; d < 7; d++) {
+    const mean = cnt[d] > 0 ? sum[d] / cnt[d] : overall;
+    raw[d] = mean / overall;
+  }
+  // Normalize so the AVERAGE factor over the days we actually project is exactly 1 — seasonality
+  // redistributes the EWMA level, it must not bias the projected total.
+  const spanMean = projectedDows.reduce((a, d) => a + raw[d], 0) / Math.max(1, projectedDows.length);
+  if (spanMean <= 0) return flat;
+  return { factors: raw.map((f) => f / spanMean), applied: true };
+}
+
+/** Compute the full month-end projection from the densified series. Pure (no I/O). */
+function computeProjection(
+  meta: { month: string; days_in_month: number; day_of_month: number },
+  rows: Array<{ service: string; month_series: number[]; hist_series: number[]; mtd_actual: number; hist_dows: number[] }>,
+  budgets: Map<string, ServiceBudget>,
+): InsightsProjection {
+  const dayFraction = chicagoDayFractionElapsed();
+  const daysRemaining = meta.days_in_month - meta.day_of_month; // days strictly AFTER today
+
+  // dow of each remaining day (after today) for seasonality span + redistribution.
+  const todayDow = new Date(`${chicagoDate()}T12:00:00`).getDay(); // approximate; only used to step dows
+  const remainingDows: number[] = [];
+  for (let i = 1; i <= daysRemaining; i++) remainingDows.push((todayDow + i) % 7);
+
+  const per: ServiceProjection[] = [];
+  for (const r of rows) {
+    const monthSeries = r.month_series;
+    const todayActual = monthSeries.length > 0 ? monthSeries[monthSeries.length - 1] : 0;
+    const mtdThroughYesterday = monthSeries.slice(0, -1).reduce((a, b) => a + b, 0);
+
+    // today pro-rated to a full day; below the min-fraction guard fall back to spend-so-far
+    // (conservative — never inflates) exactly as R5 anomaly projection does.
+    const todayProjectedFull =
+      dayFraction >= ANOMALY_MIN_DAY_FRACTION ? todayActual / dayFraction : todayActual;
+
+    const ewma = computeEWMA(r.hist_series);
+    const { factors, applied } = seasonalityFactors(r.hist_series, r.hist_dows ?? [], remainingDows);
+    const futureProjected = remainingDows.reduce((acc, d) => acc + ewma * factors[d], 0);
+
+    const projectedMonthEnd = mtdThroughYesterday + todayProjectedFull + futureProjected;
+    const cap = resolveBudget(r.service, budgets).monthly_cap_usd;
+    const pct = cap > 0 ? (projectedMonthEnd / cap) * 100 : 0;
+
+    per.push({
+      service: r.service,
+      mtd_actual: round6(r.mtd_actual),
+      ewma_daily: round6(ewma),
+      today_projected_full: round6(todayProjectedFull),
+      days_remaining_after_today: daysRemaining,
+      seasonality_applied: applied,
+      projected_month_end: round6(projectedMonthEnd),
+      monthly_cap: round6(cap),
+      projected_overrun: projectedMonthEnd > cap,
+      projected_pct_of_cap: Math.round(pct * 10) / 10,
+    });
+  }
+  per.sort((a, b) => b.projected_month_end - a.projected_month_end);
+
+  const totalMtd = per.reduce((a, s) => a + s.mtd_actual, 0);
+  const totalProj = per.reduce((a, s) => a + s.projected_month_end, 0);
+  const totalCap = per.reduce((a, s) => a + s.monthly_cap, 0);
+
+  return {
+    month: meta.month,
+    days_in_month: meta.days_in_month,
+    day_of_month: meta.day_of_month,
+    day_fraction_elapsed: Math.round(dayFraction * 1000) / 1000,
+    total_mtd_actual: round6(totalMtd),
+    total_projected_month_end: round6(totalProj),
+    total_monthly_cap: round6(totalCap),
+    total_projected_overrun: totalProj > totalCap,
+    services_projected_to_breach: per.filter((s) => s.projected_overrun).map((s) => s.service),
+    per_service: per,
+  };
+}
+
+function round6(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
+
+interface InsightsNarrative {
+  characterization: string;
+  recommendations: string[];
+}
+
+/** LLM emits prose ONLY, grounded strictly in the provided projection figures. */
+async function runInsightsModel(
+  env: Env,
+  proj: InsightsProjection,
+): Promise<{ narrative: InsightsNarrative | null; raw: string }> {
+  const systemPrompt =
+    "You are a FinOps analyst for the ChittyOS AI-spend ledger. You are given a PRE-COMPUTED " +
+    "month-end spend PROJECTION (EWMA + seasonality) per service, in USD. You MUST only use the " +
+    "provided numbers — never invent, restate, or recompute any cost, cap, or percentage. Costs " +
+    "may be sub-cent; do not editorialize magnitude beyond what the numbers show. Focus on services " +
+    "PROJECTED TO BREACH their monthly cap (projected_overrun=true) — the value is getting ahead of " +
+    "an overrun. Each recommendation MUST quantify in dollars using ONLY provided figures, e.g. " +
+    "'<service> projects $<projected_month_end> month-end vs $<monthly_cap> cap (<pct>% of cap)'. " +
+    "Reply with ONLY a JSON object, no prose outside it, matching: " +
+    '{"characterization":string,"recommendations":[string]}. characterization is one sentence on the ' +
+    "overall projected-spend posture. Give 2-4 recommendations, each one sentence, each grounded in a " +
+    "provided figure. If no service is projected to breach, say so plainly and recommend nothing alarmist.";
+
+  const userPrompt =
+    `Projection figures (JSON):\n${JSON.stringify({
+      month: proj.month,
+      day_of_month: proj.day_of_month,
+      days_in_month: proj.days_in_month,
+      total_mtd_actual: proj.total_mtd_actual,
+      total_projected_month_end: proj.total_projected_month_end,
+      total_monthly_cap: proj.total_monthly_cap,
+      services_projected_to_breach: proj.services_projected_to_breach,
+      per_service: proj.per_service,
+    })}\n` +
+    "Produce the JSON object now.";
+
+  const out = (await env.AI.run(INSIGHTS_MODEL, {
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    max_tokens: 1024,
+    temperature: 0.2,
+  })) as { response?: string };
+
+  const raw = typeof out?.response === "string" ? out.response : JSON.stringify(out);
+  const narrative = parseNarrative(raw);
+  return { narrative, raw };
+}
+
+/** Extract the JSON narrative from model text. Returns null on failure (no fabricated fallback). */
+function parseNarrative(raw: string): InsightsNarrative | null {
+  let text = raw.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) text = fence[1].trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    const obj = JSON.parse(text.slice(start, end + 1));
+    const asStrings = (v: any): string[] =>
+      Array.isArray(v) ? v.filter((x) => typeof x === "string").map((x) => String(x)) : [];
+    return {
+      characterization: typeof obj.characterization === "string" ? obj.characterization : "",
+      recommendations: asStrings(obj.recommendations),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchInsights(env: Env, refresh: boolean): Promise<any> {
+  const cacheKey = `insights:${chicagoDate()}`;
+  if (!refresh) {
+    const cached = await env.KV_STATE.get(cacheKey);
+    if (cached) {
+      const obj = JSON.parse(cached);
+      obj.cached = true;
+      return obj;
+    }
+  }
+
+  const series = await queryProjectionSeries(env);
+
+  // Empty-state: no rows in the current month → do not ask the model to characterize nothing.
+  if (series.rows.length === 0) {
+    return {
+      status: "ok",
+      service: "comptroller",
+      generated_at: series.generated_at,
+      month: series.month,
+      empty: true,
+      reason: "cost_ledger_daily has no rows in the current month — no projection generated (no fabrication)",
+      model_used: null,
+    };
+  }
+
+  const budgets = await loadServiceBudgets(env);
+  const projection = computeProjection(
+    { month: series.month, days_in_month: series.days_in_month, day_of_month: series.day_of_month },
+    series.rows,
+    budgets,
+  );
+
+  const { narrative, raw } = await runInsightsModel(env, projection);
+
+  const result: any = {
+    status: "ok",
+    service: "comptroller",
+    generated_at: series.generated_at,
+    projection,
+    characterization: narrative?.characterization ?? "",
+    recommendations: narrative?.recommendations ?? [],
+    model_used: INSIGHTS_MODEL,
+    cached: false,
+  };
+  if (!narrative) {
+    result.narrative_error = "model output did not parse as JSON narrative";
+    result.model_raw = raw.slice(0, 2000);
+  }
+
+  await env.KV_STATE.put(cacheKey, JSON.stringify({ ...result, cached: false }), {
+    expirationTtl: INSIGHTS_TTL_SECONDS,
+  });
+  return result;
 }
 
 // ===================================================================================
