@@ -277,6 +277,22 @@ async function handleFetch(req: Request, env: Env): Promise<Response> {
       return Response.json(await listAnomalies(env));
     }
 
+    // P1-3: recent signal audit rows (newest first).
+    if (url.pathname === "/api/v1/signals") {
+      const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? "50") || 50));
+      return Response.json({ service: "comptroller", signals: await listSignals(env, limit), ts: now });
+    }
+
+    // Auth-gated dry-run signal: drives the REAL delivery funnel + feedback loop with a 60s
+    // self-reverting expiry. Proves the full path (HMAC POST → 200 → KV override → auto-expire →
+    // audit row → feedback marker create+resolve) WITHOUT a lasting effect. Bearer = HMAC key.
+    // Body (optional): { service?: string, level?: "L2"|"L3", gated?: boolean }
+    //   gated:true exercises the gated_baseline path (real DB decision, no POST).
+    if (url.pathname === "/_admin/dryrun_signal" && req.method === "POST") {
+      if (!(await requireAdminBearer(req, env))) return new Response("forbidden", { status: 403 });
+      return await handleDryRunSignal(req, env);
+    }
+
     if (url.pathname === "/_admin/authority" && req.method === "POST") {
       return await handleAuthorityChange(req, env);
     }
@@ -353,19 +369,18 @@ async function pollMetrics(env: Env): Promise<void> {
     const safeState = await isSafeStateActive(env);
     const baselineLearning = await isBaselineLearningActive(env);
 
-    if (!safeState && !baselineLearning) {
-      for (const a of anomalies) {
-        if (a.severity === "high") await emitL2Signal(env, a);
-        if (a.severity === "critical" && a.suggests_l3) await emitL3Signal(env, a);
-      }
-    } else {
-      for (const a of anomalies) {
-        if (a.severity === "critical") await sendQuoAlert(env, a);
-      }
+    // Gating now lives INSIDE deliverSignal: emit* always runs and ALWAYS writes an audit row
+    // (delivered_200 when live, gated_baseline during baseline/safe-state — never POSTs then).
+    for (const a of anomalies) {
+      if (a.severity === "high") await emitL2Signal(env, a);
+      if (a.severity === "critical" && a.suggests_l3) await emitL3Signal(env, a);
+      // During baseline/safe-state, also page the operator for criticals.
+      if ((safeState || baselineLearning) && a.severity === "critical") await sendQuoAlert(env, a);
     }
   }
 
   await checkHardCaps(env);
+  await runFeedbackLoop(env);
 }
 
 // ===================================================================================
@@ -592,63 +607,257 @@ async function detectAnomalies(env: Env): Promise<Anomaly[]> {
 // L2 / L3 signals
 // ===================================================================================
 
-async function emitL2Signal(env: Env, anomaly: Anomaly): Promise<void> {
-  const service = await fetchServiceFromRegistry(env, anomaly.service);
-  if (!service?.tier_degrade_endpoint) return;
+/**
+ * Window the override lasts, in ms. Real signals use the full window; dry-run signals use a
+ * very short window (DRY_RUN_EXPIRY_MS) so the ChittyRouter KV override auto-reverts almost
+ * immediately — proving the delivery path end-to-end WITHOUT a lasting effect.
+ */
+const L2_EXPIRY_MS = 24 * 3600 * 1000;
+const L3_EXPIRY_MS = 3600 * 1000;
+// ChittyRouter clamps expirationTtl to a 60s floor (Math.max(60, ...)); use 60s so the dry-run
+// override genuinely self-expires at the KV layer rather than only at read-time.
+const DRY_RUN_EXPIRY_MS = 60 * 1000;
 
-  const isExempt = await isServiceExempt(env, anomaly.service);
-  if (isExempt) {
-    await sendQuoAlert(env, anomaly, "exempt — skipping L2 throttle");
-    return;
+interface DeliveryResult {
+  signal_id: string;
+  outcome: string;
+  http_status: number | null;
+}
+
+/**
+ * THE single delivery funnel. Every L2/L3 decision — real, gated-skip, exempt, endpoint-missing,
+ * or dry-run — flows through here and ALWAYS writes a signals_emitted audit row (P1-3). The
+ * gating decision lives INSIDE this function (not at the callsite) so a `gated_baseline` row is
+ * recorded even during baseline_learning when no real POST happens. This also guarantees the
+ * bytes we sign are the exact bytes we POST (signHmac + fetch both consume one `body` string).
+ *
+ * SOVEREIGNTY GATE: when `gated` is true and `dryRun` is false, we NEVER POST — we record the
+ * gated outcome and return. Real autonomous L2/L3 emission stays disabled during baseline.
+ */
+async function deliverSignal(
+  env: Env,
+  opts: {
+    level: "L2" | "L3";
+    service: string;
+    endpoint: string | null | undefined;
+    endpointDisabled?: boolean;
+    signal: Record<string, unknown>;
+    gated: boolean;
+    dryRun: boolean;
+    confirmToken?: string | null;
+    reason?: string;
+  },
+): Promise<DeliveryResult> {
+  const signalId = crypto.randomUUID();
+  const base = {
+    signal_id: signalId,
+    level: opts.level,
+    service: opts.service,
+    dry_run: opts.dryRun,
+    confirm_token: opts.confirmToken ?? null,
+  };
+
+  // No deliverable endpoint configured (or disabled) → record + stop. Never POST.
+  if (opts.endpointDisabled) {
+    await recordSignal(env, { ...base, signal_json: opts.signal, http_status: null, outcome: "endpoint_disabled", reason: opts.reason ?? "service_endpoints.enabled = false" });
+    return { signal_id: signalId, outcome: "endpoint_disabled", http_status: null };
+  }
+  if (!opts.endpoint) {
+    await recordSignal(env, { ...base, signal_json: opts.signal, http_status: null, outcome: "endpoint_404", reason: opts.reason ?? "no delivery endpoint for service" });
+    return { signal_id: signalId, outcome: "endpoint_404", http_status: null };
   }
 
-  const signal = {
+  // SOVEREIGNTY GATE — gated real emission never POSTs. Dry-run bypasses the gate (it is the
+  // explicit verification path and uses a 60s self-reverting expiry).
+  if (opts.gated && !opts.dryRun) {
+    await recordSignal(env, { ...base, signal_json: opts.signal, http_status: null, outcome: "gated_baseline", reason: opts.reason ?? "baseline_learning/safe-state active — no POST" });
+    return { signal_id: signalId, outcome: "gated_baseline", http_status: null };
+  }
+
+  // Sign + POST the EXACT same bytes.
+  let body: string;
+  let sig: string;
+  try {
+    body = JSON.stringify(opts.signal);
+    sig = await signHmac(env, opts.signal); // signs JSON.stringify(opts.signal) === body
+  } catch (e) {
+    await recordSignal(env, { ...base, signal_json: opts.signal, http_status: null, outcome: "hmac_failed", reason: String(e) });
+    return { signal_id: signalId, outcome: "hmac_failed", http_status: null };
+  }
+
+  try {
+    const resp = await fetch(opts.endpoint, {
+      method: "POST",
+      headers: { "X-Comptroller-Signature": sig, "Content-Type": "application/json" },
+      body,
+    });
+    const ok = resp.status >= 200 && resp.status < 300;
+    const outcome = opts.dryRun ? (ok ? "dry_run_ok" : "delivery_error") : ok ? "delivered_200" : "delivery_error";
+    let reason = opts.reason;
+    if (!ok) reason = `${reason ? reason + "; " : ""}router responded ${resp.status}: ${(await resp.text()).slice(0, 160)}`;
+    await recordSignal(env, { ...base, signal_json: opts.signal, http_status: resp.status, outcome, reason });
+    return { signal_id: signalId, outcome, http_status: resp.status };
+  } catch (e) {
+    await recordSignal(env, { ...base, signal_json: opts.signal, http_status: null, outcome: "delivery_error", reason: String(e) });
+    return { signal_id: signalId, outcome: "delivery_error", http_status: null };
+  }
+}
+
+function buildL2Signal(anomaly: Anomaly, expiryMs: number): Record<string, unknown> {
+  return {
     from_tier: anomaly.tier,
     to_tier: degradeTo(anomaly.tier),
     reason: `anomaly_detected:${anomaly.id}`,
     scope: "service",
-    expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    expires_at: new Date(Date.now() + expiryMs).toISOString(),
   };
-
-  const resp = await fetch(service.tier_degrade_endpoint, {
-    method: "POST",
-    headers: { "X-Comptroller-Signature": await signHmac(env, signal), "Content-Type": "application/json" },
-    body: JSON.stringify(signal),
-  });
-  await logSignalEmitted(env, "L2", anomaly.service, signal, resp.status);
 }
 
-async function emitL3Signal(env: Env, anomaly: Anomaly): Promise<void> {
-  const service = await fetchServiceFromRegistry(env, anomaly.service);
-  if (!service?.pause_endpoint) return;
+async function emitL2Signal(env: Env, anomaly: Anomaly, dryRun = false): Promise<DeliveryResult> {
+  const svc = await fetchServiceFromRegistry(env, anomaly.service);
+  const endpointDisabled = !!svc?.__disabled;
+  const gated = (await isSafeStateActive(env)) || (await isBaselineLearningActive(env));
 
-  const isExempt = await isServiceExempt(env, anomaly.service);
+  // Exemption: an exempt service is alerted, not auto-throttled. Record the skip.
+  if (!endpointDisabled && (await isServiceExempt(env, anomaly.service))) {
+    await sendQuoAlert(env, anomaly, "exempt — skipping L2 throttle");
+    const signalId = crypto.randomUUID();
+    await recordSignal(env, {
+      signal_id: signalId, level: "L2", service: anomaly.service, dry_run: dryRun,
+      confirm_token: null, signal_json: buildL2Signal(anomaly, dryRun ? DRY_RUN_EXPIRY_MS : L2_EXPIRY_MS),
+      http_status: null, outcome: "exempt_skip", reason: "pause_exemptions hit — alert only",
+    });
+    return { signal_id: signalId, outcome: "exempt_skip", http_status: null };
+  }
+
+  const signal = buildL2Signal(anomaly, dryRun ? DRY_RUN_EXPIRY_MS : L2_EXPIRY_MS);
+  const result = await deliverSignal(env, {
+    level: "L2", service: anomaly.service, endpoint: svc?.tier_degrade_endpoint,
+    endpointDisabled, signal, gated, dryRun, reason: dryRun ? "dry-run verification (60s self-revert)" : undefined,
+  });
+
+  // On a real (non-dry-run) delivered throttle, open a feedback marker so the loop can verify
+  // effectiveness and auto-resume. Dry-run delivery is exercised separately by the admin route.
+  if (!dryRun && result.outcome === "delivered_200") {
+    await openFeedbackMarker(env, result.signal_id, anomaly, (signal.expires_at as string));
+  }
+  return result;
+}
+
+async function emitL3Signal(env: Env, anomaly: Anomaly, dryRun = false): Promise<DeliveryResult> {
+  const svc = await fetchServiceFromRegistry(env, anomaly.service);
+  const endpointDisabled = !!svc?.__disabled;
+  const gated = (await isSafeStateActive(env)) || (await isBaselineLearningActive(env));
+
   let confirmToken: string | null = null;
-  if (isExempt) {
+  if (!endpointDisabled && (await isServiceExempt(env, anomaly.service))) {
     confirmToken = await requestSMSConfirm(env, anomaly);
     if (!confirmToken) {
-      await logSignalEmitted(env, "L3", anomaly.service, { reason: "sms_confirm_denied" }, 0);
-      return;
+      const signalId = crypto.randomUUID();
+      await recordSignal(env, {
+        signal_id: signalId, level: "L3", service: anomaly.service, dry_run: dryRun,
+        confirm_token: null, signal_json: { reason: `hard_cap_breached:${anomaly.id}` },
+        http_status: null, outcome: "sms_confirm_denied", reason: "exempt service — SMS confirm not granted",
+      });
+      return { signal_id: signalId, outcome: "sms_confirm_denied", http_status: null };
     }
   }
 
   const signal = {
     reason: `hard_cap_breached:${anomaly.id}`,
-    expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+    expires_at: new Date(Date.now() + (dryRun ? DRY_RUN_EXPIRY_MS : L3_EXPIRY_MS)).toISOString(),
     confirm_token: confirmToken,
   };
-
-  const resp = await fetch(service.pause_endpoint, {
-    method: "POST",
-    headers: { "X-Comptroller-Signature": await signHmac(env, signal), "Content-Type": "application/json" },
-    body: JSON.stringify(signal),
+  return await deliverSignal(env, {
+    level: "L3", service: anomaly.service, endpoint: svc?.pause_endpoint,
+    endpointDisabled, signal, gated, dryRun, confirmToken,
+    reason: dryRun ? "dry-run verification (60s self-revert)" : undefined,
   });
-  await logSignalEmitted(env, "L3", anomaly.service, signal, resp.status);
 }
 
 // ===================================================================================
 // Admin endpoints
 // ===================================================================================
+
+/**
+ * Admin dry-run: exercise the real delivery + feedback path with no lasting harm.
+ *
+ * - dryRun L2 to ChittyRouter: signs+POSTs a real signal with a 60s expiry (router clamps to a
+ *   60s self-expiring KV override), records 'dry_run_ok' on HTTP 200.
+ * - gated:true variant: runs the SAME funnel with gated=true → records 'gated_baseline', no POST.
+ * - feedback proof: opens a marker then advances it twice inline — once with a future expiry
+ *   while run-rate is unchanged (→ 'escalated' or 'effective'), once with an already-elapsed
+ *   expiry (→ 'resolved', marker cleared). All real KV + real append rows, no waiting on cron.
+ */
+async function handleDryRunSignal(req: Request, env: Env): Promise<Response> {
+  const body = (await req.json().catch(() => ({}))) as { service?: string; level?: string; gated?: boolean };
+  const service = body.service ?? "chittyrouter";
+  const level = body.level === "L3" ? "L3" : "L2";
+
+  const anomaly: Anomaly = {
+    id: `dryrun-${Date.now()}`,
+    service,
+    tier: "T3_sonnet",
+    severity: level === "L3" ? "critical" : "high",
+    actual: 0,
+    expected_max: 0,
+    ewma: 0,
+    msg: "dry-run verification signal",
+    detected_at: new Date().toISOString(),
+    suggests_l3: level === "L3",
+  };
+
+  // 1) Real delivery (dry-run) OR gated path, per request.
+  const delivery =
+    body.gated === true
+      ? await deliverSignal(env, {
+          level,
+          service,
+          endpoint: (await fetchServiceFromRegistry(env, service))?.tier_degrade_endpoint,
+          signal: buildL2Signal(anomaly, DRY_RUN_EXPIRY_MS),
+          gated: true,
+          dryRun: false,
+          reason: "admin gated-path exercise — verifies no-POST audit row",
+        })
+      : level === "L3"
+        ? await emitL3Signal(env, anomaly, true)
+        : await emitL2Signal(env, anomaly, true);
+
+  // 2) Feedback marker proof (skip for the gated-only exercise — no delivery happened).
+  let feedback: Record<string, unknown> | null = null;
+  if (body.gated !== true && delivery.outcome === "dry_run_ok") {
+    // (a) open marker, advance once inside the window (run-rate unchanged → escalated/effective)
+    await openFeedbackMarker(env, delivery.signal_id, anomaly, new Date(Date.now() + 30_000).toISOString());
+    const mkKey = `${FEEDBACK_MARKER_PREFIX}${service}`;
+    const mk1 = JSON.parse((await env.KV_STATE.get(mkKey)) ?? "null") as FeedbackMarker | null;
+    const t1 = mk1 ? await advanceFeedback(env, mk1) : null;
+    // (b) force the resolve transition: advance with an already-elapsed expiry → 'resolved'.
+    const mk2 = JSON.parse((await env.KV_STATE.get(mkKey)) ?? "null") as FeedbackMarker | null;
+    let t2: string | null = null;
+    if (mk2) {
+      mk2.expires_at = new Date(Date.now() - 1000).toISOString();
+      t2 = await advanceFeedback(env, mk2);
+    }
+    const cleared = (await env.KV_STATE.get(mkKey)) === null;
+    feedback = {
+      marker_signal_id: delivery.signal_id,
+      transition_in_window: t1,
+      transition_after_expiry: t2,
+      marker_cleared: cleared,
+    };
+  }
+
+  return Response.json({
+    status: "ok",
+    mode: body.gated === true ? "gated" : "dry_run",
+    level,
+    service,
+    delivery,
+    feedback,
+    note: "no lasting effect — override (if any) self-reverts in <=60s",
+    ts: new Date().toISOString(),
+  });
+}
 
 async function handleAuthorityChange(req: Request, env: Env): Promise<Response> {
   const body = (await req.json()) as { level: string; sms_confirm_token: string };
@@ -713,10 +922,46 @@ async function isServiceExempt(env: Env, serviceId: string): Promise<boolean> {
   }
 }
 
+/**
+ * Resolve a consuming service's L2/L3 delivery endpoints.
+ *
+ * P0-3: the chittyregistry GET /api/v1/service/:id 404s, which made emitL2Signal/emitL3Signal
+ * always early-return. We now read the chittyops.service_endpoints config table FIRST (reader
+ * SELECT) and only fall back to the registry. A row with enabled=false is treated as "no
+ * delivery target" (returns null), so an operator can disable delivery for a service via config
+ * without code changes. The shape returned matches the old registry shape
+ * ({ tier_degrade_endpoint, pause_endpoint, resume_endpoint }) so callers are untouched.
+ */
 async function fetchServiceFromRegistry(env: Env, serviceId: string): Promise<any> {
-  const resp = await fetch(`${env.REGISTRY_URL}/api/v1/service/${serviceId}`);
-  if (!resp.ok) return null;
-  return await resp.json();
+  // 1) config table (authoritative)
+  try {
+    const db = getDb(env);
+    const rows = (await db`
+      SELECT service, tier_degrade_endpoint, pause_endpoint, resume_endpoint, enabled
+      FROM chittyops.service_endpoints
+      WHERE service = ${serviceId}
+      LIMIT 1
+    `) as any[];
+    if (rows.length > 0) {
+      const r = rows[0];
+      if (r.enabled === false) return { __disabled: true };
+      return {
+        tier_degrade_endpoint: r.tier_degrade_endpoint,
+        pause_endpoint: r.pause_endpoint,
+        resume_endpoint: r.resume_endpoint,
+      };
+    }
+  } catch (e) {
+    console.warn("[fetchServiceFromRegistry] service_endpoints read failed, trying registry:", String(e));
+  }
+  // 2) registry fallback
+  try {
+    const resp = await fetch(`${env.REGISTRY_URL}/api/v1/service/${serviceId}`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
 }
 
 // ===================================================================================
@@ -989,13 +1234,13 @@ async function checkHardCaps(env: Env): Promise<void> {
   // Record breaches regardless of gating (detection is always durable + auditable).
   await storeAnomalies(env, breaches);
 
-  // Attempt delivery: L2/L3 only outside safe-state/baseline window; Quo always tried.
+  // Attempt delivery via the funnel (which self-gates + always audits). During baseline/
+  // safe-state a critical also pages the operator; the funnel records gated_baseline + no POST.
   for (const a of breaches) {
-    if (!safeState && !baselineLearning) {
-      if (a.severity === "high") await emitL2Signal(env, a);
-      if (a.severity === "critical" && a.suggests_l3) await emitL3Signal(env, a);
-    } else {
-      if (a.severity === "critical") await sendQuoAlert(env, a, "baseline/safe-state — alert only, no L2/L3");
+    if (a.severity === "high") await emitL2Signal(env, a);
+    if (a.severity === "critical" && a.suggests_l3) await emitL3Signal(env, a);
+    if ((safeState || baselineLearning) && a.severity === "critical") {
+      await sendQuoAlert(env, a, "baseline/safe-state — alert only, no L2/L3");
     }
   }
 }
@@ -1153,15 +1398,204 @@ async function signHmac(env: Env, payload: unknown): Promise<string> {
     .join("");
 }
 
-async function logSignalEmitted(
-  _env: Env,
-  level: string,
-  service: string,
-  signal: unknown,
-  status: number,
-): Promise<void> {
-  // Observability via tail consumer (chittytrack); structured console line is the record.
-  console.log(JSON.stringify({ kind: "signal_emitted", level, service, status, signal, ts: new Date().toISOString() }));
+// ===================================================================================
+// Signal audit trail (P1-3) — APPEND-ONLY writer + reader
+// ===================================================================================
+
+interface SignalRow {
+  signal_id: string;
+  level: string;
+  service: string;
+  signal_json?: unknown;
+  http_status: number | null;
+  dry_run: boolean;
+  confirm_token: string | null;
+  outcome: string;
+  reason?: string | null;
+}
+
+/**
+ * Append one row to chittyops.signals_emitted. Writer role is INSERT+SELECT only, so this is
+ * the ONLY mutation primitive — every state transition is a NEW row sharing signal_id. Always
+ * also emits the structured chittytrack line so observability survives a writer outage.
+ */
+async function recordSignal(env: Env, row: SignalRow): Promise<void> {
+  console.log(JSON.stringify({ kind: "signal_emitted", ts: new Date().toISOString(), ...row }));
+  const writeDb = getWriteDb(env);
+  if (!writeDb) {
+    console.warn("[recordSignal] writer not configured — audit row NOT persisted:", row.outcome, row.service);
+    return;
+  }
+  try {
+    await writeDb`
+      INSERT INTO chittyops.signals_emitted
+        (signal_id, level, service, signal_json, http_status, dry_run, confirm_token, outcome, reason)
+      VALUES (
+        ${row.signal_id}, ${row.level}, ${row.service},
+        ${row.signal_json === undefined ? null : writeDb.json(row.signal_json as any)},
+        ${row.http_status}, ${row.dry_run}, ${row.confirm_token},
+        ${row.outcome}, ${row.reason ?? null}
+      )
+    `;
+  } catch (e) {
+    console.error("[recordSignal] INSERT failed:", String(e));
+  }
+}
+
+/** GET /api/v1/signals — recent N rows, newest first (reader SELECT). */
+async function listSignals(env: Env, limit = 50): Promise<any[]> {
+  const db = getDb(env);
+  try {
+    const rows = (await db`
+      SELECT id, signal_id, seq, ts, level, service, signal_json, http_status, dry_run, confirm_token, outcome, reason
+      FROM chittyops.signals_emitted
+      ORDER BY seq DESC
+      LIMIT ${limit}
+    `) as any[];
+    return rows.map((r) => ({
+      id: r.id,
+      signal_id: r.signal_id,
+      seq: Number(r.seq),
+      ts: r.ts,
+      level: r.level,
+      service: r.service,
+      signal_json: r.signal_json,
+      http_status: r.http_status === null ? null : Number(r.http_status),
+      dry_run: r.dry_run,
+      confirm_token: r.confirm_token,
+      outcome: r.outcome,
+      reason: r.reason,
+    }));
+  } catch (e) {
+    console.error("[listSignals] query failed:", e);
+    return [];
+  }
+}
+
+// ===================================================================================
+// Feedback loop (P1-4) — the "controls cost by itself" closed loop.
+//
+// After a real throttle is delivered we open a KV marker holding the pre-signal run-rate and
+// the override expiry. On subsequent polls runFeedbackLoop recomputes the service run-rate and
+// appends a transition row (NEVER updates — append-only):
+//   - run-rate fell sufficiently       → 'effective'
+//   - still hot + override not expired  → 'escalated' (re-alert; L2→L3 would be the next step)
+//   - override window expired           → 'resolved' (auto-resume; marker cleared)
+// Bounded + idempotent: at most one transition per marker per terminal state via a KV phase tag.
+// ===================================================================================
+
+const FEEDBACK_MARKER_PREFIX = "feedback:";
+const EFFECTIVE_DROP_FRACTION = 0.5; // run-rate must fall to <=50% of pre-signal to be "effective"
+
+interface FeedbackMarker {
+  signal_id: string;
+  service: string;
+  level: string;
+  pre_rate: number; // run-rate (USD/day proxy) at emission time
+  expires_at: string; // override window end (ISO)
+  opened_at: string;
+  phase: "pending" | "effective" | "escalated"; // terminal 'resolved' clears the marker
+}
+
+/** Compute a short-window run-rate proxy (last-hour spend, USD) for a service. */
+async function serviceRunRate(env: Env, service: string): Promise<number> {
+  const db = getDb(env);
+  try {
+    const rows = (await db`
+      SELECT coalesce(sum(cost_usd),0)::float8 AS rate
+      FROM chittyops.cost_ledger
+      WHERE service = ${service} AND ts >= now() - interval '1 hour'
+    `) as any[];
+    return Number(rows[0]?.rate ?? 0);
+  } catch (e) {
+    console.error("[serviceRunRate] query failed:", e);
+    return 0;
+  }
+}
+
+async function openFeedbackMarker(env: Env, signalId: string, anomaly: Anomaly, expiresAt: string): Promise<void> {
+  const preRate = await serviceRunRate(env, anomaly.service);
+  const marker: FeedbackMarker = {
+    signal_id: signalId,
+    service: anomaly.service,
+    level: "L2",
+    pre_rate: preRate,
+    expires_at: expiresAt,
+    opened_at: new Date().toISOString(),
+    phase: "pending",
+  };
+  // TTL: keep the marker slightly past the override window so 'resolved' can fire post-expiry.
+  const ttl = Math.max(120, Math.ceil((Date.parse(expiresAt) - Date.now()) / 1000) + 600);
+  await env.KV_STATE.put(`${FEEDBACK_MARKER_PREFIX}${anomaly.service}`, JSON.stringify(marker), { expirationTtl: ttl });
+}
+
+/**
+ * Drive one feedback transition for a single marker. Returns the new outcome (or null if no
+ * transition). Pure of the cron cadence — also callable inline from the dry-run route so the
+ * marker create→resolve lifecycle can be proven in one request without waiting for the cron.
+ */
+async function advanceFeedback(env: Env, marker: FeedbackMarker): Promise<string | null> {
+  const key = `${FEEDBACK_MARKER_PREFIX}${marker.service}`;
+  const now = Date.now();
+  const expired = now >= Date.parse(marker.expires_at);
+
+  if (expired) {
+    // Override window elapsed → auto-resume: spend back under control, clear the marker.
+    await recordSignal(env, {
+      signal_id: marker.signal_id, level: marker.level, service: marker.service,
+      http_status: null, dry_run: false, confirm_token: null, outcome: "resolved",
+      reason: "override window expired — auto-resume; run-rate normalised",
+    });
+    await env.KV_STATE.delete(key);
+    return "resolved";
+  }
+
+  const curRate = await serviceRunRate(env, marker.service);
+  const fellEnough = marker.pre_rate > 0 && curRate <= marker.pre_rate * EFFECTIVE_DROP_FRACTION;
+
+  if (fellEnough && marker.phase === "pending") {
+    await recordSignal(env, {
+      signal_id: marker.signal_id, level: marker.level, service: marker.service,
+      http_status: null, dry_run: false, confirm_token: null, outcome: "effective",
+      reason: `run-rate fell ${marker.pre_rate.toFixed(4)}→${curRate.toFixed(4)} USD/hr after throttle`,
+    });
+    marker.phase = "effective";
+    const ttl = Math.max(120, Math.ceil((Date.parse(marker.expires_at) - now) / 1000) + 600);
+    await env.KV_STATE.put(key, JSON.stringify(marker), { expirationTtl: ttl });
+    return "effective";
+  }
+
+  if (!fellEnough && marker.phase === "pending") {
+    // Still hot inside the window → escalate/re-alert (idempotent: only once).
+    await recordSignal(env, {
+      signal_id: marker.signal_id, level: marker.level, service: marker.service,
+      http_status: null, dry_run: false, confirm_token: null, outcome: "escalated",
+      reason: `run-rate still ${curRate.toFixed(4)} USD/hr (pre ${marker.pre_rate.toFixed(4)}) — escalate L2→L3`,
+    });
+    marker.phase = "escalated";
+    const ttl = Math.max(120, Math.ceil((Date.parse(marker.expires_at) - now) / 1000) + 600);
+    await env.KV_STATE.put(key, JSON.stringify(marker), { expirationTtl: ttl });
+    return "escalated";
+  }
+  return null;
+}
+
+/** Scan all open feedback markers (one per service) and advance each by one transition. */
+async function runFeedbackLoop(env: Env): Promise<void> {
+  let cursor: string | undefined;
+  do {
+    const list = await env.KV_STATE.list({ prefix: FEEDBACK_MARKER_PREFIX, cursor });
+    for (const k of list.keys) {
+      const raw = await env.KV_STATE.get(k.name);
+      if (!raw) continue;
+      try {
+        await advanceFeedback(env, JSON.parse(raw) as FeedbackMarker);
+      } catch (e) {
+        console.error("[runFeedbackLoop] marker advance failed:", k.name, String(e));
+      }
+    }
+    cursor = list.list_complete ? undefined : list.cursor;
+  } while (cursor);
 }
 
 async function heartbeat(env: Env): Promise<void> {
