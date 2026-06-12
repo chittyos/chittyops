@@ -119,11 +119,16 @@ const ANOMALY_BASELINE_FLOOR_USD = 0.01;
 // with sample-stdev as a fallback when MAD collapses to 0 (e.g. a near-all-zero series with a
 // couple of tiny nonzero days). 3.5 robust-sigmas + the absolute floor = conservative.
 const ANOMALY_K_SIGMA = 3.5;
-// Minimum dense-history length (days, excluding today) to trust the sigma/robust path.
-const ANOMALY_MIN_HISTORY = 7;
-// New-service (history < ANOMALY_MIN_HISTORY) absolute hard-$ daily trip. Below the daily
-// hard-cap (which checkHardCaps already enforces via MTD/daily) but high enough that a brand-new
-// service with a genuine hard-$ spike is NOT invisible to anomaly control for its first week.
+// Minimum number of NONZERO history days to trust the sigma/robust path. NOTE: after
+// densification every key has a full 15-day spine, so raw series length is always 14 — the
+// meaningful "is this a new/too-sparse service?" signal is how many days actually had spend.
+// With <2 nonzero days median+MAD and EWMA carry no real signal (an all-but-one-zero history),
+// so we don't run the statistical path; we lean on the absolute trip below.
+const ANOMALY_MIN_NONZERO_DAYS = 2;
+// New/sparse-service absolute hard-$ daily trip, used when there isn't enough nonzero history to
+// trust the sigma path. Above the $0.25 floor that already guards the statistical path, but below
+// the daily hard-cap (checkHardCaps enforces MTD/daily) — so a brand-new service with a genuine
+// hard-$ spike is NOT invisible to anomaly control in its first days.
 const ANOMALY_NEW_SERVICE_ABS_USD = 1.0;
 // Don't trust the partial-day projection before this fraction of the Chicago day has elapsed —
 // early-day noise (one $0.50 call at 00:30) would project to $24/day and reintroduce the exact
@@ -977,9 +982,11 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
  *   floor (projected > ANOMALY_ABS_FLOOR_USD) AND projected > center + k·spread, and relative-%
  *   is only computed when the center clears ANOMALY_BASELINE_FLOOR_USD (no Infinity/NaN on $0 series).
  *
- * New services (<ANOMALY_MIN_HISTORY dense days): the sigma path is untrustworthy, so we don't run
- *   it — but they're NOT blind: checkHardCaps already enforces MTD/daily caps, and here we add a
- *   daily absolute-$ trip (ANOMALY_NEW_SERVICE_ABS_USD) so a genuine hard-$ spike in week one is caught.
+ * Sparse/new services (<ANOMALY_MIN_NONZERO_DAYS nonzero history days — every key has a full
+ *   15-day spine after densification, so sparsity is judged by nonzero-day COUNT, not length): the
+ *   sigma path is untrustworthy, so we don't run it — but they're NOT blind: checkHardCaps already
+ *   enforces MTD/daily caps, and here a daily absolute-$ trip (ANOMALY_NEW_SERVICE_ABS_USD) catches
+ *   a genuine hard-$ spike in a service's first days.
  */
 async function detectAnomalies(env: Env): Promise<Anomaly[]> {
   const db = getDb(env);
@@ -1001,11 +1008,16 @@ async function detectAnomalies(env: Env): Promise<Anomaly[]> {
         ) gs
       ),
       dense AS (
+        -- SUM + GROUP BY: cost_ledger_daily is NOT guaranteed unique on (service,tier,day_ct)
+        -- (verified: chittyclaw/T0 has two rows for 2026-06-04). Without the aggregate the LEFT
+        -- JOIN emits one array element PER ledger row, splitting a single day's total across
+        -- multiple series points — which inflates the sample count and dampens genuine spikes.
         SELECT s.service, s.tier, s.d,
-               coalesce(c.total_cost_usd::float8, 0) AS cost
+               coalesce(sum(c.total_cost_usd::float8), 0) AS cost
         FROM spine s
         LEFT JOIN chittyops.cost_ledger_daily c
           ON c.service = s.service AND c.tier = s.tier AND c.day_ct = s.d
+        GROUP BY s.service, s.tier, s.d
       )
       SELECT service, tier, array_agg(cost ORDER BY d) AS series
       FROM dense
@@ -1069,12 +1081,16 @@ function evaluateAnomaly(
   // EWMA can't drop the bar below the typical day.
   const center = Math.max(ewma, med);
 
-  const newService = history.length < ANOMALY_MIN_HISTORY;
+  // After densification series length is always 14, so "new/sparse" is judged by how many days
+  // actually had spend — with <2 nonzero days there's no real statistical signal to trust.
+  const nonzeroDays = history.reduce((n, v) => n + (v > 0 ? 1 : 0), 0);
+  const sparseService = nonzeroDays < ANOMALY_MIN_NONZERO_DAYS;
 
   let flagged = false;
   let threshold: number;
-  if (newService) {
-    // New service: no trustworthy sigma. Catch only a clear hard-$ daily spike (absolute path).
+  if (sparseService) {
+    // Too little nonzero history for a trustworthy sigma. Catch only a clear hard-$ daily spike
+    // via the absolute trip (the $0.25 floor still applies implicitly — $1.0 > $0.25).
     threshold = ANOMALY_NEW_SERVICE_ABS_USD;
     flagged = projectedToday > ANOMALY_NEW_SERVICE_ABS_USD;
   } else {
