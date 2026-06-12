@@ -650,6 +650,7 @@ async function deliverSignal(
     dryRun: boolean;
     confirmToken?: string | null;
     reason?: string;
+    skipGatedDedup?: boolean; // admin verification exercise bypasses the once/day gated guard
   },
 ): Promise<DeliveryResult> {
   const signalId = crypto.randomUUID();
@@ -674,6 +675,12 @@ async function deliverSignal(
   // SOVEREIGNTY GATE — gated real emission never POSTs. Dry-run bypasses the gate (it is the
   // explicit verification path and uses a 60s self-reverting expiry).
   if (opts.gated && !opts.dryRun) {
+    // Once/day dedup so a persistent anomaly during baseline does not write ~288 rows/day
+    // (the */5 cron re-detects every poll). The detection itself stays durable in
+    // chittyops.anomalies via storeAnomalies; this only bounds the gated audit row.
+    if (!opts.skipGatedDedup && (await gatedAuditAlreadyToday(env, opts.service, opts.level))) {
+      return { signal_id: signalId, outcome: "gated_baseline", http_status: null };
+    }
     await recordSignal(env, { ...base, signal_json: opts.signal, http_status: null, outcome: "gated_baseline", reason: opts.reason ?? "baseline_learning/safe-state active — no POST" });
     return { signal_id: signalId, outcome: "gated_baseline", http_status: null };
   }
@@ -705,6 +712,19 @@ async function deliverSignal(
     await recordSignal(env, { ...base, signal_json: opts.signal, http_status: null, outcome: "delivery_error", reason: String(e) });
     return { signal_id: signalId, outcome: "delivery_error", http_status: null };
   }
+}
+
+/**
+ * Once/day guard for the GATED audit row on the cron path, keyed by service+level+day. Prevents
+ * a persistent anomaly from writing a gated_baseline row every 5 min during baseline_learning.
+ * Returns true if a row was already written today (caller should skip the write). Idempotent set.
+ */
+async function gatedAuditAlreadyToday(env: Env, service: string, level: string): Promise<boolean> {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = `gated_audit:${level}:${service}:${day}`;
+  if (await env.KV_STATE.get(key)) return true;
+  await env.KV_STATE.put(key, "1", { expirationTtl: 36 * 3600 });
+  return false;
 }
 
 function buildL2Signal(anomaly: Anomaly, expiryMs: number): Record<string, unknown> {
@@ -801,6 +821,12 @@ const DRYRUN_SELFTEST_RESULT = "dryrun_selftest_result";
  * run the SAME dry-run path as the bearer-gated route — but with no external auth, since the
  * worker already holds COMPTROLLER_HMAC_KEY. Self-clears the flag and stashes the result JSON
  * in KV (DRYRUN_SELFTEST_RESULT) so it can be read back without the bearer.
+ *
+ * SECURITY MODEL: runDryRun only ever performs a dry-run (60s self-reverting expiry) or a gated
+ * no-POST exercise — it can NEVER cause a lasting degrade/pause. The trigger is a write to the
+ * worker's own KV_STATE (same trust boundary as a CF Secret). It is therefore bounded-safe to
+ * keep permanently as the operator's no-secret verification path. Removable as a follow-up if an
+ * external-bearer-only posture is preferred (would require a redeploy).
  */
 async function maybeRunDryRunSelfTest(env: Env): Promise<void> {
   const raw = await env.KV_STATE.get(DRYRUN_SELFTEST_FLAG);
@@ -860,6 +886,7 @@ async function runDryRun(
           signal: buildL2Signal(anomaly, DRY_RUN_EXPIRY_MS),
           gated: true,
           dryRun: false,
+          skipGatedDedup: true,
           reason: "admin gated-path exercise — verifies no-POST audit row",
         })
       : level === "L3"
@@ -1489,8 +1516,12 @@ async function recordSignal(env: Env, row: SignalRow): Promise<void> {
 async function listSignals(env: Env, limit = 50): Promise<any[]> {
   const db = getDb(env);
   try {
+    // NOTE: confirm_token is intentionally NOT selected — this endpoint is unauthenticated and
+    // confirm_token can hold a live L3 SMS-confirm token once real emission is enabled. Presence
+    // is surfaced as a boolean instead.
     const rows = (await db`
-      SELECT id, signal_id, seq, ts, level, service, signal_json, http_status, dry_run, confirm_token, outcome, reason
+      SELECT id, signal_id, seq, ts, level, service, signal_json, http_status, dry_run,
+             (confirm_token IS NOT NULL) AS has_confirm_token, outcome, reason
       FROM chittyops.signals_emitted
       ORDER BY seq DESC
       LIMIT ${limit}
@@ -1505,7 +1536,7 @@ async function listSignals(env: Env, limit = 50): Promise<any[]> {
       signal_json: r.signal_json,
       http_status: r.http_status === null ? null : Number(r.http_status),
       dry_run: r.dry_run,
-      confirm_token: r.confirm_token,
+      has_confirm_token: r.has_confirm_token,
       outcome: r.outcome,
       reason: r.reason,
     }));
