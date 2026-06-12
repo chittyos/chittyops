@@ -509,8 +509,20 @@ async function updateSelfHealth(
 
     // --- matview real-time freshness ---
     const mv = await matviewHealth(env);
-    // If the matview now reflects Chicago-today, record wall-clock freshness.
-    if (mv.matview_max_day) {
+    // Verification hook: a one-shot KV flag forces the >1h stale-alert critical path live by
+    // skipping the freshness bump this poll AND backdating matview_last_fresh_at past the
+    // threshold — simulating the "refresh succeeds but data stalls" case the matview-stale alert
+    // backstops (the swallowed-refresh-error case is covered by health:simulate_refresh_fail).
+    // Self-clears after one poll.
+    const simulateStale = !!(await env.KV_STATE.get(SIMULATE_MATVIEW_STALE_FLAG));
+    if (simulateStale) {
+      await env.KV_STATE.delete(SIMULATE_MATVIEW_STALE_FLAG);
+      await env.KV_STATE.put(
+        MATVIEW_LAST_FRESH_AT_KEY,
+        new Date(Date.now() - MATVIEW_STALE_ALERT_MS - 60_000).toISOString(),
+      );
+    } else if (mv.matview_max_day) {
+      // If the matview now reflects Chicago-today, record wall-clock freshness.
       const chicagoTodayMs = Date.parse(
         ((await getDb(env)`SELECT (now() AT TIME ZONE 'America/Chicago')::date AS d`) as Array<{ d: string }>)[0].d,
       );
@@ -1310,6 +1322,9 @@ async function handleBaselineLearningEnd(req: Request, env: Env): Promise<Respon
 // self-health-anomaly + poll_streak-reset path through the live cron without ever depending on
 // the real matview actually breaking. Self-clears after one poll (idempotent).
 const SIMULATE_REFRESH_FAIL_FLAG = "health:simulate_refresh_fail";
+// Companion one-shot flag that forces the matview >1h stale-alert (critical) path live. Consumed
+// in updateSelfHealth. Same trust boundary (worker's own KV); self-clears after one poll.
+const SIMULATE_MATVIEW_STALE_FLAG = "health:simulate_matview_stale";
 
 async function refreshCostLedgerView(env: Env): Promise<{ ok: boolean; error?: string }> {
   // Prefer the writer connection (has the privilege); fall back to reader (EXECUTE granted).
