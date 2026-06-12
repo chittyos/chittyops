@@ -557,19 +557,7 @@ async function updateSelfHealth(
 
     // --- matview real-time freshness ---
     const mv = await matviewHealth(env);
-    // Verification hook: a one-shot KV flag forces the >1h stale-alert critical path live by
-    // skipping the freshness bump this poll AND backdating matview_last_fresh_at past the
-    // threshold — simulating the "refresh succeeds but data stalls" case the matview-stale alert
-    // backstops (the swallowed-refresh-error case is covered by health:simulate_refresh_fail).
-    // Self-clears after one poll.
-    const simulateStale = !!(await env.KV_STATE.get(SIMULATE_MATVIEW_STALE_FLAG));
-    if (simulateStale) {
-      await env.KV_STATE.delete(SIMULATE_MATVIEW_STALE_FLAG);
-      await env.KV_STATE.put(
-        MATVIEW_LAST_FRESH_AT_KEY,
-        new Date(Date.now() - MATVIEW_STALE_ALERT_MS - 60_000).toISOString(),
-      );
-    } else if (mv.matview_max_day) {
+    if (mv.matview_max_day) {
       // If the matview now reflects Chicago-today, record wall-clock freshness.
       const chicagoTodayMs = Date.parse(
         ((await getDb(env)`SELECT (now() AT TIME ZONE 'America/Chicago')::date AS d`) as Array<{ d: string }>)[0].d,
@@ -1895,25 +1883,10 @@ async function handleBaselineLearningEnd(req: Request, env: Env): Promise<Respon
 // Matview refresh — needs privileges; fail-soft if reader can't refresh
 // ===================================================================================
 
-// One-shot KV flag (set out-of-band via the worker's own KV — same trust boundary as a CF
-// Secret, no external bearer) that forces the NEXT refresh to throw a synthetic error. This is
-// the no-mock verification hook for R4 self-monitoring: it exercises the REAL error-capture +
-// self-health-anomaly + poll_streak-reset path through the live cron without ever depending on
-// the real matview actually breaking. Self-clears after one poll (idempotent).
-const SIMULATE_REFRESH_FAIL_FLAG = "health:simulate_refresh_fail";
-// Companion one-shot flag that forces the matview >1h stale-alert (critical) path live. Consumed
-// in updateSelfHealth. Same trust boundary (worker's own KV); self-clears after one poll.
-const SIMULATE_MATVIEW_STALE_FLAG = "health:simulate_matview_stale";
-
 async function refreshCostLedgerView(env: Env): Promise<{ ok: boolean; error?: string }> {
   // Prefer the writer connection (has the privilege); fall back to reader (EXECUTE granted).
   const db = getWriteDb(env) ?? getDb(env);
   try {
-    // Verification hook: consume a one-shot simulate-fail flag and throw a synthetic refresh error.
-    if (await env.KV_STATE.get(SIMULATE_REFRESH_FAIL_FLAG)) {
-      await env.KV_STATE.delete(SIMULATE_REFRESH_FAIL_FLAG); // consume first → never re-fires
-      throw new Error("SIMULATED refresh failure (health:simulate_refresh_fail flag) — R4 self-monitoring verification");
-    }
     await db`SELECT chittyops.refresh_cost_ledger_daily()`;
     // Clear any prior captured refresh error on success.
     await env.KV_STATE.delete(LAST_REFRESH_ERROR_KEY);
