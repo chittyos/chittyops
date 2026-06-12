@@ -18,6 +18,7 @@
  */
 
 import postgres from "postgres";
+import { computeExternalCostUsd } from "./pricing";
 // AsyncLocalStorage is provided at runtime by the `nodejs_compat` flag. Its type comes
 // from a minimal ambient declaration (node-async-hooks.d.ts) rather than all of @types/node.
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -209,6 +210,14 @@ async function handleFetch(req: Request, env: Env): Promise<Response> {
       }
     }
 
+    if (url.pathname === "/api/v1/insights") {
+      try {
+        return Response.json(await fetchInsights(env));
+      } catch (e) {
+        return Response.json({ status: "error", service: "comptroller", error: String(e), ts: now }, { status: 500 });
+      }
+    }
+
     if (url.pathname.endsWith("/status") && url.pathname.startsWith("/budget/")) {
       const service = url.pathname.split("/")[2];
       return Response.json(await budgetStatus(env, service));
@@ -245,6 +254,21 @@ async function handleFetch(req: Request, env: Env): Promise<Response> {
         await ensureColdStartState(env);
         await pollMetrics(env);
         return Response.json({ status: "ok", triggered: "pollMetrics", ts: now });
+      } catch (e) {
+        return Response.json({ status: "error", error: String(e), ts: now }, { status: 500 });
+      }
+    }
+
+    // Auth-gated one-shot backfill: recompute cost_usd for existing external-provider
+    // rows that have tokens > 0 but cost_usd = 0, using the pricing table. Idempotent
+    // (only touches rows still at 0). Bounded per call via ?limit (default 5000).
+    if (url.pathname === "/_admin/backfill_external_cost" && req.method === "POST") {
+      if (!(await requireAdminBearer(req, env))) {
+        return new Response("forbidden", { status: 403 });
+      }
+      try {
+        const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 5000), 1), 50000);
+        return Response.json(await backfillExternalCost(env, limit));
       } catch (e) {
         return Response.json({ status: "error", error: String(e), ts: now }, { status: 500 });
       }
@@ -408,22 +432,57 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
     // Only logs strictly newer than the high-water mark.
     const fresh = logs.filter((l) => Date.parse(l.created_at) > hwmMs);
     if (fresh.length > 0) {
-      const rows = fresh.map((l) => ({
-        service: gw,
-        tier: tierFromModel(l.model),
-        provider: l.provider ?? "unknown",
-        model: l.model ?? "unknown",
-        tokens_in: Math.round(l.tokens_in ?? 0),
-        tokens_out: Math.round(l.tokens_out ?? 0),
-        cached_tokens_in: Math.round(l.usage_metadata?.input_cached_tokens ?? 0),
-        cost_usd: Number(l.cost ?? 0),
-        latency_ms: Math.round(l.timings?.latency ?? 0),
-        item_id_hash: l.id,
-        run_id: null as string | null,
-        fallback_chain: null as string[] | null,
-        ts: l.created_at,
-        cost_constrained: false,
-      }));
+      const rows = fresh.map((l) => {
+        const provider = l.provider ?? "unknown";
+        const tokensIn = Math.round(l.tokens_in ?? 0);
+        const tokensOut = Math.round(l.tokens_out ?? 0);
+        const cachedTokensIn = Math.round(l.usage_metadata?.input_cached_tokens ?? 0);
+        const cfCost = Number(l.cost ?? 0);
+
+        // Cost provenance:
+        //   - workers-ai rows: keep CF's REPORTED cost (authoritative for Workers-AI).
+        //   - external/BYOK rows (anthropic/openai/google-ai-studio/etc.): CF does NOT
+        //     compute dollar cost (cfCost == 0), so when tokens > 0 we COMPUTE it from
+        //     the public pricing table. provider <> 'workers-ai' is the derived
+        //     "comptroller-computed" provenance marker (no cost_source column exists).
+        let costUsd = cfCost;
+        const isExternal = provider !== "workers-ai";
+        if (isExternal && cfCost === 0 && (tokensIn > 0 || tokensOut > 0)) {
+          const { costUsd: computed, priced, normalizedModel } = computeExternalCostUsd({
+            model: l.model,
+            tokensIn,
+            tokensOut,
+            cachedTokensIn,
+          });
+          if (priced) {
+            costUsd = computed;
+          } else {
+            // Never fabricate: record 0 and surface the gap so the table can be updated.
+            console.warn(
+              `[pricing] unpriced model: provider=${provider} model=${l.model ?? "?"} ` +
+                `(normalized=${normalizedModel}) tokens_in=${tokensIn} tokens_out=${tokensOut} ` +
+                `— recorded cost_usd=0; add this model to pricing.ts`,
+            );
+          }
+        }
+
+        return {
+          service: gw,
+          tier: tierFromModel(l.model),
+          provider,
+          model: l.model ?? "unknown",
+          tokens_in: tokensIn,
+          tokens_out: tokensOut,
+          cached_tokens_in: cachedTokensIn,
+          cost_usd: costUsd,
+          latency_ms: Math.round(l.timings?.latency ?? 0),
+          item_id_hash: l.id,
+          run_id: null as string | null,
+          fallback_chain: null as string[] | null,
+          ts: l.created_at,
+          cost_constrained: false,
+        };
+      });
 
       await writeDb`
         INSERT INTO chittyops.cost_ledger ${writeDb(
@@ -705,6 +764,24 @@ async function fetchMetrics(env: Env): Promise<any> {
 
   const totalRow = (await db`SELECT count(*)::int AS total_count FROM chittyops.cost_ledger`) as any[];
 
+  // External-provider (non-workers-ai) dollar attribution — this is the comptroller-
+  // COMPUTED spend (anthropic/openai/google/etc.), now real dollars via pricing.ts.
+  // Split MTD vs today so a $0 today is distinguishable from $0 all-time.
+  const extRows = (await db`
+    SELECT
+      coalesce(sum(cost_usd) FILTER (
+        WHERE ts >= date_trunc('day', now() AT TIME ZONE 'America/Chicago')),0)::float8 AS today,
+      coalesce(sum(cost_usd) FILTER (
+        WHERE ts >= date_trunc('month', now() AT TIME ZONE 'America/Chicago')),0)::float8 AS mtd,
+      count(*) FILTER (
+        WHERE (tokens_in > 0 OR tokens_out > 0)) ::int AS calls_with_tokens,
+      count(*) FILTER (
+        WHERE (tokens_in > 0 OR tokens_out > 0) AND cost_usd = 0) ::int AS unpriced_calls
+    FROM chittyops.cost_ledger
+    WHERE provider <> 'workers-ai'
+  `) as any[];
+  const ext = extRows[0] ?? {};
+
   return {
     status: "ok",
     service: "comptroller",
@@ -717,7 +794,193 @@ async function fetchMetrics(env: Env): Promise<any> {
       calls: Number(r.calls),
     })),
     mtd: mtd.map((r) => ({ service: r.service, tier: r.tier, cost_usd: Number(r.cost_usd), calls: Number(r.calls) })),
+    // Comptroller-computed external-provider spend (real dollars from pricing.ts).
+    external_provider_cost_usd: Number(ext.today ?? 0),
+    external_provider_cost_usd_mtd: Number(ext.mtd ?? 0),
+    external_provider_calls_with_tokens: Number(ext.calls_with_tokens ?? 0),
+    external_provider_unpriced_calls: Number(ext.unpriced_calls ?? 0),
     total_count: Number(totalRow[0]?.total_count ?? 0),
+    ts: new Date().toISOString(),
+  };
+}
+
+/**
+ * /api/v1/insights — cost-attribution view that surfaces the external-provider
+ * dollar split (CF-reported workers-ai vs comptroller-computed external) and the
+ * top external models by computed spend. Read-only.
+ */
+async function fetchInsights(env: Env): Promise<any> {
+  const db = getDb(env);
+
+  const split = (await db`
+    SELECT
+      CASE WHEN provider = 'workers-ai' THEN 'cf_reported' ELSE 'comptroller_computed' END AS cost_source,
+      coalesce(sum(cost_usd),0)::float8 AS cost_usd,
+      coalesce(sum(tokens_in),0)::bigint AS tokens_in,
+      coalesce(sum(tokens_out),0)::bigint AS tokens_out,
+      count(*)::int AS calls
+    FROM chittyops.cost_ledger
+    WHERE ts >= date_trunc('month', now() AT TIME ZONE 'America/Chicago')
+    GROUP BY 1
+    ORDER BY cost_usd DESC
+  `) as any[];
+
+  const topExternalModels = (await db`
+    SELECT provider, model,
+           coalesce(sum(cost_usd),0)::float8 AS cost_usd,
+           coalesce(sum(tokens_in),0)::bigint AS tokens_in,
+           coalesce(sum(tokens_out),0)::bigint AS tokens_out,
+           count(*)::int AS calls,
+           count(*) FILTER (WHERE (tokens_in > 0 OR tokens_out > 0) AND cost_usd = 0)::int AS unpriced_calls
+    FROM chittyops.cost_ledger
+    WHERE provider <> 'workers-ai'
+      AND ts >= date_trunc('month', now() AT TIME ZONE 'America/Chicago')
+    GROUP BY provider, model
+    ORDER BY cost_usd DESC, calls DESC
+    LIMIT 15
+  `) as any[];
+
+  // Models that have tokens but priced to $0 — the "update pricing.ts" worklist.
+  const unpriced = (await db`
+    SELECT provider, model, count(*)::int AS calls,
+           coalesce(sum(tokens_in),0)::bigint AS tokens_in,
+           coalesce(sum(tokens_out),0)::bigint AS tokens_out
+    FROM chittyops.cost_ledger
+    WHERE provider <> 'workers-ai'
+      AND (tokens_in > 0 OR tokens_out > 0)
+      AND cost_usd = 0
+    GROUP BY provider, model
+    ORDER BY calls DESC
+    LIMIT 25
+  `) as any[];
+
+  return {
+    status: "ok",
+    service: "comptroller",
+    window: "mtd",
+    cost_source_split: split.map((r) => ({
+      cost_source: r.cost_source,
+      cost_usd: Number(r.cost_usd),
+      tokens_in: Number(r.tokens_in),
+      tokens_out: Number(r.tokens_out),
+      calls: Number(r.calls),
+    })),
+    top_external_models: topExternalModels.map((r) => ({
+      provider: r.provider,
+      model: r.model,
+      cost_usd: Number(r.cost_usd),
+      tokens_in: Number(r.tokens_in),
+      tokens_out: Number(r.tokens_out),
+      calls: Number(r.calls),
+      unpriced_calls: Number(r.unpriced_calls),
+    })),
+    unpriced_models: unpriced.map((r) => ({
+      provider: r.provider,
+      model: r.model,
+      calls: Number(r.calls),
+      tokens_in: Number(r.tokens_in),
+      tokens_out: Number(r.tokens_out),
+    })),
+    ts: new Date().toISOString(),
+  };
+}
+
+/**
+ * One-shot, idempotent backfill: recompute cost_usd for external-provider rows that
+ * have tokens > 0 and cost_usd = 0, using pricing.ts. Reads candidate rows via the
+ * reader, computes per-row, and writes updated rows via the append-only-capable
+ * writer with a parameterized UPDATE keyed on entry_id (the PK). Idempotent: only
+ * selects rows still at cost_usd = 0, so re-running touches nothing already priced.
+ * Unpriced models stay at 0 and are reported, never fabricated.
+ */
+async function backfillExternalCost(env: Env, limit: number): Promise<any> {
+  const db = getDb(env);
+  const writeDb = getWriteDb(env);
+  if (!writeDb) {
+    return {
+      status: "skipped",
+      reason: "writer_not_configured",
+      note: "NEON_COMPTROLLER_WRITER not bound — cannot UPDATE cost_ledger.",
+      ts: new Date().toISOString(),
+    };
+  }
+
+  // Fail CLOSED if the writer role lacks UPDATE. The Phase-A writer is provisioned
+  // INSERT-only (append-only ledger); the backfill mutates existing rows in place,
+  // which needs UPDATE. Pre-check so we surface an actionable infra blocker instead
+  // of throwing per-row mid-loop. Granting UPDATE to comptroller_writer is a
+  // concierge/ChittyConnect action (GRANT UPDATE ON chittyops.cost_ledger TO comptroller_writer).
+  let canUpdate = false;
+  try {
+    const priv = (await writeDb`
+      SELECT has_table_privilege(current_user, 'chittyops.cost_ledger', 'UPDATE') AS u
+    `) as any[];
+    canUpdate = priv[0]?.u === true;
+  } catch (e) {
+    console.error("[backfill] privilege check failed:", e);
+  }
+  if (!canUpdate) {
+    return {
+      status: "blocked",
+      reason: "writer_lacks_update_privilege",
+      note:
+        "comptroller_writer has INSERT+SELECT but not UPDATE on chittyops.cost_ledger. " +
+        "Backfill rewrites existing rows in place and requires UPDATE. Grant it via the " +
+        "concierge: `GRANT UPDATE ON chittyops.cost_ledger TO comptroller_writer;` then re-run. " +
+        "No rows changed. (Ingestion is unaffected — new external rows are priced at INSERT time.)",
+      ts: new Date().toISOString(),
+    };
+  }
+
+  const candidates = (await db`
+    SELECT entry_id, provider, model, tokens_in, tokens_out, cached_tokens_in
+    FROM chittyops.cost_ledger
+    WHERE provider <> 'workers-ai'
+      AND cost_usd = 0
+      AND (tokens_in > 0 OR tokens_out > 0)
+    ORDER BY entry_id
+    LIMIT ${limit}
+  `) as any[];
+
+  let updated = 0;
+  let attributedUsd = 0;
+  const unpricedModels = new Map<string, number>();
+
+  for (const r of candidates) {
+    const { costUsd, priced } = computeExternalCostUsd({
+      model: r.model,
+      tokensIn: Number(r.tokens_in),
+      tokensOut: Number(r.tokens_out),
+      cachedTokensIn: Number(r.cached_tokens_in),
+    });
+    if (!priced || costUsd <= 0) {
+      if (!priced) {
+        const k = `${r.provider}:${r.model}`;
+        unpricedModels.set(k, (unpricedModels.get(k) ?? 0) + 1);
+      }
+      continue;
+    }
+    await writeDb`
+      UPDATE chittyops.cost_ledger
+      SET cost_usd = ${costUsd}
+      WHERE entry_id = ${r.entry_id} AND cost_usd = 0
+    `;
+    updated += 1;
+    attributedUsd += costUsd;
+  }
+
+  return {
+    status: "ok",
+    service: "comptroller",
+    candidates_scanned: candidates.length,
+    rows_updated: updated,
+    dollars_attributed: attributedUsd,
+    unpriced_models: Array.from(unpricedModels.entries()).map(([k, n]) => ({ model: k, calls: n })),
+    limit,
+    note:
+      candidates.length === limit
+        ? "hit limit — re-run to continue (idempotent)"
+        : "all eligible rows processed",
     ts: new Date().toISOString(),
   };
 }

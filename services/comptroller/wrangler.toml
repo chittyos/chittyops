@@ -12,7 +12,16 @@ routes = [
 ]
 
 [triggers]
-crons = ["*/5 * * * *"]  # 5-min budget poll, always on
+crons = [
+  "*/5 * * * *",  # 5-min budget poll + CF AI Gateway ingest, always on
+  "0 7 * * *",    # 7 AM CT daily report
+  "0 7 * * 1",    # Mon 7 AM CT weekly forecast
+  "0 9 1 * *",    # 1st of month 9 AM CT monthly closeout
+]
+
+# Workers-AI binding — used for forecasting-adjacent T0 inference (never above T0).
+[ai]
+binding = "AI"
 
 [vars]
 REGISTRY_URL = "https://registry.chitty.cc"
