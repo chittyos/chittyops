@@ -50,6 +50,27 @@ const SAFE_STATE_KEY = "safe_state_active";
 const BASELINE_LEARNING_KEY = "baseline_learning_until";
 const BASELINE_LEARNING_DAYS = 14;
 
+// ---- R4 self-monitoring KV keys ----
+// Each */5 poll writes these so /api/v1/status can report REAL self-health computed live.
+const LAST_POLL_OK_AT_KEY = "health:last_poll_ok_at";
+const LAST_POLL_ERROR_KEY = "health:last_poll_error"; // {error, ts} JSON, or absent
+const LAST_REFRESH_ERROR_KEY = "health:last_refresh_error"; // {error, ts} JSON — captures the swallowed refresh err
+// Real-time matview freshness: updated to now() each poll where max(day_ct)==Chicago-today.
+// The >1h staleness ALERT is derived from this, NOT from the day-granular day_ct arithmetic.
+const MATVIEW_LAST_FRESH_AT_KEY = "health:matview_last_fresh_at";
+// Per-gateway consecutive-failure counters: `health:src_fail:{gw}` → integer string.
+const SRC_FAIL_PREFIX = "health:src_fail:";
+// poll_streak: contiguous fully-successful polls. Drives partition-recovery.
+const POLL_STREAK_KEY = "health:poll_streak";
+
+// Consecutive-failure threshold for a single source before we self-alert.
+const SOURCE_FAIL_ALERT_K = 3;
+// Matview real-time staleness alert threshold (ms). Fires within ~1h of a freeze.
+const MATVIEW_STALE_ALERT_MS = 60 * 60 * 1000;
+// partition-recovery: require this many contiguous fully-good polls before clearing
+// partition-safe-state (parallels the 24h cold-start L1-only window). At */5 that's ~8.3h.
+const PARTITION_RECOVERY_GOOD_POLLS = 100;
+
 // CF account that owns the AI Gateways (ChittyCorp).
 const CF_ACCOUNT_ID = "0bc21e3a5a9de1a4cc843be9c3e98121";
 
@@ -242,6 +263,7 @@ async function handleFetch(req: Request, env: Env): Promise<Response> {
       const authority = (await env.KV_STATE.get("authority_level")) ?? "L1";
       const baselineLearningUntil = await env.KV_STATE.get(BASELINE_LEARNING_KEY);
       const coldStartAt = await env.KV_STATE.get(COLD_START_AT_KEY);
+      const selfHealth = await buildSelfHealth(env);
       return Response.json({
         status: "ok",
         service: "comptroller",
@@ -252,6 +274,7 @@ async function handleFetch(req: Request, env: Env): Promise<Response> {
         baseline_learning: baselineLearningUntil ? Date.now() < Date.parse(baselineLearningUntil) : false,
         baseline_learning_until: baselineLearningUntil,
         writer_configured: !!env.NEON_COMPTROLLER_WRITER?.connectionString,
+        self_health: selfHealth,
         ts: now,
       });
     }
@@ -308,6 +331,29 @@ async function handleFetch(req: Request, env: Env): Promise<Response> {
     // Auth-gated manual poll trigger — forces a CF AI Gateway ingest + anomaly pass now
     // instead of waiting for the */5 cron. Bearer token must equal COMPTROLLER_HMAC_KEY
     // (constant-time compare). Same data path as the scheduled "*/5 * * * *" cron.
+    // R4 verification: drive updateSelfHealth with REAL (operator-supplied) source outcomes so the
+    // KV health writes + self-health anomaly insert + poll_streak reset run live, no mocks. Bearer.
+    // Body: { ingest?: [{gw,ok,error?}], refresh?: {ok,error?}, force_stale?: bool }
+    //   force_stale backdates matview_last_fresh_at >1h so the real >1h staleness alert fires.
+    if (url.pathname === "/_admin/inject_health" && req.method === "POST") {
+      if (!(await requireAdminBearer(req, env))) return new Response("forbidden", { status: 403 });
+      const body = (await req.json().catch(() => ({}))) as {
+        ingest?: IngestResult[];
+        refresh?: { ok: boolean; error?: string };
+        force_stale?: boolean;
+      };
+      if (body.force_stale) {
+        await env.KV_STATE.put(
+          MATVIEW_LAST_FRESH_AT_KEY,
+          new Date(Date.now() - MATVIEW_STALE_ALERT_MS - 60_000).toISOString(),
+        );
+      }
+      const ingest = body.ingest ?? ACTIVE_GATEWAYS.map((gw) => ({ gw, ok: true }));
+      const refresh = body.refresh ?? { ok: true };
+      await updateSelfHealth(env, ingest, refresh);
+      return Response.json({ status: "ok", triggered: "updateSelfHealth", self_health: await buildSelfHealth(env), ts: now });
+    }
+
     if (url.pathname === "/_admin/poll" && req.method === "POST") {
       if (!(await requireAdminBearer(req, env))) {
         return new Response("forbidden", { status: 403 });
@@ -358,13 +404,33 @@ async function ensureColdStartState(env: Env): Promise<void> {
 // ===================================================================================
 
 async function pollMetrics(env: Env): Promise<void> {
-  const results = await Promise.allSettled([
+  // R4: collect REAL per-source outcomes (the inner try/catch in each source swallows errors,
+  // so Promise.allSettled would falsely report "fulfilled"; we therefore have each source RETURN
+  // its per-unit ok/fail and thread that up so poll_streak + per-gateway counters are accurate).
+  let ingestResults: Array<{ gw: string; ok: boolean; error?: string }> = [];
+  let refreshOk = true;
+  let refreshErr: string | undefined;
+  const [ingestSettled, refreshSettled] = await Promise.allSettled([
     pullCFAIGatewayAnalytics(env),
     refreshCostLedgerView(env),
   ]);
-  for (const r of results) {
-    if (r.status === "rejected") console.error("[poll] source failed:", r.reason);
+  if (ingestSettled.status === "fulfilled") {
+    ingestResults = ingestSettled.value;
+  } else {
+    console.error("[poll] ingest source threw:", ingestSettled.reason);
+    // Whole ingest pass threw → treat every active gateway as failed this poll.
+    ingestResults = ACTIVE_GATEWAYS.map((gw) => ({ gw, ok: false, error: String(ingestSettled.reason) }));
   }
+  if (refreshSettled.status === "fulfilled") {
+    refreshOk = refreshSettled.value.ok;
+    refreshErr = refreshSettled.value.error;
+  } else {
+    refreshOk = false;
+    refreshErr = String(refreshSettled.reason);
+  }
+
+  // R4 self-monitoring: update KV health fields + emit self-health anomalies on failure.
+  await updateSelfHealth(env, ingestResults, { ok: refreshOk, error: refreshErr });
 
   const anomalies = await detectAnomalies(env);
 
@@ -385,6 +451,235 @@ async function pollMetrics(env: Env): Promise<void> {
 
   await checkHardCaps(env);
   await runFeedbackLoop(env);
+}
+
+// ===================================================================================
+// R4 — self-monitoring: the comptroller surfaces ITS OWN failures so it never runs blind.
+//
+// Each */5 poll calls updateSelfHealth() with the REAL per-source outcomes. It:
+//   - writes last_poll_ok_at (success) or last_poll_error (failure) to KV
+//   - maintains per-gateway consecutive-failure counters (reset on success)
+//   - tracks matview real-time freshness (matview_last_fresh_at) — the >1h staleness alert is
+//     derived from this wall-clock timestamp, NOT from day-granular day_ct arithmetic
+//   - maintains poll_streak (contiguous fully-good polls) for partition-recovery
+//   - on stale matview >1h, K consecutive source failures, or a refresh error → writes a
+//     self-health row to chittyops.anomalies (service='comptroller') AND pages Quo (guarded)
+//
+// Self-health anomalies are de-duped once/day-per-failure-type (like checkHardCaps) so a
+// persistent failure does not write ~288 append-only rows/day.
+// ===================================================================================
+
+/** Compute the live matview self-health snapshot (max day + real-time staleness). */
+async function matviewHealth(
+  env: Env,
+): Promise<{ matview_max_day: string | null; matview_stale: boolean; matview_last_fresh_at: string | null; matview_stale_ms: number | null }> {
+  const db = getDb(env);
+  let maxDay: string | null = null;
+  let staleDayGranular = true;
+  try {
+    const rows = (await db`
+      SELECT max(day_ct) AS max_day,
+             (now() AT TIME ZONE 'America/Chicago')::date AS chicago_today
+      FROM chittyops.cost_ledger_daily
+    `) as Array<{ max_day: string | null; chicago_today: string }>;
+    const r = rows[0];
+    maxDay = r?.max_day ?? null;
+    if (maxDay && r?.chicago_today) {
+      // coarse day-granular bool: max_day < (chicago_today - 1 day)
+      const maxMs = Date.parse(maxDay);
+      const yesterdayMs = Date.parse(r.chicago_today) - 24 * 3600 * 1000;
+      staleDayGranular = maxMs < yesterdayMs;
+    }
+  } catch (e) {
+    console.error("[matviewHealth] query failed:", String(e));
+  }
+  const lastFresh = await env.KV_STATE.get(MATVIEW_LAST_FRESH_AT_KEY);
+  const staleMs = lastFresh ? Date.now() - Date.parse(lastFresh) : null;
+  return {
+    matview_max_day: maxDay,
+    matview_stale: staleDayGranular,
+    matview_last_fresh_at: lastFresh,
+    matview_stale_ms: staleMs,
+  };
+}
+
+/**
+ * Update KV self-health fields each poll + self-alert on failure. Called from pollMetrics with
+ * the real per-source results. NEVER throws — self-monitoring must not break the poll.
+ */
+async function updateSelfHealth(
+  env: Env,
+  ingest: IngestResult[],
+  refresh: { ok: boolean; error?: string },
+): Promise<void> {
+  try {
+    const nowIso = new Date().toISOString();
+
+    // --- per-gateway consecutive failure counters ---
+    const failedGateways: string[] = [];
+    for (const r of ingest) {
+      const key = `${SRC_FAIL_PREFIX}${r.gw}`;
+      if (r.ok) {
+        await env.KV_STATE.delete(key);
+      } else {
+        const prev = Number((await env.KV_STATE.get(key)) ?? "0") || 0;
+        const next = prev + 1;
+        await env.KV_STATE.put(key, String(next));
+        if (next >= SOURCE_FAIL_ALERT_K) failedGateways.push(`${r.gw}(${next})`);
+      }
+    }
+    const anySourceFailed = ingest.some((r) => !r.ok) || !refresh.ok;
+
+    // --- matview real-time freshness ---
+    const mv = await matviewHealth(env);
+    // If the matview now reflects Chicago-today, record wall-clock freshness.
+    if (mv.matview_max_day) {
+      const chicagoTodayMs = Date.parse(
+        ((await getDb(env)`SELECT (now() AT TIME ZONE 'America/Chicago')::date AS d`) as Array<{ d: string }>)[0].d,
+      );
+      if (Date.parse(mv.matview_max_day) >= chicagoTodayMs) {
+        await env.KV_STATE.put(MATVIEW_LAST_FRESH_AT_KEY, nowIso);
+      }
+    }
+    // Recompute staleness window after the possible write.
+    const lastFresh = await env.KV_STATE.get(MATVIEW_LAST_FRESH_AT_KEY);
+    const matviewStaleMs = lastFresh ? Date.now() - Date.parse(lastFresh) : null;
+    const matviewStaleAlert = matviewStaleMs !== null && matviewStaleMs > MATVIEW_STALE_ALERT_MS;
+
+    // --- poll_streak (contiguous fully-good polls) for partition-recovery ---
+    if (anySourceFailed) {
+      await env.KV_STATE.put(POLL_STREAK_KEY, "0");
+    } else {
+      const prev = Number((await env.KV_STATE.get(POLL_STREAK_KEY)) ?? "0") || 0;
+      await env.KV_STATE.put(POLL_STREAK_KEY, String(prev + 1));
+    }
+
+    // --- last_poll_ok_at / last_poll_error ---
+    if (anySourceFailed) {
+      const detail = {
+        ts: nowIso,
+        failed_gateways: ingest.filter((r) => !r.ok).map((r) => r.gw),
+        refresh_ok: refresh.ok,
+        refresh_error: refresh.error?.slice(0, 300),
+      };
+      await env.KV_STATE.put(LAST_POLL_ERROR_KEY, JSON.stringify(detail));
+    } else {
+      await env.KV_STATE.put(LAST_POLL_OK_AT_KEY, nowIso);
+      await env.KV_STATE.delete(LAST_POLL_ERROR_KEY);
+    }
+
+    // --- self-health anomalies (de-duped once/day per failure type) ---
+    const selfAnomalies: Anomaly[] = [];
+    if (matviewStaleAlert) {
+      selfAnomalies.push(
+        selfHealthAnomaly(
+          "critical",
+          `matview frozen: cost_ledger_daily not fresh for ${Math.round((matviewStaleMs ?? 0) / 60000)}m ` +
+            `(last fresh ${lastFresh}); refresh_cost_ledger_daily may be erroring`,
+        ),
+      );
+    }
+    if (!refresh.ok) {
+      selfAnomalies.push(
+        selfHealthAnomaly("high", `matview refresh error: ${(refresh.error ?? "unknown").slice(0, 200)}`),
+      );
+    }
+    if (failedGateways.length > 0) {
+      selfAnomalies.push(
+        selfHealthAnomaly(
+          "high",
+          `gateway ingest failing ${SOURCE_FAIL_ALERT_K}+ consecutive polls: ${failedGateways.join(", ")}`,
+        ),
+      );
+    }
+
+    const day = nowIso.slice(0, 10);
+    const toStore: Anomaly[] = [];
+    for (const a of selfAnomalies) {
+      // dedup key by msg-prefix kind + severity + day
+      const kind = a.msg.split(":")[0];
+      const dedupKey = `selfhealth_alerted:${kind}:${a.severity}:${day}`;
+      if (await env.KV_STATE.get(dedupKey)) continue;
+      await env.KV_STATE.put(dedupKey, "1", { expirationTtl: 36 * 3600 });
+      toStore.push(a);
+    }
+    if (toStore.length > 0) {
+      await storeAnomalies(env, toStore);
+      for (const a of toStore) await sendQuoAlert(env, a, "comptroller self-health");
+    }
+  } catch (e) {
+    // Last-resort: self-monitoring failure is itself logged to chittytrack, never crashes the poll.
+    console.error("[updateSelfHealth] failed:", String(e));
+  }
+}
+
+function selfHealthAnomaly(severity: "high" | "critical", msg: string): Anomaly {
+  return {
+    id: crypto.randomUUID(),
+    service: "comptroller",
+    tier: "self",
+    severity,
+    actual: 0,
+    expected_max: 0,
+    ewma: 0,
+    msg,
+    detected_at: new Date().toISOString(),
+    suggests_l3: false,
+  };
+}
+
+/**
+ * Build the live self-health block for GET /api/v1/status. Every field is computed at request
+ * time (matview from a direct query; poll/refresh/hwm from KV written by the last poll).
+ */
+async function buildSelfHealth(env: Env): Promise<Record<string, unknown>> {
+  const mv = await matviewHealth(env);
+  const matviewStaleAlert =
+    mv.matview_stale_ms !== null && mv.matview_stale_ms > MATVIEW_STALE_ALERT_MS;
+
+  const lastPollOkAt = await env.KV_STATE.get(LAST_POLL_OK_AT_KEY);
+  const lastPollErrorRaw = await env.KV_STATE.get(LAST_POLL_ERROR_KEY);
+  const lastRefreshErrorRaw = await env.KV_STATE.get(LAST_REFRESH_ERROR_KEY);
+  const pollStreak = Number((await env.KV_STATE.get(POLL_STREAK_KEY)) ?? "0") || 0;
+
+  // Per-gateway HWM age (minutes) + consecutive failure counts.
+  const gateways: Record<string, { hwm: string | null; hwm_age_min: number | null; consecutive_failures: number }> = {};
+  for (const gw of ACTIVE_GATEWAYS) {
+    const hwm = await env.KV_STATE.get(`hwm:${gw}`);
+    const ageMin = hwm ? Math.round((Date.now() - Date.parse(hwm)) / 60000) : null;
+    const fails = Number((await env.KV_STATE.get(`${SRC_FAIL_PREFIX}${gw}`)) ?? "0") || 0;
+    gateways[gw] = { hwm, hwm_age_min: ageMin, consecutive_failures: fails };
+  }
+
+  const parse = (raw: string | null) => {
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return raw;
+    }
+  };
+
+  return {
+    matview_max_day: mv.matview_max_day,
+    matview_stale: mv.matview_stale, // coarse day-granular bool
+    matview_last_fresh_at: mv.matview_last_fresh_at,
+    matview_stale_minutes: mv.matview_stale_ms === null ? null : Math.round(mv.matview_stale_ms / 60000),
+    matview_stale_alert: matviewStaleAlert, // real-time >1h freeze alert
+    last_poll_ok_at: lastPollOkAt,
+    last_poll_error: parse(lastPollErrorRaw),
+    last_refresh_error: parse(lastRefreshErrorRaw),
+    poll_streak: pollStreak,
+    partition_ready: pollStreak >= PARTITION_RECOVERY_GOOD_POLLS,
+    partition_recovery_threshold: PARTITION_RECOVERY_GOOD_POLLS,
+    gateways,
+  };
+}
+
+/** partition-recovery: true once poll_streak has reached the contiguous-good threshold. */
+async function isPartitionReady(env: Env): Promise<boolean> {
+  const streak = Number((await env.KV_STATE.get(POLL_STREAK_KEY)) ?? "0") || 0;
+  return streak >= PARTITION_RECOVERY_GOOD_POLLS;
 }
 
 // ===================================================================================
@@ -440,10 +735,18 @@ function tierFromModel(model: string | undefined): string {
   return "manual";
 }
 
-async function pullCFAIGatewayAnalytics(env: Env): Promise<void> {
+interface IngestResult {
+  gw: string;
+  ok: boolean;
+  error?: string;
+}
+
+async function pullCFAIGatewayAnalytics(env: Env): Promise<IngestResult[]> {
   if (!env.CF_ACCOUNT_API_TOKEN) {
     console.warn("[ingest] CF_ACCOUNT_API_TOKEN not configured — skipping AI Gateway ingest");
-    return;
+    // Not-configured is NOT a source failure (it's a deploy-time choice) — report ok so
+    // poll_streak is not held down forever in environments without the token.
+    return ACTIVE_GATEWAYS.map((gw) => ({ gw, ok: true }));
   }
   const writeDb = getWriteDb(env);
   if (!writeDb) {
@@ -451,19 +754,23 @@ async function pullCFAIGatewayAnalytics(env: Env): Promise<void> {
       "[ingest] Phase-A: writer connection (NEON_COMPTROLLER_WRITER) not configured — " +
         "skipping cost_ledger ingest. Provision an RW Hyperdrive binding to enable writes.",
     );
-    return;
+    return ACTIVE_GATEWAYS.map((gw) => ({ gw, ok: true }));
   }
 
   const accountId = env.CF_ACCOUNT_ID ?? CF_ACCOUNT_ID;
+  const results: IngestResult[] = [];
 
   for (const gw of ACTIVE_GATEWAYS) {
     try {
       await ingestGateway(env, writeDb, accountId, gw);
+      results.push({ gw, ok: true });
     } catch (e) {
       console.error(`[ingest] gateway ${gw} failed:`, e);
-      // tolerate per-gateway failure and continue
+      // tolerate per-gateway failure and continue — but REPORT it (R4: no silent blindness).
+      results.push({ gw, ok: false, error: String(e) });
     }
   }
+  return results;
 }
 
 async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: string): Promise<void> {
@@ -740,7 +1047,7 @@ function buildL2Signal(anomaly: Anomaly, expiryMs: number): Record<string, unkno
 async function emitL2Signal(env: Env, anomaly: Anomaly, dryRun = false): Promise<DeliveryResult> {
   const svc = await fetchServiceFromRegistry(env, anomaly.service);
   const endpointDisabled = !!svc?.__disabled;
-  const gated = (await isSafeStateActive(env)) || (await isBaselineLearningActive(env));
+  const gated = (await isSafeStateActive(env)) || (await isBaselineLearningActive(env)) || !(await isPartitionReady(env));
 
   // Exemption: an exempt service is alerted, not auto-throttled. Record the skip.
   if (!endpointDisabled && (await isServiceExempt(env, anomaly.service))) {
@@ -771,7 +1078,7 @@ async function emitL2Signal(env: Env, anomaly: Anomaly, dryRun = false): Promise
 async function emitL3Signal(env: Env, anomaly: Anomaly, dryRun = false): Promise<DeliveryResult> {
   const svc = await fetchServiceFromRegistry(env, anomaly.service);
   const endpointDisabled = !!svc?.__disabled;
-  const gated = (await isSafeStateActive(env)) || (await isBaselineLearningActive(env));
+  const gated = (await isSafeStateActive(env)) || (await isBaselineLearningActive(env)) || !(await isPartitionReady(env));
 
   let confirmToken: string | null = null;
   if (!endpointDisabled && (await isServiceExempt(env, anomaly.service))) {
@@ -952,13 +1259,25 @@ async function handleBaselineLearningEnd(req: Request, env: Env): Promise<Respon
 // Matview refresh — needs privileges; fail-soft if reader can't refresh
 // ===================================================================================
 
-async function refreshCostLedgerView(env: Env): Promise<void> {
+async function refreshCostLedgerView(env: Env): Promise<{ ok: boolean; error?: string }> {
   // Prefer the writer connection (has the privilege); fall back to reader (EXECUTE granted).
   const db = getWriteDb(env) ?? getDb(env);
   try {
     await db`SELECT chittyops.refresh_cost_ledger_daily()`;
+    // Clear any prior captured refresh error on success.
+    await env.KV_STATE.delete(LAST_REFRESH_ERROR_KEY);
+    return { ok: true };
   } catch (e) {
-    console.warn("[refreshCostLedgerView] refresh skipped (insufficient privilege?):", String(e));
+    const error = String(e);
+    // R4: CAPTURE the error that was previously only console.warn'd and swallowed. This is the
+    // exact failure that froze the matview 4 days undetected — it must now be visible in /status
+    // and drive a self-health anomaly.
+    console.warn("[refreshCostLedgerView] refresh FAILED — capturing to KV:", error);
+    await env.KV_STATE.put(
+      LAST_REFRESH_ERROR_KEY,
+      JSON.stringify({ error: error.slice(0, 500), ts: new Date().toISOString() }),
+    );
+    return { ok: false, error };
   }
 }
 
