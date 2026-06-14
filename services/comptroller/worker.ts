@@ -1307,9 +1307,14 @@ async function runInsightsModel(
     ],
     max_tokens: 1024,
     temperature: 0.2,
-  }, { gateway: { id: "chittyclaw" } })) as { response?: string };
+  }, { gateway: { id: "chittyclaw" } })) as { response?: unknown };
 
-  const raw = typeof out?.response === "string" ? out.response : JSON.stringify(out);
+  // Structured-output models (e.g. llama-3.3-70b) return `.response` as an
+  // already-parsed object, not a string. Stringify the response itself — never
+  // the binding wrapper ({response,tool_calls,usage}) — so parseNarrative sees
+  // the narrative keys instead of an envelope with none.
+  const resp = out?.response;
+  const raw = typeof resp === "string" ? resp : JSON.stringify(resp ?? out);
   const narrative = parseNarrative(raw);
   return { narrative, raw };
 }
