@@ -30,7 +30,7 @@ interface HyperdriveLike {
 
 // Workers-AI binding (T0). Typed locally to avoid pulling full @cloudflare/workers-types Ai.
 interface AiLike {
-  run(model: string, inputs: Record<string, unknown>): Promise<unknown>;
+  run(model: string, inputs: Record<string, unknown>, options?: Record<string, unknown>): Promise<unknown>;
 }
 
 interface Env {
@@ -1027,7 +1027,7 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
 // never biases the total up or down.
 // ===================================================================================
 
-const INSIGHTS_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+const INSIGHTS_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const INSIGHTS_TTL_SECONDS = 6 * 3600;
 
 /** Chicago calendar date (YYYY-MM-DD) — matches the day boundaries used everywhere else. */
@@ -1307,9 +1307,14 @@ async function runInsightsModel(
     ],
     max_tokens: 1024,
     temperature: 0.2,
-  })) as { response?: string };
+  }, { gateway: { id: "chittyclaw" } })) as { response?: unknown };
 
-  const raw = typeof out?.response === "string" ? out.response : JSON.stringify(out);
+  // Structured-output models (e.g. llama-3.3-70b) return `.response` as an
+  // already-parsed object, not a string. Stringify the response itself — never
+  // the binding wrapper ({response,tool_calls,usage}) — so parseNarrative sees
+  // the narrative keys instead of an envelope with none.
+  const resp = out?.response;
+  const raw = typeof resp === "string" ? resp : JSON.stringify(resp ?? out);
   const narrative = parseNarrative(raw);
   return { narrative, raw };
 }

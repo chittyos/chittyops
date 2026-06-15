@@ -5,9 +5,17 @@ type: architecture
 version: 1.0.0
 status: DRAFT
 chitty_id: 03-1-USA-9636-T-2605-1-75
+agent_role: controller
 ---
 
 # ChittyComptroller — Architecture
+
+> **Shaper: `controller` (reference implementation).** ChittyComptroller is the
+> canonical reference for the `controller` agent role — a scheduled, deterministic
+> poll→ingest→detect→decide→act-gated→verify→audit control loop with delegated
+> L1/L2/L3 authority under safety gates. Contract:
+> `chittycanon://gov/governance#agent-roles` (see `chittyentity/docs/canon/agent-roles.md`,
+> the `controller` shaper contract).
 
 | | |
 |---|---|
