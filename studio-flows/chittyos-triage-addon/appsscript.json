@@ -12,7 +12,13 @@
     "common": {
       "name": "ChittyOS Triage Engine",
       "logoUrl": "https://chitty.cc/favicon.ico",
-      "useLocaleFromApp": true
+      "useLocaleFromApp": true,
+      "urlFetchWhitelist": [
+        "https://generativelanguage.googleapis.com/",
+        "https://router.chitty.cc/",
+        "https://tasks.agent.chitty.cc/",
+        "https://dispute.chitty.cc/"
+      ]
     },
     "flows": {
       "workflowElements": [
