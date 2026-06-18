@@ -127,13 +127,14 @@ function setupChittyOS() {
 
 /**
  * Append ChittyOS columns to an existing tab.
+ * Creates the tab if it doesn't exist yet.
  * Returns number of columns added, or 0 if already present.
  */
 function augmentTab_(ss, tabName, newColumns) {
   var sheet = ss.getSheetByName(tabName);
   if (!sheet) {
-    Logger.log('Tab not found: ' + tabName);
-    return 0;
+    Logger.log('Tab not found, creating: ' + tabName);
+    sheet = ss.insertSheet(tabName);
   }
 
   // Find existing headers in row 1
