@@ -350,8 +350,12 @@ function syncDisputesToMatters() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(TABS.MATTERS);
   if (!sheet) {
-    SpreadsheetApp.getActiveSpreadsheet().toast('Tab not found: ' + TABS.MATTERS, 'Error', 5);
-    return;
+    sheet = ss.insertSheet(TABS.MATTERS);
+    // Add headers for the new tab
+    sheet.appendRow(['ID', 'Title', 'Type', 'Status', 'Severity', 'Case ID',
+      'Property Address', 'Next Deadline', 'Amount', 'Created At', 'Sync Note']);
+    sheet.getRange(1, 1, 1, 11)
+      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#e94560');
   }
 
   try {
@@ -409,7 +413,12 @@ function syncDisputesToMatters() {
 function syncEntitiesToMaster() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(TABS.ENTITIES);
-  if (!sheet) return;
+  if (!sheet) {
+    sheet = ss.insertSheet(TABS.ENTITIES);
+    sheet.appendRow(['Name', 'Type', 'Role', 'Source', 'Synced At']);
+    sheet.getRange(1, 1, 1, 5)
+      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#e94560');
+  }
 
   // Mercury entities from chittyagent-finance
   var entities = [
