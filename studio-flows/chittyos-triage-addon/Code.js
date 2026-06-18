@@ -646,6 +646,7 @@ function onConfigSheetLog(event) {
       .setTitle('ChittyOS: Log to Sheet')
       .setSubtitle('Route to Urgent Incoming or Lead Incoming'))
     .addSection(CardService.newCardSection()
+      .setId('sheet_log_info')
       .setHeader('Routing Logic')
       .addWidget(CardService.newTextParagraph()
         .setText(
@@ -657,6 +658,42 @@ function onConfigSheetLog(event) {
           'to the right of existing columns.\n\n' +
           'Run <b>🔷 ChittyOS → Setup ChittyOS Columns</b> first to add CO: headers.'
         )))
+    .addSection(CardService.newCardSection()
+      .setId('sheet_log_inputs')
+      .setHeader('Input Variables')
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailBody')
+        .setTitle('Email Body'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailSubject')
+        .setTitle('Email Subject'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailFrom')
+        .setTitle('Sender Email'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('category')
+        .setTitle('Classification Category'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('urgency')
+        .setTitle('Urgency Level'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('confidence')
+        .setTitle('Confidence %'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('sensitivity')
+        .setTitle('Sensitivity'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('payee')
+        .setTitle('Payee'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('amount')
+        .setTitle('Amount'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('dueDate')
+        .setTitle('Due Date'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('summary')
+        .setTitle('Summary')))
     .build();
   return card;
 }
@@ -710,10 +747,21 @@ function onExecuteSheetLog(event) {
       /critical|high/i.test(urgency) ||
       sensitivity === 'legalink';
 
+    var wrote;
     if (isUrgent) {
-      writeToUrgentIncoming(emailData, classification);
+      wrote = writeToUrgentIncoming(emailData, classification);
     } else {
-      writeToLeadIncoming(emailData, classification);
+      wrote = writeToLeadIncoming(emailData, classification);
+    }
+
+    // Surface missing sheet setup as a failure
+    if (!wrote) {
+      logActivity_('sheet-log', 'error', 'Sheet tab or CO: columns not found. Run Setup ChittyOS Columns first.');
+      return workflowError_(
+        'Sheet tab or CO: columns not found. Run 🔷 ChittyOS → Setup ChittyOS Columns from the spreadsheet menu.',
+        true,   // ACTIONABLE
+        false   // NOT_RETRYABLE
+      );
     }
 
     var targetTab = isUrgent ? 'Urgent Incoming' : 'Lead Incoming';
@@ -728,6 +776,11 @@ function onExecuteSheetLog(event) {
   } catch (err) {
     Logger.log('Sheet error: ' + err);
     logActivity_('sheet-log', 'error', 'Sheet write failed: ' + err);
-    return workflowOutput_({ action: 'error', rowNumber: '0' });
+    return workflowError_(
+      'Sheet write failed: ' + err,
+      false,  // NOT_ACTIONABLE
+      true    // RETRYABLE
+    );
   }
 }
+

@@ -117,7 +117,7 @@ Each element defines:
 | Execute | `onExecuteSheetLog` |
 | Action | Appends row to Triage Google Sheet (columns A–L) |
 
-**Inputs**: `emailBody`, `emailSubject`, `emailFrom`, `category`, `urgency`, `confidence`, `sensitivity`
+**Inputs**: `emailBody`, `emailSubject`, `emailFrom`, `category`, `urgency`, `confidence`, `sensitivity`, `payee`, `amount`, `dueDate`, `summary`
 **Outputs**: `action`, `rowNumber`
 
 ## Example Flows
