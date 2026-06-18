@@ -4,11 +4,9 @@
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
   "oauthScopes": [
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.labels",
-    "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/script.external_request"
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.scriptapp"
   ],
   "addOns": {
     "common": {
@@ -109,7 +107,11 @@
               {"id": "category", "description": "Classification category", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
               {"id": "urgency", "description": "Urgency level", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
               {"id": "confidence", "description": "Confidence percentage", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "sensitivity", "description": "Sensitivity (business/legalink)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+              {"id": "sensitivity", "description": "Sensitivity (business/legalink)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "payee", "description": "Company or person owed money", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "amount", "description": "Dollar amount due", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "dueDate", "description": "Payment due date (YYYY-MM-DD)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "summary", "description": "One-sentence summary", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
             ],
             "outputs": [
               {"id": "action", "description": "Action taken (logged_to_sheet)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},

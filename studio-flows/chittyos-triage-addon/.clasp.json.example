@@ -1,0 +1,5 @@
+{
+  "scriptId": "YOUR_SCRIPT_ID",
+  "rootDir": ".",
+  "parentId": "YOUR_SPREADSHEET_ID"
+}

@@ -147,10 +147,10 @@ Gmail trigger → Gemini Classify
 ## Deployment
 
 ```bash
-cd scripts/apps-script/chittyos-studio
+cd studio-flows/chittyos-triage-addon
 
-# Create standalone Apps Script project
-clasp create --title "ChittyOS Triage Engine" --type standalone
+# This project is container-bound to spreadsheet 1eGah6rT5oKbQmKkI5FvpkudhlpZOKgwB3FrOJQhRIvI
+# Clone the .clasp.json from .clasp.json.example and set your scriptId
 
 # Push code + manifest
 clasp push

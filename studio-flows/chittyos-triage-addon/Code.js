@@ -50,6 +50,10 @@ var CLASSIFICATION_PROMPT = [
 var LEGAL_CASE_PATTERN = /2024D007847|#?\s?287\b|#?\s?239\b|arias\s+v\.?\s+bianchi/i;
 var LEGAL_KEYWORD_PATTERN = /\b(lawsuit|subpoena|court|hearing|motion|deposition|notice of motion|debt[-\s]?collection|collection agency)\b/i;
 
+// Privileged domains whose email bodies must NOT be sent to external AI.
+// F-L10 metadata-only: classify using subject + sender only.
+var PRIVILEGED_DOMAINS = /vanguardadvocates\.com|bertonring\.com|ksnlaw\.com/i;
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function prop_(key) {
@@ -91,29 +95,36 @@ function getInput_(event, id) {
 /**
  * Build the standard workflow output response.
  *
- * Per the custom-resources docs, the canonical return is via
- * AddOnsResponseService if available. Falls back to raw JSON
- * envelope for compatibility.
+ * Per the output-variables docs, the canonical pattern is:
+ *   ReturnOutputVariablesAction → addVariableData(VariableData) per output
+ *   → wrap in HostAppAction → return via RenderActionBuilder
+ *
+ * Falls back to raw JSON envelope for preview builds that don't
+ * yet expose the full CardService/AddOnsResponseService chain.
  *
  * @param {Object} outputs Key-value pairs to return
  */
 function workflowOutput_(outputs) {
-  // Try the official AddOnsResponseService API
-  if (typeof AddOnsResponseService !== 'undefined' &&
-      AddOnsResponseService.newReturnOutputVariablesAction) {
-    try {
-      var action = AddOnsResponseService.newReturnOutputVariablesAction();
-      for (var key in outputs) {
-        var val = outputs[key] != null ? String(outputs[key]) : '';
-        action.addOutputVariable(key, val);
-      }
-      return action.build();
-    } catch (e) {
-      Logger.log('AddOnsResponseService fallback: ' + e);
+  // Path 1: Official RenderAction wrapping
+  try {
+    var action = AddOnsResponseService.newReturnOutputVariablesAction();
+    for (var key in outputs) {
+      var val = outputs[key] != null ? String(outputs[key]) : '';
+      var varData = AddOnsResponseService.newVariableData()
+        .setId(key)
+        .setStringValues([val]);
+      action.addVariableData(varData);
     }
+    var hostAction = CardService.newHostAppAction()
+      .setReturnOutputVariablesAction(action);
+    return CardService.newRenderActionBuilder()
+      .setHostAppAction(hostAction)
+      .build();
+  } catch (e) {
+    Logger.log('RenderAction output fallback: ' + e);
   }
 
-  // Fallback: raw JSON envelope (works in preview builds)
+  // Path 2: raw JSON envelope (preview builds)
   var formatted = {};
   for (var key in outputs) {
     formatted[key] = { value: String(outputs[key] != null ? outputs[key] : '') };
@@ -124,41 +135,43 @@ function workflowOutput_(outputs) {
 /**
  * Return a structured error response for the Studio Activity tab.
  *
- * Per handle-errors docs:
- *   - ACTIONABLE: Adds "Fix it" button → config card
- *   - RETRYABLE: Studio will retry up to 5 times
+ * Per handle-errors docs, the pattern is:
+ *   ReturnElementErrorAction → setErrorLog() → HostAppAction → RenderActionBuilder
+ *   - ACTIONABLE: Adds "Fix it" button → re-opens config card
+ *   - RETRYABLE: Studio will auto-retry up to 5 times
  *
  * @param {string} message  Error message for Activity tab
  * @param {boolean} actionable  Whether user can fix via config card
  * @param {boolean} retryable   Whether Studio should auto-retry
  */
 function workflowError_(message, actionable, retryable) {
-  // Try the official AddOnsResponseService API
-  if (typeof AddOnsResponseService !== 'undefined' &&
-      AddOnsResponseService.newReturnElementErrorAction) {
-    try {
-      var errAction = AddOnsResponseService.newReturnElementErrorAction()
-        .setText(message);
+  // Path 1: Official RenderAction wrapping
+  try {
+    var errAction = AddOnsResponseService.newReturnElementErrorAction()
+      .setErrorLog(message);
 
-      if (actionable) {
-        errAction.setErrorActionability(AddOnsResponseService.ErrorActionability.ACTIONABLE);
-      } else {
-        errAction.setErrorActionability(AddOnsResponseService.ErrorActionability.NOT_ACTIONABLE);
-      }
-
-      if (retryable) {
-        errAction.setErrorRetryability(AddOnsResponseService.ErrorRetryability.RETRYABLE);
-      } else {
-        errAction.setErrorRetryability(AddOnsResponseService.ErrorRetryability.NOT_RETRYABLE);
-      }
-
-      return errAction.build();
-    } catch (e) {
-      Logger.log('AddOnsResponseService error fallback: ' + e);
+    if (actionable) {
+      errAction.setErrorActionability(AddOnsResponseService.ErrorActionability.ACTIONABLE);
+    } else {
+      errAction.setErrorActionability(AddOnsResponseService.ErrorActionability.NOT_ACTIONABLE);
     }
+
+    if (retryable) {
+      errAction.setErrorRetryability(AddOnsResponseService.ErrorRetryability.RETRYABLE);
+    } else {
+      errAction.setErrorRetryability(AddOnsResponseService.ErrorRetryability.NOT_RETRYABLE);
+    }
+
+    var hostAction = CardService.newHostAppAction()
+      .setReturnElementErrorAction(errAction);
+    return CardService.newRenderActionBuilder()
+      .setHostAppAction(hostAction)
+      .build();
+  } catch (e) {
+    Logger.log('RenderAction error fallback: ' + e);
   }
 
-  // Fallback: throw to let Studio handle it generically
+  // Path 2: throw to let Studio handle it generically
   throw new Error(message);
 }
 
@@ -217,6 +230,21 @@ function onConfigGeminiClassify(event) {
           '<b>Requires:</b> GEMINI_API_KEY in Script Properties ' +
           '(from aistudio.google.com/apikey).'
         )))
+    .addSection(CardService.newCardSection()
+      .setId('gemini_classify_inputs')
+      .setHeader('Input Variables')
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailBody')
+        .setTitle('Email Body')
+        .setHint('Map to Gmail body variable'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailSubject')
+        .setTitle('Email Subject')
+        .setHint('Map to Gmail subject variable'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailFrom')
+        .setTitle('Sender Email')
+        .setHint('Map to Gmail from variable')))
     .build();
   return card;
 }
@@ -291,7 +319,12 @@ function onExecuteGeminiClassify(event) {
 }
 
 function callGemini_(subject, body, sender, apiKey) {
-  var emailText = 'From: ' + sender + '\nSubject: ' + subject + '\n\n' + body.substring(0, 3000);
+  // P1 #3: Privileged domain redaction — metadata only (F-L10)
+  var senderDomain = (sender || '').split('@')[1] || '';
+  var isPrivileged = PRIVILEGED_DOMAINS.test(senderDomain);
+  var emailBody = isPrivileged ? '[REDACTED — privileged domain]' : body.substring(0, 3000);
+
+  var emailText = 'From: ' + sender + '\nSubject: ' + subject + '\n\n' + emailBody;
   var url = GEMINI_API_BASE + GEMINI_MODEL + ':generateContent?key=' + apiKey;
 
   try {
@@ -354,6 +387,7 @@ function onConfigRouterPush(event) {
       .setTitle('ChittyOS: Router Push')
       .setSubtitle('Push to ChittyRouter for AI-powered routing'))
     .addSection(CardService.newCardSection()
+      .setId('router_push_info')
       .setHeader('How It Works')
       .addWidget(CardService.newTextParagraph()
         .setText(
@@ -364,6 +398,24 @@ function onConfigRouterPush(event) {
           'emergency_legal) go to ChittyDispute automatically.\n\n' +
           '<b>Requires:</b> CHITTYROUTER_URL and CHITTYROUTER_TOKEN in Script Properties.'
         )))
+    .addSection(CardService.newCardSection()
+      .setId('router_push_inputs')
+      .setHeader('Input Variables')
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailBody')
+        .setTitle('Email Body'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailSubject')
+        .setTitle('Email Subject'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailFrom')
+        .setTitle('Sender Email'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('category')
+        .setTitle('Classification Category'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('isLegal')
+        .setTitle('Legal Flag (true/false)')))
     .build();
   return card;
 }
@@ -400,7 +452,7 @@ function onExecuteRouterPush(event) {
         from: from,
         to: 'nick@nevershitty.com',
         subject: subject,
-        content: body.substring(0, 1500),
+        content: (body || '').substring(0, 1500),
         pre_classification: {
           source: 'gemini-ai-studio',
           model: GEMINI_MODEL,
@@ -461,6 +513,7 @@ function onConfigTriageIngest(event) {
       .setTitle('ChittyOS: Triage Ingest')
       .setSubtitle('Push to chittyagent-tasks for Neon ingestion'))
     .addSection(CardService.newCardSection()
+      .setId('triage_ingest_info')
       .setHeader('Pipeline')
       .addWidget(CardService.newTextParagraph()
         .setText(
@@ -468,6 +521,27 @@ function onConfigTriageIngest(event) {
           '→ cc_obligations → runTriage() → cc_recommendations\n\n' +
           '<b>Requires:</b> TASKS_API_URL and TASKS_API_TOKEN in Script Properties.'
         )))
+    .addSection(CardService.newCardSection()
+      .setId('triage_ingest_inputs')
+      .setHeader('Input Variables')
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailBody')
+        .setTitle('Email Body'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('emailFrom')
+        .setTitle('Sender Email'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('category')
+        .setTitle('Classification Category'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('urgency')
+        .setTitle('Urgency Level'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('sensitivity')
+        .setTitle('Sensitivity (business/legalink)'))
+      .addWidget(CardService.newTextInput()
+        .setFieldName('routerCategory')
+        .setTitle('Router Category')))
     .build();
   return card;
 }
@@ -492,7 +566,9 @@ function onExecuteTriageIngest(event) {
     );
   }
 
-  var isDispute = /legal|lawsuit|court|dispute/i.test(category || routerCategory || '');
+  // P2 #7: Check BOTH category AND routerCategory for dispute patterns
+  var disputePattern = /legal|lawsuit|court|dispute|emergency_legal/i;
+  var isDispute = disputePattern.test(category || '') || disputePattern.test(routerCategory || '');
 
   try {
     var response = UrlFetchApp.fetch(apiUrl, {
@@ -508,7 +584,7 @@ function onExecuteTriageIngest(event) {
           timestamp: new Date().toISOString(),
           contact: from,
           sender: from,
-          text: body.substring(0, 2000),
+          text: (body || '').substring(0, 2000),
           is_from_me: false,
           classification: {
             category: category || routerCategory || 'other',
@@ -523,19 +599,32 @@ function onExecuteTriageIngest(event) {
     });
 
     var code = response.getResponseCode();
-    var action = code >= 200 && code < 300 ? 'ingested' : 'failed';
-    var dest = isDispute ? 'chittyagent-dispute' : 'chittyagent-tasks';
 
-    logActivity_('chittyagent-tasks', action,
-      'POST /api/v1/ingest → ' + code + ', routed=' + dest +
-      ', dispute=' + isDispute + ', category=' + (category || routerCategory));
+    // P2 #8: Non-2xx should return retryable error, not silent success
+    if (code >= 200 && code < 300) {
+      var dest = isDispute ? 'chittyagent-dispute' : 'chittyagent-tasks';
+      logActivity_('chittyagent-tasks', 'ingested',
+        'POST /api/v1/ingest → ' + code + ', routed=' + dest +
+        ', dispute=' + isDispute + ', category=' + (category || routerCategory));
 
-    return workflowOutput_({
-      action: action,
-      routedTo: dest,
-      disputeCreated: String(isDispute),
-      statusCode: String(code),
-    });
+      return workflowOutput_({
+        action: 'ingested',
+        routedTo: dest,
+        disputeCreated: String(isDispute),
+        statusCode: String(code),
+      });
+    }
+
+    // Non-2xx: retryable for 429/5xx, actionable for 4xx
+    var isRetryable = code === 429 || code >= 500;
+    logActivity_('chittyagent-tasks', 'failed',
+      'POST /api/v1/ingest → HTTP ' + code);
+    return workflowError_(
+      'Triage ingest returned HTTP ' + code + '. ' +
+        (isRetryable ? 'The tasks service may be temporarily overloaded.' : 'Check your TASKS_API_URL and TASKS_API_TOKEN.'),
+      !isRetryable,  // ACTIONABLE for 4xx client errors
+      isRetryable    // RETRYABLE for 429/5xx
+    );
   } catch (err) {
     Logger.log('Ingest error: ' + err);
     logActivity_('chittyagent-tasks', 'error', 'Ingest failed: ' + err);
@@ -580,6 +669,10 @@ function onExecuteSheetLog(event) {
   var urgency = getInput_(event, 'urgency');
   var confidence = getInput_(event, 'confidence');
   var sensitivity = getInput_(event, 'sensitivity');
+  var payee = getInput_(event, 'payee');
+  var amount = getInput_(event, 'amount');
+  var dueDate = getInput_(event, 'dueDate');
+  var summary = getInput_(event, 'summary');
 
   // ── Input validation ─────────────────────────────────────────
   if (!from && !body) {
@@ -603,6 +696,10 @@ function onExecuteSheetLog(event) {
     urgency: urgency || 'normal',
     confidence: confidence || '',
     sensitivity: sensitivity || 'business',
+    payee: payee || '',
+    amount: amount || '',
+    dueDate: dueDate || '',
+    summary: summary || '',
     classifierVia: 'workspace-studio',
     channel: 'workspace-studio-gmail',
   };

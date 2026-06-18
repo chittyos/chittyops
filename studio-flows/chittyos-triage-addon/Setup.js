@@ -463,11 +463,11 @@ function logIntegration_(service, operation, statusCode, details) {
 function writeToUrgentIncoming(emailData, classification) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(TABS.URGENT_INCOMING);
-  if (!sheet) return;
+  if (!sheet) return false;
 
   // Find the CO: columns
   var catCol = findColumnByHeader_(sheet, 'CO: Category');
-  if (catCol < 1) return; // ChittyOS not set up yet
+  if (catCol < 1) return false; // ChittyOS not set up yet
 
   // Find existing column count (before CO: columns)
   var coCols = CHITTYOS_COLUMNS.URGENT_INCOMING;
@@ -497,6 +497,7 @@ function writeToUrgentIncoming(emailData, classification) {
 
   var fullRow = baseRow.concat(coValues);
   sheet.appendRow(fullRow);
+  return true;
 }
 
 /**
@@ -505,10 +506,10 @@ function writeToUrgentIncoming(emailData, classification) {
 function writeToLeadIncoming(emailData, classification) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(TABS.LEAD_INCOMING);
-  if (!sheet) return;
+  if (!sheet) return false;
 
   var catCol = findColumnByHeader_(sheet, 'CO: Category');
-  if (catCol < 1) return;
+  if (catCol < 1) return false;
 
   var baseColCount = catCol - 1;
   var baseRow = new Array(baseColCount).fill('');
@@ -527,6 +528,7 @@ function writeToLeadIncoming(emailData, classification) {
   ];
 
   sheet.appendRow(baseRow.concat(coValues));
+  return true;
 }
 
 // ─── Triggers ───────────────────────────────────────────────────────
