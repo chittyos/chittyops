@@ -574,6 +574,7 @@ function onOpen() {
       .addItem('📊 Refresh Dashboard', 'refreshChittyDashboard'))
     .addSeparator()
     .addItem('⏰ Install Triggers', 'installChittyTriggers')
+    .addItem('🔑 Configure API Keys', 'showConfigDialog')
     .addItem('⚙️ Setup Guide', 'showSetup')
     .addToUi();
 }
@@ -582,6 +583,76 @@ function refreshChittyDashboard() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   augmentDashboard_(ss);
   SpreadsheetApp.getActiveSpreadsheet().toast('Dashboard refreshed', '📊', 3);
+}
+
+// ─── API Key Configuration Dialog ───────────────────────────────────
+
+var CONFIG_KEYS = [
+  { key: 'GEMINI_API_KEY', label: 'Gemini API Key', hint: 'From aistudio.google.com/apikey', secret: true },
+  { key: 'CHITTYROUTER_URL', label: 'ChittyRouter URL', hint: 'e.g. https://router.chitty.cc', secret: false },
+  { key: 'CHITTYROUTER_TOKEN', label: 'ChittyRouter Token', hint: 'Bearer token for /process', secret: true },
+  { key: 'TASKS_API_URL', label: 'Tasks API URL', hint: 'e.g. https://tasks.agent.chitty.cc/api/v1/ingest', secret: false },
+  { key: 'TASKS_API_TOKEN', label: 'Tasks API Token', hint: 'Bearer token for chittyagent-tasks', secret: true },
+  { key: 'TRIAGE_SHEET_ID', label: 'Triage Sheet ID', hint: 'Spreadsheet ID (auto-detected if container-bound)', secret: false },
+];
+
+function showConfigDialog() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var rows = '';
+  for (var i = 0; i < CONFIG_KEYS.length; i++) {
+    var c = CONFIG_KEYS[i];
+    var current = props[c.key] || '';
+    var display = c.secret && current ? '••••' + current.slice(-4) : current;
+    rows +=
+      '<div style="margin-bottom:12px;">' +
+      '<label style="display:block;font-weight:500;font-size:13px;margin-bottom:2px;">' + c.label + '</label>' +
+      '<input type="text" id="' + c.key + '" ' +
+      'placeholder="' + c.hint + '" ' +
+      'value="' + display + '" ' +
+      'style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;font-family:Roboto Mono,monospace;" ' +
+      'onfocus="if(this.value.indexOf(\'••••\')===0)this.value=\'\'" />' +
+      '<div style="font-size:11px;color:#888;margin-top:2px;">' + c.hint + '</div>' +
+      '</div>';
+  }
+
+  var html = HtmlService.createHtmlOutput(
+    '<div style="font-family:Roboto,sans-serif;padding:12px;">' +
+    '<h3 style="margin-top:0;color:#e94560;">🔑 ChittyOS API Configuration</h3>' +
+    '<p style="font-size:12px;color:#666;">Set the credentials your Studio steps need. Secrets are stored in Script Properties (not in the spreadsheet).</p>' +
+    rows +
+    '<div style="margin-top:16px;text-align:right;">' +
+    '<button onclick="save()" style="background:#e94560;color:#fff;border:none;padding:8px 20px;border-radius:4px;font-size:13px;cursor:pointer;font-weight:500;">Save</button>' +
+    '<button onclick="google.script.host.close()" style="background:#eee;color:#333;border:none;padding:8px 16px;border-radius:4px;font-size:13px;cursor:pointer;margin-left:8px;">Cancel</button>' +
+    '</div>' +
+    '</div>' +
+    '<script>' +
+    'function save(){' +
+    '  var keys=' + JSON.stringify(CONFIG_KEYS.map(function(c){return c.key;})) + ';' +
+    '  var vals={};' +
+    '  keys.forEach(function(k){' +
+    '    var v=document.getElementById(k).value;' +
+    '    if(v&&v.indexOf("••••")!==0) vals[k]=v;' +
+    '  });' +
+    '  google.script.run.withSuccessHandler(function(){' +
+    '    google.script.host.close();' +
+    '  }).saveConfigProperties(vals);' +
+    '}' +
+    '</script>'
+  ).setWidth(480).setHeight(520);
+  SpreadsheetApp.getUi().showModalDialog(html, 'ChittyOS API Configuration');
+}
+
+function saveConfigProperties(vals) {
+  var props = PropertiesService.getScriptProperties();
+  for (var key in vals) {
+    if (vals[key]) {
+      props.setProperty(key, vals[key]);
+    }
+  }
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    Object.keys(vals).length + ' properties saved',
+    '🔑 Configuration Updated', 5
+  );
 }
 
 function showSetup() {
@@ -608,9 +679,10 @@ function showSetup() {
     '<tr><td style="padding:4px; border:1px solid #ddd;">Integration Logs</td><td style="padding:4px; border:1px solid #ddd;">All ChittyOS sync events</td></tr>' +
     '<tr><td style="padding:4px; border:1px solid #ddd;">Metrics / Dashboard</td><td style="padding:4px; border:1px solid #ddd;">Pipeline aggregate formulas</td></tr>' +
     '</table>' +
-    '<h4>Script Properties Needed</h4>' +
-    '<p><code>GEMINI_API_KEY</code>, <code>CHITTYROUTER_URL</code>, <code>CHITTYROUTER_TOKEN</code></p>' +
+    '<h4>Script Properties</h4>' +
+    '<p>Use <b>🔑 Configure API Keys</b> from the 🔷 ChittyOS menu to set credentials.</p>' +
     '</div>'
   ).setWidth(480).setHeight(520);
   SpreadsheetApp.getUi().showModalDialog(html, 'ChittyOS Setup Guide');
 }
+
