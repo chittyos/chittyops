@@ -16,3 +16,6 @@ __pycache__/
 
 # Cross-machine config sync repo (separate, has own .git)
 ai-parity/
+
+# Apps Script credentials (use .clasp.json.example)
+studio-flows/chittyos-triage-addon/.clasp.json

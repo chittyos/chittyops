@@ -1,0 +1,131 @@
+{
+  "timeZone": "America/Chicago",
+  "dependencies": {},
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.scriptapp"
+  ],
+  "addOns": {
+    "common": {
+      "name": "ChittyOS Triage Engine",
+      "logoUrl": "https://chitty.cc/favicon.ico",
+      "useLocaleFromApp": true,
+      "urlFetchWhitelist": [
+        "https://generativelanguage.googleapis.com/",
+        "https://router.chitty.cc/",
+        "https://tasks.agent.chitty.cc/",
+        "https://dispute.chitty.cc/"
+      ]
+    },
+    "flows": {
+      "workflowElements": [
+        {
+          "id": "chittyGeminiClassify",
+          "state": "ACTIVE",
+          "name": "ChittyOS: Gemini Classify",
+          "description": "Classifies email via Gemini 2.0 Flash (free tier). Extracts category, payee, amount, due date, urgency, legal sensitivity.",
+          "workflowAction": {
+            "onConfigFunction": "onConfigGeminiClassify",
+            "onExecuteFunction": "onExecuteGeminiClassify",
+            "inputs": [
+              {"id": "emailBody", "description": "Email body text", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "emailSubject", "description": "Email subject line", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "emailFrom", "description": "Sender email address", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+            ],
+            "outputs": [
+              {"id": "category", "description": "Classification (billing, legal, debt_collection, etc.)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "payee", "description": "Company or person owed money", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "amount", "description": "Dollar amount due", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "dueDate", "description": "Payment due date (YYYY-MM-DD)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "urgency", "description": "Urgency (low, normal, high, critical)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "isLegal", "description": "Legal matter (true/false)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "isActionable", "description": "Actionable (true/false)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "sensitivity", "description": "Two-Space gate (business/legalink)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "confidence", "description": "Confidence percentage", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "summary", "description": "One-sentence summary", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+            ]
+          }
+        },
+        {
+          "id": "chittyRouterPush",
+          "state": "ACTIVE",
+          "name": "ChittyOS: Router Push",
+          "description": "Pushes to ChittyRouter POST /process for 5-model AI routing. Auto-forwards disputes to ChittyDispute.",
+          "workflowAction": {
+            "onConfigFunction": "onConfigRouterPush",
+            "onExecuteFunction": "onExecuteRouterPush",
+            "inputs": [
+              {"id": "emailBody", "description": "Email body text", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "emailSubject", "description": "Email subject line", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "emailFrom", "description": "Sender email address", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "category", "description": "Gemini classification category", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "isLegal", "description": "Legal flag from classify step", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+            ],
+            "outputs": [
+              {"id": "routerCategory", "description": "Router's 15-category classification", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "routerPriority", "description": "Priority (CRITICAL/HIGH/NORMAL/LOW)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "urgencyScore", "description": "Numeric urgency 0-100", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "caseRelated", "description": "Related to active case (true/false)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "routingRecommendation", "description": "Suggested destination", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "reasoning", "description": "AI reasoning", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+            ]
+          }
+        },
+        {
+          "id": "chittyTriageIngest",
+          "state": "ACTIVE",
+          "name": "ChittyOS: Triage Ingest",
+          "description": "Pushes to chittyagent-tasks for Neon ingestion. Triggers cc_obligations → runTriage() pipeline.",
+          "workflowAction": {
+            "onConfigFunction": "onConfigTriageIngest",
+            "onExecuteFunction": "onExecuteTriageIngest",
+            "inputs": [
+              {"id": "emailBody", "description": "Email body text", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "emailFrom", "description": "Sender email address", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "category", "description": "Classification category", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "urgency", "description": "Urgency level", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "sensitivity", "description": "Sensitivity (business/legalink)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "routerCategory", "description": "Router category", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+            ],
+            "outputs": [
+              {"id": "action", "description": "Action taken (ingested/skipped/error)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "routedTo", "description": "Destination service", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "disputeCreated", "description": "Dispute auto-created (true/false)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "statusCode", "description": "HTTP status code", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+            ]
+          }
+        },
+        {
+          "id": "chittySheetLog",
+          "state": "ACTIVE",
+          "name": "ChittyOS: Log to Triage Sheet",
+          "description": "Appends classified email to Triage Google Sheet (columns A-L) for human review.",
+          "workflowAction": {
+            "onConfigFunction": "onConfigSheetLog",
+            "onExecuteFunction": "onExecuteSheetLog",
+            "inputs": [
+              {"id": "emailBody", "description": "Email body text", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "emailSubject", "description": "Email subject line", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "emailFrom", "description": "Sender email address", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "category", "description": "Classification category", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "urgency", "description": "Urgency level", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "confidence", "description": "Confidence percentage", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "sensitivity", "description": "Sensitivity (business/legalink)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "payee", "description": "Company or person owed money", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "amount", "description": "Dollar amount due", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "dueDate", "description": "Payment due date (YYYY-MM-DD)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "summary", "description": "One-sentence summary", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+            ],
+            "outputs": [
+              {"id": "action", "description": "Action taken (logged_to_sheet)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
+              {"id": "rowNumber", "description": "Row number in sheet", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
