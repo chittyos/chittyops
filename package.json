@@ -39,6 +39,6 @@
   "dependencies": {
     "@chittyfoundation/hookify": "github:chittyfoundation/chittyops#main",
     "@chittyfoundation/territories": "github:chittyfoundation/chittyops#main",
-    "js-yaml": "^4.2.0"
+    "js-yaml": "^5.2.0"
   }
 }
