@@ -24,7 +24,7 @@
 - Dependency Updates / security-updates
 - Dependency Updates / update-dependencies
 - Deploy to entry.chitty.cc / deploy
-- Deploy with 1Password / deploy
+- Deploy with chittysecrets / deploy
 - Publish SDK to npm / publish
 - Repository Cleanup / cleanup-branches
 - Repository Cleanup / disk-usage-report

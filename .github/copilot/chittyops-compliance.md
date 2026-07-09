@@ -42,7 +42,7 @@ auth:
 
 secrets:
   provider: chittyconnect
-  vault: 1password
+  vault: chittysecrets
   paths:
     production: op://ChittyOS/{SERVICE_NAME}-prod
 

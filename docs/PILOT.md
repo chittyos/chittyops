@@ -83,7 +83,7 @@ Worker reads `ai_routing.tiers.T3_sonnet.pilot_disabled` from manifest. Update m
 { "T3_sonnet": { "pilot_disabled": false } }
 ```
 
-`wrangler deploy` to apply. T3 calls now flow for high-stakes items.
+`cf deploy` to apply. T3 calls now flow for high-stakes items.
 
 ### Step 3 (week 4–5) — Decide batch policy (Q12 reopens)
 

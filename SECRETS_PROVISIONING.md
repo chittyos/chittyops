@@ -10,7 +10,7 @@ Services DO NOT store long-lived credentials. Instead, they request short-lived 
 
 ```
 ┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
-│  GitHub Actions │         │  ChittyConnect  │         │   1Password     │
+│  GitHub Actions │         │  ChittyConnect  │         │   chittysecrets     │
 │  (any service)  │         │ connect.chitty.cc│         │   (root creds)  │
 └────────┬────────┘         └────────┬────────┘         └────────┬────────┘
          │                           │                           │
@@ -101,7 +101,7 @@ jobs:
       - name: Use credentials
         run: |
           echo "Cloudflare token available"
-          wrangler deploy
+          cf deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ steps.creds.outputs.cloudflare_token }}
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.creds.outputs.account_id }}
@@ -173,7 +173,7 @@ env:
   with:
     api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
 
-- run: wrangler deploy
+- run: cf deploy
   env:
     CLOUDFLARE_API_TOKEN: ${{ steps.creds.outputs.cloudflare_token }}
 ```

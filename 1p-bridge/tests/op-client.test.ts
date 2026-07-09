@@ -8,7 +8,7 @@ const mockSdk = {
   getItemOTP: vi.fn(),
 };
 
-vi.mock("@1password/connect", () => ({
+vi.mock("@chittysecrets/connect", () => ({
   OnePasswordConnect: vi.fn(() => mockSdk),
 }));
 

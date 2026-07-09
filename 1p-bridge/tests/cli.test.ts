@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock only external boundaries: the op CLI subprocess (used by env.ts)
-// and the @1password/connect SDK (used by op-client.ts). Internal modules
+// and the @chittysecrets/connect SDK (used by op-client.ts). Internal modules
 // (env, op-client, chronicle, get/list/otp) execute real code paths.
 const mockSdk = {
   listVaults: vi.fn(),
@@ -10,7 +10,7 @@ const mockSdk = {
   getItemOTP: vi.fn(),
 };
 
-vi.mock("@1password/connect", () => ({
+vi.mock("@chittysecrets/connect", () => ({
   OnePasswordConnect: vi.fn(() => mockSdk),
 }));
 

@@ -60,7 +60,7 @@ Only this code may request operator provisioning, and it MUST carry every resolu
   "details": {
     "required_secret_path": "op://vault/item/field",
     "required_scope": "secrets:read",
-    "target_store": "1password",
+    "target_store": "chittysecrets",
     "approved_resolution_paths": ["ch1tty://chitty-1p-bridge", "https://connect.chitty.cc"],
     "retry_hint": "Provision then retry op.get"
   }

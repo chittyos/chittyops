@@ -9,7 +9,7 @@ scenarios:
     expected_error_code: POLICY_BLOCKED_MANDATORY_BROKER_ROUTE
 
   - id: broker-unavailable
-    description: 1Password Connect bootstrap failure surfaces as POLICY_BLOCKED_BROKER_UNAVAILABLE
+    description: chittysecrets Connect bootstrap failure surfaces as POLICY_BLOCKED_BROKER_UNAVAILABLE
     test: 1p-bridge/tests/conformance.test.ts::broker
     expected_error_code: POLICY_BLOCKED_BROKER_UNAVAILABLE
 

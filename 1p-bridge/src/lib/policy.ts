@@ -26,7 +26,7 @@ const SENSITIVE_TOOL_PREFIXES = [
   "gh.", // GitHub
   "github.",
   "neon.",
-  "op.", // 1Password broker
+  "op.", // chittysecrets broker
   "registry.",
   "rotate.",
   "secret.",

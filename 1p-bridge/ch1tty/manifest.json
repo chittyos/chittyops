@@ -9,7 +9,7 @@
   "tools": [
     {
       "name": "op.get",
-      "description": "Read a credential field from 1Password via the bridge.",
+      "description": "Read a credential field from chittysecrets via the bridge.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -30,7 +30,7 @@
     },
     {
       "name": "op.otp",
-      "description": "Read a TOTP code from a 1Password item.",
+      "description": "Read a TOTP code from a chittysecrets item.",
       "input_schema": {
         "type": "object",
         "properties": {

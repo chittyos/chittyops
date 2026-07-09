@@ -37,13 +37,13 @@ export async function runGet(
     try {
       env = loadBridgeEnv();
     } catch (envErr) {
-      // 1Password Connect bootstrap failed — emit canonical broker-unavailable
+      // chittysecrets Connect bootstrap failed — emit canonical broker-unavailable
       // envelope rather than a raw provider string.
       throw new PolicyError(
         "POLICY_BLOCKED_BROKER_UNAVAILABLE",
-        "1Password Connect bootstrap failed",
+        "chittysecrets Connect bootstrap failed",
         {
-          target: "1password-connect",
+          target: "chittysecrets-connect",
           reason: envErr instanceof Error ? envErr.constructor.name : "Unknown",
         },
       );

@@ -21,12 +21,12 @@ visibility: PUBLIC
 
 ## Mission
 
-Bridge 1Password Connect and Cloudflare Secrets Store so that secret rotation in 1P propagates to running Workers within 5 minutes, and provide a single canonical 1Password client for all operator and automation tooling on chittyserv-dev.
+Bridge chittysecrets Connect and Cloudflare Secrets Store so that secret rotation in 1P propagates to running Workers within 5 minutes, and provide a single canonical chittysecrets client for all operator and automation tooling on chittyserv-dev.
 
 ## Scope
 
 ### IS responsible for
-- Polling 1Password Connect on a 5-minute cron and pushing changed values to the Cloudflare Secrets Store API per a declarative watchlist
+- Polling chittysecrets Connect on a 5-minute cron and pushing changed values to the Cloudflare Secrets Store API per a declarative watchlist
 - Providing the `chitty-op` CLI (get / list / otp / sync) for operator-grade 1P access
 - Providing a reusable Node module (`@chittyops/1p-bridge`) that other VM tools import for 1P access
 - Logging every sync event and CLI invocation to ChittyChronicle
@@ -46,7 +46,7 @@ Bridge 1Password Connect and Cloudflare Secrets Store so that secret rotation in
 
 | Type | Service | Purpose |
 |------|---------|---------|
-| Upstream | 1Password Connect (local on VM) | Source of truth for credential values |
+| Upstream | chittysecrets Connect (local on VM) | Source of truth for credential values |
 | Upstream | Cloudflare Secrets Store API | Write target for synced secrets |
 | Upstream | ChittyRegistry | Service discovery and registration |
 | Peer | ChittyChronicle | Audit trail for syncs and CLI invocations |

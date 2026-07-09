@@ -1,4 +1,4 @@
-import { OnePasswordConnect } from "@1password/connect";
+import { OnePasswordConnect } from "@chittysecrets/connect";
 
 export interface OpClientConfig {
   url: string;

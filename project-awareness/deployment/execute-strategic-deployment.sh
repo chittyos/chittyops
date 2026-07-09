@@ -237,7 +237,7 @@ deploy_core_workers() {
     
     # Deploy to staging first
     info "Deploying to staging environment..."
-    if wrangler deploy --env staging; then
+    if cf deploy --env staging; then
         success "Staging deployment successful"
         DEPLOYED_SERVICES+=("project-awareness-staging")
         add_rollback_command "wrangler delete --name chittyops-project-awareness-staging"
@@ -247,7 +247,7 @@ deploy_core_workers() {
         
         # Deploy to production
         info "Deploying to production environment..."
-        if wrangler deploy; then
+        if cf deploy; then
             success "Production deployment successful"
             DEPLOYED_SERVICES+=("project-awareness-production")
             add_rollback_command "wrangler delete --name chittyops-project-awareness"
@@ -284,7 +284,7 @@ deploy_mcp_server() {
     npm ci
     
     # Deploy MCP server
-    if wrangler deploy; then
+    if cf deploy; then
         success "MCP Server deployed successfully"
         DEPLOYED_SERVICES+=("mcp-server")
         add_rollback_command "wrangler delete --name chittyos-mcp-server"
@@ -326,7 +326,7 @@ deploy_auth_provider() {
     npm ci
     
     # Deploy auth provider
-    if wrangler deploy; then
+    if cf deploy; then
         success "Auth Provider deployed successfully"
         DEPLOYED_SERVICES+=("auth-provider")
         add_rollback_command "wrangler delete --name chittyos-auth-provider"

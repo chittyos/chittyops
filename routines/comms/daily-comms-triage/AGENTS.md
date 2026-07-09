@@ -21,7 +21,7 @@ For any agent (Claude, ChatGPT, autonomous routine) touching this worker.
 
 ## Soft defaults
 
-- Use 1Password injection for all secrets at deploy: `op run --env-file=.../neon.env -- wrangler deploy`.
+- Use chittysecrets injection for all secrets at deploy: `chittysecrets run --env-file=.../neon.env -- cf deploy`.
 - Use the canonical `chittytrack` tail consumer; never inline log destinations.
 - Heartbeat to `discovery.chitty.cc/heartbeat/daily-comms-triage` on every `scheduled` invocation.
 
@@ -30,7 +30,7 @@ For any agent (Claude, ChatGPT, autonomous routine) touching this worker.
 1. Replace `REPLACE_AT_DEPLOY` placeholders in `wrangler.toml` for `KV_LOCKS`, `NEON` (Hyperdrive id), with real values.
 2. Provision secrets via wrangler secret (NEVER inline):
    - none required (pure bindings — connectors are CF service-binding or env URLs)
-3. Deploy with cron commented out: `wrangler deploy`.
+3. Deploy with cron commented out: `cf deploy`.
 4. Verify `/health` returns 200 + valid JSON.
 5. Verify `/api/v1/status` returns mode-aware status.
 6. Run synthetic privileged-domain test (`docs/PILOT.md` §exit-criteria).

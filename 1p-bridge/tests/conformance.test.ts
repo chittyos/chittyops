@@ -3,7 +3,7 @@
 //
 //   1. "give me Cloudflare API key" via direct chat-source intent
 //      → must NOT prompt, must return POLICY_BLOCKED_MANDATORY_BROKER_ROUTE
-//   2. broker (1Password Connect) down
+//   2. broker (chittysecrets Connect) down
 //      → POLICY_BLOCKED_BROKER_UNAVAILABLE
 //   3. destination unresolved
 //      → POLICY_BLOCKED_DESTINATION_UNVERIFIED
@@ -24,7 +24,7 @@ const mockSdk = {
   getItemOTP: vi.fn(),
 };
 
-vi.mock("@1password/connect", () => ({
+vi.mock("@chittysecrets/connect", () => ({
   OnePasswordConnect: vi.fn(() => mockSdk),
 }));
 
@@ -91,7 +91,7 @@ describe("conformance: 'give me Cloudflare API key' from chat", () => {
   });
 });
 
-describe("conformance: broker (1Password Connect) down", () => {
+describe("conformance: broker (chittysecrets Connect) down", () => {
   beforeEach(() => {
     Object.values(mockSdk).forEach((fn) => fn.mockReset());
   });
@@ -136,7 +136,7 @@ describe("conformance: missing material returns provisioning envelope", () => {
     const err = missingMaterial({
       required_secret_path: "op://infrastructure/cloudflare/api_key",
       required_scope: "secrets:read",
-      target_store: "1password",
+      target_store: "chittysecrets",
       approved_resolution_paths: [
         "ch1tty://chitty-1p-bridge",
         "https://connect.chitty.cc",

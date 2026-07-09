@@ -67,7 +67,7 @@ export function isPolicyError(err: unknown): err is PolicyError {
 }
 
 // Adapt arbitrary thrown values into a canonical envelope. Provider errors
-// (1Password SDK, fetch, etc.) collapse to EXECUTION_FAILED_PROVIDER_ERROR
+// (chittysecrets SDK, fetch, etc.) collapse to EXECUTION_FAILED_PROVIDER_ERROR
 // with the raw message redacted to the error class name only — provider
 // strings can contain tokens/URLs and must NEVER reach the envelope body.
 export function toEnvelope(err: unknown): PolicyEnvelope {

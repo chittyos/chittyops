@@ -8,13 +8,13 @@
 import { PolicyError } from "./errors.js";
 
 export type CanonicalStore =
-  | "1password"
+  | "chittysecrets"
   | "cloudflare-secrets-store"
   | "chittyregistry"
   | "chittyauth";
 
 const ALLOWLIST: ReadonlySet<CanonicalStore> = new Set<CanonicalStore>([
-  "1password",
+  "chittysecrets",
   "cloudflare-secrets-store",
   "chittyregistry",
   "chittyauth",
@@ -38,7 +38,7 @@ function isCanonicalStore(s: string): s is CanonicalStore {
 }
 
 const ADDRESS_VALIDATORS: Record<CanonicalStore, (a: string) => boolean> = {
-  "1password": (a) => /^[^/]+\/[^/]+(\/[^/]+)?$/.test(a),
+  "chittysecrets": (a) => /^[^/]+\/[^/]+(\/[^/]+)?$/.test(a),
   "cloudflare-secrets-store": (a) => /^[a-f0-9]{32}\/[^/]+\/[^/]+$/i.test(a),
   chittyregistry: (a) => a.startsWith("chittycanon://"),
   chittyauth: (a) => /^[a-z0-9-]+\.chitty\.cc$/i.test(a) || a.startsWith("chittycanon://"),

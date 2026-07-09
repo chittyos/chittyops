@@ -18,7 +18,7 @@ Governance for the chittyops monorepo and the `@chittyops` npm scope. All packag
 - CI/CD workflows, GitHub Actions, reusable workflows
 - Ecosystem compliance auditing + remediation
 - Operator CLIs (`chitty-op`, `getchitty-creds`, etc.)
-- VM-resident bridge services (1Password ↔ secrets store, sync daemons, etc.)
+- VM-resident bridge services (chittysecrets ↔ secrets store, sync daemons, etc.)
 - Onboarding + provisioning automation
 - Cross-org workflow management
 
@@ -86,7 +86,7 @@ Every package MUST define and pass before merge:
 
 - **No long-lived secrets in package source or workflows.** Use ChittyConnect ephemeral credential provisioning.
 - Only org-level secret tolerated: `CHITTYCONNECT_API_KEY`.
-- 1Password Connect is read-only from packages; writes go through approved bridges (e.g. `@chittyops/1p-bridge`).
+- chittysecrets Connect is read-only from packages; writes go through approved bridges (e.g. `@chittyops/1p-bridge`).
 - Secrets in package config files MUST be referenced by path / handle, never embedded.
 
 ## 8. Canonical ontology

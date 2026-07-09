@@ -8,7 +8,7 @@
       "chittyconnect",
       "chittyauth",
       "chittyid",
-      "1password-connect-via-bridge"
+      "chittysecrets-connect-via-bridge"
     ],
     "kv_role": "cache_projection_only"
   },

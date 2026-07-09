@@ -6,7 +6,7 @@
   "main": "worker.ts",
   "scripts": {
     "check": "tsc --noEmit",
-    "deploy": "wrangler deploy"
+    "deploy": "cf deploy"
   },
   "dependencies": {
     "postgres": "^3.4.5"

@@ -69,21 +69,21 @@ fi
 #    routing through the broker, the assistant tells the operator to go
 #    administer the credential directly in the provider UI / 1P admin /
 #    token-allowed-vaults UI. This is direct_provider_secret_bypass.
-admin_bypass_re='\b(in (the )?(1p|1password|onepassword|cloudflare|cf|github|gh|notion|slack|stripe|vercel|neon)( admin| dashboard| ui| console)?|in (your )?(1p|1password|onepassword) (admin|console|ui|dashboard|vault)|widen|expand|broaden|loosen|enlarge|extend) (.{0,80})?(scope|access|token|key|secret|allowed[ _-]?(vault|vaults|paths)|vault list|allowlist|allow[ _-]?list)'
+admin_bypass_re='\b(in (the )?(1p|chittysecrets|onepassword|cloudflare|cf|github|gh|notion|slack|stripe|vercel|neon)( admin| dashboard| ui| console)?|in (your )?(1p|chittysecrets|onepassword) (admin|console|ui|dashboard|vault)|widen|expand|broaden|loosen|enlarge|extend) (.{0,80})?(scope|access|token|key|secret|allowed[ _-]?(vault|vaults|paths)|vault list|allowlist|allow[ _-]?list)'
 if echo "$flat" | grep -Ei "$admin_bypass_re" >/dev/null; then
   block_with "$CONTRACT_REASON"
 fi
 
 # 4. Direct "drop ... in 1P" / "add ... to that token's allowed vaults" patterns.
 # Allow up to 60 chars between the verb and the bypass target so phrasings
-# like "Add the chittyconnect vault to that token's allowed vaults in 1Password"
+# like "Add the chittyconnect vault to that token's allowed vaults in chittysecrets"
 # and "Drop the new secret in 1P" are both caught.
-if echo "$flat" | grep -Ei '\b(drop|add|put|stash|store|append) [^.?!]{0,60}\b(in|into|to)\b [^.?!]{0,40}\b(1p|1password|onepassword|allowed[ _-]?(vault|vaults|path|paths)|allow[ _-]?list|vault[ _-]?list)\b' >/dev/null; then
+if echo "$flat" | grep -Ei '\b(drop|add|put|stash|store|append) [^.?!]{0,60}\b(in|into|to)\b [^.?!]{0,40}\b(1p|chittysecrets|onepassword|allowed[ _-]?(vault|vaults|path|paths)|allow[ _-]?list|vault[ _-]?list)\b' >/dev/null; then
   block_with "$CONTRACT_REASON"
 fi
 
 # 5. "go to the X admin and ..." pattern — an operator-handoff bypass.
-if echo "$flat" | grep -Ei '\bgo (to|into) (the )?(1p|1password|onepassword|cloudflare|cf|github|gh|notion|stripe|vercel|neon)( (admin|dashboard|ui|console))? (and|to)\b' >/dev/null; then
+if echo "$flat" | grep -Ei '\bgo (to|into) (the )?(1p|chittysecrets|onepassword|cloudflare|cf|github|gh|notion|stripe|vercel|neon)( (admin|dashboard|ui|console))? (and|to)\b' >/dev/null; then
   block_with "$CONTRACT_REASON"
 fi
 

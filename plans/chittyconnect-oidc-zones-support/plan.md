@@ -21,13 +21,13 @@ Today the OIDC route in chittyconnect bypasses `EnhancedCredentialProvisioner` a
 - **API-key route:** `src/api/routes/credentials.js` already wires the provisioner correctly with `{type, context}` shape — the model to mirror.
 - **Tests:** Existing scenarios in `tests/scenarios/`, no current `github-actions-credentials.test.js` — add one.
 - **Caller:** `chittyops/.github/actions/getchitty-creds/action.yml` already forwards `zones` in the OIDC payload as of PR #54 (currently ignored server-side — exactly what this plan addresses).
-- **Chittyconnect branch state (blocker):** `smoke/1password-sdk-eval` has uncommitted WIP unrelated to this work. The new branch must fork from clean `main`.
+- **Chittyconnect branch state (blocker):** `smoke/chittysecrets-sdk-eval` has uncommitted WIP unrelated to this work. The new branch must fork from clean `main`.
 
 ## Open clarifications
 
 All defaults locked in (decided 2026-05-03):
 
-- **Q1 → Branch base = `origin/main`** (clean). The chittyconnect WIP on `smoke/1password-sdk-eval` is unrelated and is not a prerequisite for this PR.
+- **Q1 → Branch base = `origin/main`** (clean). The chittyconnect WIP on `smoke/chittysecrets-sdk-eval` is unrelated and is not a prerequisite for this PR.
 - **Q2 → Keep legacy `{credentials: [...]}` request shape** as-is. The new `{type, context}` shape lands alongside (discriminator on body); callers migrate when they need zones. Deprecation of the legacy shape is a separate future PR.
 - **Q3 → Z1 (uniform response shape).** Map provisioner's single-cred output into the existing OIDC multi-cred envelope: `credentials.CLOUDFLARE_API_TOKEN = credential.value`, `credentials.CLOUDFLARE_ACCOUNT_ID = credential.account_id`. No client-side changes needed beyond what chittyops PR #54 already ships.
 - **Q4 → Integration-test against the deployed worker once `connect.chitty.cc` recovers.** Per CLAUDE.md "no mocks." If recovery drags long enough to block this PR, fall back to `wrangler dev` against a Cloudflare sandbox account + Neon test branch — but only as an explicitly-noted mitigation in the PR body, not the default.

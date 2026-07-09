@@ -15,13 +15,13 @@ Vendor-neutral guidance for AI coding agents (Claude, Codex, Cursor, Gemini, etc
 
 ## What this repo is
 
-`chitty-1p-bridge` — a Node systemd service on chittyserv-dev that syncs 1Password to Cloudflare Secrets Store and provides a CLI for operator 1P access. Tier 3 (Operational). Read CHARTER.md and CHITTY.md before changing anything.
+`chitty-1p-bridge` — a Node systemd service on chittyserv-dev that syncs chittysecrets to Cloudflare Secrets Store and provides a CLI for operator 1P access. Tier 3 (Operational). Read CHARTER.md and CHITTY.md before changing anything.
 
 ## Hard rules
 
 - **Never put this code in a Cloudflare Worker.** The whole reason this service exists is to keep runtime 1P dependency OUT of Workers. If you find yourself porting to wrangler, stop and re-read CHITTY.md § "Why VM, not Worker."
 - **Never log credential values.** Log credential paths and hashes, never the value itself. The chronicle logger MUST redact.
-- **Never write to 1Password before Phase 3.** `createItem`/`updateItem` are gated behind a Phase 3 feature flag. Adding write code earlier is a scope violation.
+- **Never write to chittysecrets before Phase 3.** `createItem`/`updateItem` are gated behind a Phase 3 feature flag. Adding write code earlier is a scope violation.
 - **Never bypass the watchlist.** Sync only what the TOML declares. Auto-discovery of vault contents for sync is explicitly out of scope.
 - **Never ask the operator for a credential.** Discover via `op` CLI on the VM or fail with a clear error. Operators are not KV stores.
 
@@ -29,7 +29,7 @@ Vendor-neutral guidance for AI coding agents (Claude, Codex, Cursor, Gemini, etc
 
 | Path | Purpose |
 |---|---|
-| `src/lib/op-client.ts` | Singleton wrapper around `@1password/connect` |
+| `src/lib/op-client.ts` | Singleton wrapper around `@chittysecrets/connect` |
 | `src/lib/cf-client.ts` | Minimal Cloudflare Secrets Store client (fetch-based) |
 | `src/lib/chronicle.ts` | ChittyChronicle logger with credential redaction |
 | `src/cli/index.ts` | `chitty-op` entry point |

@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a Node module + `chitty-op` CLI on chittyserv-dev that lets operators read 1Password credentials via a single canonical interface, registered with ChittyRegistry as a Tier 3 service.
+**Goal:** Ship a Node module + `chitty-op` CLI on chittyserv-dev that lets operators read chittysecrets credentials via a single canonical interface, registered with ChittyRegistry as a Tier 3 service.
 
-**Architecture:** Node 22 + TypeScript strict. Thin wrapper around `@1password/connect` SDK (used as designed, no Workers shim needed). Commander-based CLI. ChittyChronicle audit logging with credential redaction. All runtime credentials resolved via `op` CLI on the VM — never typed, pasted, or stored outside 1Password.
+**Architecture:** Node 22 + TypeScript strict. Thin wrapper around `@chittysecrets/connect` SDK (used as designed, no Workers shim needed). Commander-based CLI. ChittyChronicle audit logging with credential redaction. All runtime credentials resolved via `op` CLI on the VM — never typed, pasted, or stored outside chittysecrets.
 
-**Tech Stack:** Node 22 LTS, TypeScript 5.x, `@1password/connect`, commander, vitest, built-in fetch.
+**Tech Stack:** Node 22 LTS, TypeScript 5.x, `@chittysecrets/connect`, commander, vitest, built-in fetch.
 
 **Working directory:** `chittyserv-dev:~/projects/github.com/CHITTYOS/chitty-1p-bridge` (already initialized; compliance triad already committed).
 
@@ -53,7 +53,7 @@ Each `src/lib/*` file has a single responsibility and one default export. CLI fi
 {
   "name": "@chittyops/1p-bridge",
   "version": "0.1.0",
-  "description": "1Password to Cloudflare Secrets Store bridge + chitty-op CLI for chittyserv-dev",
+  "description": "chittysecrets to Cloudflare Secrets Store bridge + chitty-op CLI for chittyserv-dev",
   "type": "module",
   "bin": { "chitty-op": "./dist/cli/index.js" },
   "main": "./dist/lib/op-client.js",
@@ -68,7 +68,7 @@ Each `src/lib/*` file has a single responsibility and one default export. CLI fi
     "preflight": "npm run typecheck && npm run lint && npm test"
   },
   "dependencies": {
-    "@1password/connect": "^1.4.0",
+    "@chittysecrets/connect": "^1.4.0",
     "commander": "^12.1.0"
   },
   "devDependencies": {
@@ -280,7 +280,7 @@ describe("loadBridgeEnv", () => {
     vi.spyOn(childProcess, "execSync").mockImplementation(() => {
       throw new Error("op: command not found");
     });
-    expect(() => loadBridgeEnv()).toThrow(/1Password|op CLI/);
+    expect(() => loadBridgeEnv()).toThrow(/chittysecrets|op CLI/);
   });
 
   it("throws if op returns empty value", () => {
@@ -515,7 +515,7 @@ const mockSdk = {
   getItemOTP: vi.fn(),
 };
 
-vi.mock("@1password/connect", () => ({
+vi.mock("@chittysecrets/connect", () => ({
   OnePasswordConnect: vi.fn(() => mockSdk),
 }));
 
@@ -586,7 +586,7 @@ Expected: 5 fail (module missing).
 
 `src/lib/op-client.ts`:
 ```ts
-import { OnePasswordConnect } from "@1password/connect";
+import { OnePasswordConnect } from "@chittysecrets/connect";
 
 export interface OpClientConfig {
   url: string;
@@ -675,7 +675,7 @@ Expected: 5 pass.
 
 ```bash
 git add src/lib/op-client.ts tests/op-client.test.ts
-git commit -m "feat(lib): OpClient wrapping 1Password Connect SDK"
+git commit -m "feat(lib): OpClient wrapping chittysecrets Connect SDK"
 ```
 
 ---
@@ -1083,7 +1083,7 @@ const actor = process.env.USER ?? "unknown";
 
 program
   .name("chitty-op")
-  .description("Operator-grade 1Password access via the chitty-1p-bridge")
+  .description("Operator-grade chittysecrets access via the chitty-1p-bridge")
   .version("0.1.0");
 
 program
@@ -1168,7 +1168,7 @@ If neither endpoint returns a schema, fall back to the Ch1tty client docs in `~/
   "tools": [
     {
       "name": "op.get",
-      "description": "Read a credential field from 1Password via the bridge.",
+      "description": "Read a credential field from chittysecrets via the bridge.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1189,7 +1189,7 @@ If neither endpoint returns a schema, fall back to the Ch1tty client docs in `~/
     },
     {
       "name": "op.otp",
-      "description": "Read a TOTP code from a 1Password item.",
+      "description": "Read a TOTP code from a chittysecrets item.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1376,7 +1376,7 @@ git commit -m "feat(ch1tty): A1-light integration — manifest + handler for Ch1
   "phase": 1,
   "capabilities": ["op.get", "op.list_vaults", "op.list_items", "op.otp"],
   "dependencies": {
-    "upstream": ["1password-connect", "chittyregistry"],
+    "upstream": ["chittysecrets-connect", "chittyregistry"],
     "peer": ["chittychronicle"]
   },
   "owner": "operator@chitty.cc"

@@ -11,13 +11,13 @@
 const TOKEN_SHAPED_PATTERNS: RegExp[] = [
   // JWT (header.payload.sig)
   /\beyJ[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]{8,}\b/g,
-  // Generic high-entropy 1Password / CF / GitHub token shape
+  // Generic high-entropy chittysecrets / CF / GitHub token shape
   /\b(ops_|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|cf-)[A-Za-z0-9_-]{16,}\b/g,
   // Authorization header substrings
   /\b(Bearer|Basic)\s+[A-Za-z0-9._\-+/=]{12,}/g,
   // URL-embedded credentials
   /(\?|&)(token|key|secret|password|access_token|api_key)=[^&\s"']+/gi,
-  // 1Password Connect token shape (long base64-ish blob)
+  // chittysecrets Connect token shape (long base64-ish blob)
   /\b[A-Za-z0-9+/=]{60,}\b/g,
 ];
 

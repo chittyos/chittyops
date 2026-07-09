@@ -10,7 +10,7 @@
 - Compliance Check / compliance
 
 ## chittyos/chittyops
-- 1Password Rotation Audit / audit
+- chittysecrets Rotation Audit / audit
 - Adversarial Review Orchestrator / orchestrate
 - CI / lint-and-test
 - CI / shellcheck

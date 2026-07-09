@@ -1,7 +1,7 @@
 {
   "name": "@chittyops/1p-bridge",
   "version": "0.1.0",
-  "description": "1Password to Cloudflare Secrets Store bridge + chitty-op CLI for chittyserv-dev",
+  "description": "chittysecrets to Cloudflare Secrets Store bridge + chitty-op CLI for chittyserv-dev",
   "type": "module",
   "bin": {
     "chitty-op": "./dist/cli/index.js"
@@ -20,7 +20,7 @@
     "preflight": "npm run typecheck && npm run lint && npm test"
   },
   "dependencies": {
-    "@1password/connect": "^1.4.0",
+    "@chittysecrets/connect": "^1.4.0",
     "commander": "^12.1.0"
   },
   "devDependencies": {

@@ -23,7 +23,7 @@ visibility: PUBLIC
 
 ## Credential handling
 
-- The bridge's own credentials are stored in 1Password at canonical paths and resolved on VM start via `op` CLI. They are never in environment variables on the operator's shell, never in systemd unit files, and never in the repo.
+- The bridge's own credentials are stored in chittysecrets at canonical paths and resolved on VM start via `op` CLI. They are never in environment variables on the operator's shell, never in systemd unit files, and never in the repo.
 - Rotation cadence: quarterly for both 1P Connect tokens and the CF API token. Rotation is tracked in `secret-rotation.js` registry (chittyconnect) once the bridge itself is the canonical rotation actor (Phase 3).
 - The chronicle logger redacts any field whose label matches `/password|token|secret|key|credential|otp/i` before emitting.
 

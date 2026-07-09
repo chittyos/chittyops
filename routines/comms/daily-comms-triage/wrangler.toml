@@ -15,7 +15,7 @@ COMPTROLLER_BUDGET_URL = "https://comptroller.chitty.cc/budget/daily-comms-triag
 # chittyagent-gam connector tunnel (Workspace Gmail, metadata-only / F-L10)
 CHITTYGAM_URL = "https://gam.chitty.cc"
 
-# Secrets injected at deploy via `op run --env-file=.../neon.env -- wrangler deploy`
+# Secrets injected at deploy via `chittysecrets run --env-file=.../neon.env -- cf deploy`
 # Never declared inline — see SECRETS_PROVISIONING.md.
 # Required: CHITTYGAM_API_KEY (tunnel auth). Optional until granted: GMAIL_PERSONAL_TOKEN.
 

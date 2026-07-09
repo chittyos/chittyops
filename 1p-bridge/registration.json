@@ -1,6 +1,6 @@
 {
   "name": "chitty-1p-bridge",
-  "description": "VM-resident Node service: bridges 1Password to Cloudflare Secrets Store, exposes chitty-op CLI for operator-grade 1P access on chittyserv-dev.",
+  "description": "VM-resident Node service: bridges chittysecrets to Cloudflare Secrets Store, exposes chitty-op CLI for operator-grade 1P access on chittyserv-dev.",
   "tier": 3,
   "category": "operational",
   "entity_type": "P",
@@ -24,7 +24,7 @@
   ],
   "dependencies": {
     "upstream": [
-      "1password-connect",
+      "chittysecrets-connect",
       "cloudflare-secrets-store",
       "chittyregistry"
     ],

@@ -435,7 +435,7 @@ organizations:
         domain: null
         territory: operations
         active: true
-        description: "1Password terminal authentication plugins"
+        description: "chittysecrets terminal authentication plugins"
 
       chitty-issue-resolver:
         repo: CHITTYOS/chitty-issue-resolver

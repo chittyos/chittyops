@@ -12,14 +12,14 @@ visibility: PUBLIC
 
 ## Position in the ecosystem
 
-chitty-1p-bridge is the **continuous-sync companion** to the Portal Pattern adopted by chittyconnect (and any other ChittyOS Worker that uses Cloudflare Secrets Store). Without the bridge, secret changes in 1Password only reach Workers at the next `wrangler deploy`. With the bridge, they propagate within 5 minutes — without re-introducing runtime 1P calls from the Worker itself.
+chitty-1p-bridge is the **continuous-sync companion** to the Portal Pattern adopted by chittyconnect (and any other ChittyOS Worker that uses Cloudflare Secrets Store). Without the bridge, secret changes in chittysecrets only reach Workers at the next `cf deploy`. With the bridge, they propagate within 5 minutes — without re-introducing runtime 1P calls from the Worker itself.
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
 | Runtime | Node.js 22 LTS on Ubuntu (chittyserv-dev) |
-| 1P client | `@1password/connect` (official SDK) |
+| 1P client | `@chittysecrets/connect` (official SDK) |
 | CF client | Direct `fetch` against `api.cloudflare.com/client/v4/accounts/:id/secrets_store` |
 | Process model | systemd: a long-lived CLI binary + a timer-driven sync unit |
 | State | Local JSON file (`/var/lib/chitty-1p-bridge/state.json`) |
@@ -58,7 +58,7 @@ chittyserv-dev (VM)
 
 ## Why VM, not Worker
 
-Putting `@1password/connect` in the chittyconnect Worker would:
+Putting `@chittysecrets/connect` in the chittyconnect Worker would:
 1. Re-introduce runtime 1P dependency the Portal Pattern was designed to remove
 2. Require a custom `IRequestClient` shim because the SDK's default `HTTPClient` uses Node `http.Agent` which is fragile under `nodejs_compat`
 3. Couple bridge lifecycle to Worker deploys
@@ -75,7 +75,7 @@ VM placement avoids all four. The SDK runs in its native Node environment with o
 | VM offline > 5 min | No syncs occur during outage | Run `chitty-op sync run` after VM recovery |
 | Watchlist parse error | Daemon refuses to start | Fix TOML, restart unit |
 | State cache corrupt | Treat all entries as changed; one-time resync | Inspect chronicle for spurious events |
-| Race with `wrangler deploy` | Deploy wins; bridge re-syncs next tick | Phase 3 enforces deploy-after-1P-write ordering |
+| Race with `cf deploy` | Deploy wins; bridge re-syncs next tick | Phase 3 enforces deploy-after-1P-write ordering |
 | TOTP field in watchlist | Hash never stabilizes (continuous re-syncs) | Watchlist schema rejects TOTP fields at load |
 
 ## Non-goals

@@ -26,7 +26,7 @@ interface Env {
   // Serves the two Workspace inboxes metadata-only (F-L10). Set in [vars]; the
   // API key (secret) gates the tunnel.
   CHITTYGAM_URL: string;
-  // Secrets (1Password / ChittyConnect-injected)
+  // Secrets (chittysecrets / ChittyConnect-injected)
   CHITTYGAM_API_KEY: string;
   // Personal consumer inbox: readonly Gmail REST (spec Q4). OAuth access token
   // provisioned/refreshed via ChittyConnect; absent until granted (source degrades).

@@ -133,7 +133,7 @@ build_worker() {
 # Deploy to staging
 deploy_staging() {
     print_status "Deploying to staging environment..."
-    wrangler deploy --env staging
+    cf deploy --env staging
     print_success "Staging deployment completed"
     print_status "Staging URL: https://$STAGING_DOMAIN"
 }
@@ -168,7 +168,7 @@ test_staging() {
 # Deploy to production
 deploy_production() {
     print_status "Deploying to production environment..."
-    wrangler deploy
+    cf deploy
     print_success "Production deployment completed"
     print_status "Production URL: https://$DOMAIN"
 }

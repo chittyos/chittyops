@@ -18,9 +18,9 @@ rules:
       - "**/plugins/**/manifest.json"
       - "**/plugins/**/CHARTER.md"
     forbidden_patterns:
-      - regex: '\b(in (the )?(1p|1password|onepassword|cloudflare|cf|github|gh)( admin| dashboard| ui| console)?)'
+      - regex: '\b(in (the )?(1p|chittysecrets|onepassword|cloudflare|cf|github|gh)( admin| dashboard| ui| console)?)'
         rationale: 'Agent definition references manual provider-admin step (direct_provider_secret_bypass).'
-      - regex: '\b(go (to|into) (the )?(1p|1password|onepassword|cloudflare|cf|github|gh)( (admin|dashboard|ui|console))?)'
+      - regex: '\b(go (to|into) (the )?(1p|chittysecrets|onepassword|cloudflare|cf|github|gh)( (admin|dashboard|ui|console))?)'
         rationale: 'Agent definition tells the operator to navigate provider admin UI instead of routing through the broker.'
       - regex: '\b(widen|expand|broaden|loosen|extend) (.{0,80})?(scope|access|allowed[ _-]?(vault|vaults|paths))'
         rationale: 'Agent definition references scope-widening as a fix instead of broker provisioning.'
@@ -28,7 +28,7 @@ rules:
         rationale: 'Agent definition asks the operator to surface long-lived credentials in chat.'
       - regex: '\b(manually (rotate|create|issue|generate|provision|mint)) (.{0,40})?(token|key|secret|credential)'
         rationale: 'Agent definition prescribes manual credential issuance instead of broker-mediated rotation.'
-      - regex: '\b(drop|add|put|stash|store) [^.?!]{0,60}\b(in|into|to)\b [^.?!]{0,40}\b(1p|1password|onepassword|allowed[ _-]?(vault|vaults|paths)|allow[ _-]?list)\b'
+      - regex: '\b(drop|add|put|stash|store) [^.?!]{0,60}\b(in|into|to)\b [^.?!]{0,40}\b(1p|chittysecrets|onepassword|allowed[ _-]?(vault|vaults|paths)|allow[ _-]?list)\b'
         rationale: 'Agent definition tells the operator to deposit credentials into 1P or expand allow-list manually.'
 
   - id: agent-def-must-cite-canonical-error-codes

@@ -19,7 +19,7 @@ const source =
 
 program
   .name("chitty-op")
-  .description("Operator-grade 1Password access via the chitty-1p-bridge")
+  .description("Operator-grade chittysecrets access via the chitty-1p-bridge")
   .version("0.1.0");
 
 program

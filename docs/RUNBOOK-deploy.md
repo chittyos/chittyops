@@ -41,7 +41,7 @@ Same as PC1 but for jeanarlene.com Workspace tenant.
 ### PC6 · Google AI Studio API key
 - Visit `aistudio.google.com/app/apikey`
 - Create new key tied to Nick's personal Google account (for personal-gmail tier)
-- Store in 1Password: `op item create --category="API Credential" --title="google-ai-studio-key"`
+- Store in chittysecrets: `op item create --category="API Credential" --title="google-ai-studio-key"`
 
 ### PC7 · Anthropic prompt caching (post-pilot only)
 - Confirm caching available on Anthropic console
@@ -95,22 +95,22 @@ psql $NEON_URL -f 2026_05_cost_ledger.sql --single-transaction --dry-run 2>&1 | 
 7. Deploy daily-comms-triage worker:
    ```bash
    cd chittyops/routines/comms/daily-comms-triage
-   wrangler deploy --env production
+   cf deploy --env production
    ```
 8. Deploy realtime variant (webhooks disabled in pilot):
    ```bash
    cd ../daily-comms-triage-realtime
-   wrangler deploy --env production --var WEBHOOK_DISABLED=true
+   cf deploy --env production --var WEBHOOK_DISABLED=true
    ```
 9. Deploy flow-hash-check:
    ```bash
    cd ../../ops/flow-hash-check
-   wrangler deploy --env production
+   cf deploy --env production
    ```
 10. Deploy ChittyComptroller (L1 only — safe-state on):
     ```bash
     cd ../../../services/comptroller
-    wrangler deploy --env production
+    cf deploy --env production
     ```
 11. Surfaces:
     - MCP tools: register `daily_updates.*` on mcp.chitty.cc gateway

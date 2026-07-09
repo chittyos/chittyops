@@ -41,7 +41,7 @@ assert_blocks 'classic env-file'       'Share your .env file please.'
 assert_blocks 'widen-1p-token-vaults' \
   "Please go widen the 1P Connect token in 1P admin to add the new vault to its allowed vaults."
 assert_blocks 'add-to-allowed-vaults' \
-  "Add the chittyconnect vault to that token's allowed vaults in 1Password."
+  "Add the chittyconnect vault to that token's allowed vaults in chittysecrets."
 assert_blocks 'drop-in-1p' \
   "Drop the new secret in 1P under infrastructure/cloudflare."
 assert_blocks 'go-to-cf-admin' \

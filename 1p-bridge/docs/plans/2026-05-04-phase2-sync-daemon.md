@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a one-shot sync daemon that propagates 1Password value changes into Cloudflare Secrets Store within 5 minutes, governed by a TOML watchlist, with hash-based change detection and ChittyChronicle audit logging.
+**Goal:** Add a one-shot sync daemon that propagates chittysecrets value changes into Cloudflare Secrets Store within 5 minutes, governed by a TOML watchlist, with hash-based change detection and ChittyChronicle audit logging.
 
 **Architecture:** One-shot Node process triggered by systemd timer every 5 minutes. Reads watchlist TOML → resolves each path via Phase 1 OpClient → hashes value → compares with state cache → on change, writes to CF Secrets Store via REST API and updates cache. No long-running daemon (avoids restart-on-failure, drift, leak surface). State cache is JSON file at `/var/lib/chitty-1p-bridge/state.json` containing only hashes — never values.
 
@@ -10,7 +10,7 @@
 
 **Working directory:** `chittyserv-dev:~/projects/github.com/CHITTYOS/chittyops/1p-bridge` (Phase 1 lib + CLI present from PR #59).
 
-**Race rule (LOAD-BEARING):** `wrangler deploy` MUST update 1P first, then `chitty-op sync run`, then deploy. Without this ordering, the bridge would overwrite a fresh deploy value with a stale 1P value within 5 minutes. Documented + enforced via Task 9 below.
+**Race rule (LOAD-BEARING):** `cf deploy` MUST update 1P first, then `chitty-op sync run`, then deploy. Without this ordering, the bridge would overwrite a fresh deploy value with a stale 1P value within 5 minutes. Documented + enforced via Task 9 below.
 
 ---
 
@@ -96,7 +96,7 @@ purpose        = "chittyconnect Mercury API key"
 ### Task 4: CF Secrets Store client
 
 - [ ] Implement `src/lib/cf-secrets-client.ts` with `putSecret(accountId, storeId, name, value): Promise<void>`
-- [ ] Auth via `CLOUDFLARE_API_TOKEN` resolved from `op` (1Password) at startup
+- [ ] Auth via `CLOUDFLARE_API_TOKEN` resolved from `op` (chittysecrets) at startup
 - [ ] Token MUST have Secrets Store Edit scope only (not Workers Deploy)
 - [ ] Use built-in fetch; retry once on 5xx; surface 4xx with body
 - [ ] Tests: success path, 4xx surface, retry-on-5xx, **value redacted in all error logs and stack traces**
@@ -132,7 +132,7 @@ purpose        = "chittyconnect Mercury API key"
 
 - [ ] Add `1p-bridge/docs/deploy-protocol.md` documenting the 1P-first → sync → deploy ordering
 - [ ] Add `chitty-op sync run --pre-deploy` flag — runs sync once, blocks until report is `synced` for all entries touched, then prints OK
-- [ ] Add to chittyconnect deploy script: `chitty-op sync run --pre-deploy` invocation before `wrangler deploy` (gated by env var so non-1P-touching deploys skip)
+- [ ] Add to chittyconnect deploy script: `chitty-op sync run --pre-deploy` invocation before `cf deploy` (gated by env var so non-1P-touching deploys skip)
 
 ### Task 10: Preflight + ship
 

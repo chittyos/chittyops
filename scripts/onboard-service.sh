@@ -15,14 +15,14 @@
 #   --type=TYPE           Service type (cloudflare-worker, npm-package, tool, docs)
 #   --neon-project=ID     Existing Neon project id (e.g. orange-feather-38463342).
 #                         If provided, fetch the connection URI from the Neon API
-#                         and register it as NEON_DB_<SERVICE> in 1Password
+#                         and register it as NEON_DB_<SERVICE> in chittysecrets
 #                         (synthetic-shared vault), matching the canonical pattern
 #                         used by chittyfinance et al.
 #   --dry-run             Show what would happen without making changes
 #
 # Required env when --neon-project is given:
 #   NEON_API_KEY                   Neon admin API key
-#   OP_SERVICE_ACCOUNT_TOKEN       1Password service-account token with WRITE
+#   OP_SERVICE_ACCOUNT_TOKEN       chittysecrets service-account token with WRITE
 #                                  scope on the synthetic-shared vault
 #   (OP_CONNECT_HOST/TOKEN are unset for this step — service-account auth only)
 
@@ -164,11 +164,11 @@ else
   echo -e "${YELLOW}  [DRY RUN] Would run: setup-org-workflows.sh --repo=$ORG/$SERVICE_NAME${NC}"
 fi
 
-# Step 3.5: Register Neon DB URL in 1Password (synthetic-shared vault)
+# Step 3.5: Register Neon DB URL in chittysecrets (synthetic-shared vault)
 # Mirrors the canonical NEON_DB_<SERVICE> pattern used by chittyfinance et al.
 # Skipped unless --neon-project=<id> is provided.
 if [ -n "$NEON_PROJECT_ID" ]; then
-  echo -e "\n${GREEN}Step 3.5: Registering Neon DB URL in 1Password...${NC}"
+  echo -e "\n${GREEN}Step 3.5: Registering Neon DB URL in chittysecrets...${NC}"
   # Normalize: uppercase + map any non-[A-Z0-9_] (e.g. hyphens in chittyevidence-db) to '_'
   # so ITEM_TITLE is always a valid env var name.
   ITEM_TITLE="NEON_DB_$(echo "$SERVICE_NAME" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9_]/_/g')"
@@ -182,7 +182,7 @@ if [ -n "$NEON_PROJECT_ID" ]; then
       exit 1
     fi
     if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
-      echo -e "${RED}  ERROR: OP_SERVICE_ACCOUNT_TOKEN not set. Cannot write to 1Password.${NC}" >&2
+      echo -e "${RED}  ERROR: OP_SERVICE_ACCOUNT_TOKEN not set. Cannot write to chittysecrets.${NC}" >&2
       exit 1
     fi
 

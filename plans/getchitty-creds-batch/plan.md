@@ -25,7 +25,7 @@ Today the `getchitty-creds` action's API-key path tries to extract NPM/GITHUB/NE
 - **Dependencies on prior work:**
   - **PR #54** (chittyops, OPEN): action.yml zones input + correct `{type, context}` API-key shape. Phase 2 of this plan rebases on it.
   - **chittyconnect OIDC zones plan** (`plans/chittyconnect-oidc-zones-support/plan.md`): teaches `/api/github-actions/credentials` to route through provisioner. Phase 2 of this plan needs the batch equivalent of that route.
-- **Branch state risk:** chittyconnect is on `smoke/1password-sdk-eval` with uncommitted WIP (3 modified, 1 untracked) that likely belongs to a parallel session. Phase 1 must use `git worktree add` off `origin/main`, never disturb the smoke branch.
+- **Branch state risk:** chittyconnect is on `smoke/chittysecrets-sdk-eval` with uncommitted WIP (3 modified, 1 untracked) that likely belongs to a parallel session. Phase 1 must use `git worktree add` off `origin/main`, never disturb the smoke branch.
 
 ## Locked decisions
 
@@ -93,7 +93,7 @@ All six decisions locked in (2026-05-04). Override before Phase 1 implementation
 #### Step 1.3: Deploy to staging, smoke test, PR
 **Files:** none in repo
 **What:**
-- `wrangler deploy --env staging`
+- `cf deploy --env staging`
 - Hit `https://chittyconnect-staging.chittyos.workers.dev/api/credentials/batch` with a real API key, batch including a real `cloudflare_workers_deploy` request with zones. Confirm:
   - CF token is minted (check Cloudflare dashboard for new API token entry)
   - Token's policy block includes `com.cloudflare.api.account.zone.<zone_id>` resource (provisioner's zone-scoping at `credential-provisioner-enhanced.js:601-608`)

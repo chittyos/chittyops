@@ -25,7 +25,7 @@ describe("loadBridgeEnv", () => {
     vi.spyOn(childProcess, "execSync").mockImplementation(() => {
       throw new Error("op: command not found");
     });
-    expect(() => loadBridgeEnv()).toThrow(/1Password|op CLI/);
+    expect(() => loadBridgeEnv()).toThrow(/chittysecrets|op CLI/);
   });
 
   it("throws if op returns empty value", () => {

@@ -3,13 +3,13 @@ import { resolveDestination } from "../src/lib/destination-resolver.js";
 import { isPolicyError, PolicyError } from "../src/lib/errors.js";
 
 describe("resolveDestination", () => {
-  it("resolves a valid 1Password destination", () => {
+  it("resolves a valid chittysecrets destination", () => {
     const r = resolveDestination({
-      store: "1password",
+      store: "chittysecrets",
       address: "infrastructure/cloudflare/api_key",
     });
     expect(r.verified).toBe(true);
-    expect(r.store).toBe("1password");
+    expect(r.store).toBe("chittysecrets");
   });
 
   it("rejects an unknown store", () => {

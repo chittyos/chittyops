@@ -33,7 +33,7 @@ chitty_id: 03-1-USA-9636-T-2605-1-75
    - `wrangler secret put CF_ACCOUNT_API_TOKEN`
    - `wrangler secret put QUO_API_KEY`
    - `wrangler secret put NOTION_API_KEY`
-3. Deploy: `wrangler deploy` — cron (`*/5 * * * *`) is enabled by default; comptroller is always-on.
+3. Deploy: `cf deploy` — cron (`*/5 * * * *`) is enabled by default; comptroller is always-on.
 4. Verify `/health`, `/api/v1/status`, `/budget/:service/status`, `/reports/daily`.
 
 ## Status

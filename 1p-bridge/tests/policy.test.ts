@@ -199,7 +199,7 @@ describe("brokerUnavailable", () => {
   });
 
   it("uses generic broker code for other targets", () => {
-    expect(brokerUnavailable("1password-connect", "down").code).toBe(
+    expect(brokerUnavailable("chittysecrets-connect", "down").code).toBe(
       "POLICY_BLOCKED_BROKER_UNAVAILABLE",
     );
   });
@@ -210,7 +210,7 @@ describe("missingMaterial", () => {
     const err = missingMaterial({
       required_secret_path: "op://infrastructure/cloudflare/api_key",
       required_scope: "secrets:read",
-      target_store: "1password",
+      target_store: "chittysecrets",
       approved_resolution_paths: [
         "ch1tty://chitty-1p-bridge",
         "https://connect.chitty.cc",
@@ -222,7 +222,7 @@ describe("missingMaterial", () => {
     expect(env.details).toMatchObject({
       required_secret_path: "op://infrastructure/cloudflare/api_key",
       required_scope: "secrets:read",
-      target_store: "1password",
+      target_store: "chittysecrets",
       approved_resolution_paths: expect.any(Array),
       retry_hint: expect.any(String),
     });

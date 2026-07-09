@@ -45,7 +45,7 @@ This repo is bound to ChittyOS-Core entity scope. Session state for work in this
 ## Commands Claude must NOT run
 
 - `npx wrangler` anything in this repo (not a Worker)
-- `op write` or any 1Password write-path operation before Phase 3 ships
+- `op write` or any chittysecrets write-path operation before Phase 3 ships
 - `chitty-op sync run` against production without `--dry-run` first
 - Anything that creates, modifies, or deletes Cloudflare API tokens — that's an operator action, not an agent action
 
