@@ -55,7 +55,7 @@ Everything else MUST return `404`.
    ```
 4. **Attach custom domain** to the worker:
    ```bash
-   cf deploy   # or PUT /accounts/{id}/workers/domains
+   wrangler deploy   # or PUT /accounts/{id}/workers/domains
    ```
 5. **Verify `/health` is reachable** at `https://<name>.chitty.cc/health` returning 200.
 6. **Submit registration**:

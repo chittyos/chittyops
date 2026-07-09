@@ -101,7 +101,7 @@ jobs:
       - name: Use credentials
         run: |
           echo "Cloudflare token available"
-          cf deploy
+          wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ steps.creds.outputs.cloudflare_token }}
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.creds.outputs.account_id }}
@@ -173,7 +173,7 @@ env:
   with:
     api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
 
-- run: cf deploy
+- run: wrangler deploy
   env:
     CLOUDFLARE_API_TOKEN: ${{ steps.creds.outputs.cloudflare_token }}
 ```

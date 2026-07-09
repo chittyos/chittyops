@@ -27,7 +27,7 @@ Deployments use ChittyConnect for ephemeral credentials:
 gh workflow run deploy.yml
 
 # Manual (requires credentials)
-npx cf deploy --env production
+npx wrangler deploy --env production
 curl -s https://{{DOMAIN}}/health | jq .
 ```
 

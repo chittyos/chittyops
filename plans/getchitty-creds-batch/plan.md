@@ -93,7 +93,7 @@ All six decisions locked in (2026-05-04). Override before Phase 1 implementation
 #### Step 1.3: Deploy to staging, smoke test, PR
 **Files:** none in repo
 **What:**
-- `cf deploy --env staging`
+- `wrangler deploy --env staging`
 - Hit `https://chittyconnect-staging.chittyos.workers.dev/api/credentials/batch` with a real API key, batch including a real `cloudflare_workers_deploy` request with zones. Confirm:
   - CF token is minted (check Cloudflare dashboard for new API token entry)
   - Token's policy block includes `com.cloudflare.api.account.zone.<zone_id>` resource (provisioner's zone-scoping at `credential-provisioner-enhanced.js:601-608`)

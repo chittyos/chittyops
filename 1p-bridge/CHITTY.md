@@ -12,7 +12,7 @@ visibility: PUBLIC
 
 ## Position in the ecosystem
 
-chitty-1p-bridge is the **continuous-sync companion** to the Portal Pattern adopted by chittyconnect (and any other ChittyOS Worker that uses Cloudflare Secrets Store). Without the bridge, secret changes in chittysecrets only reach Workers at the next `cf deploy`. With the bridge, they propagate within 5 minutes — without re-introducing runtime 1P calls from the Worker itself.
+chitty-1p-bridge is the **continuous-sync companion** to the Portal Pattern adopted by chittyconnect (and any other ChittyOS Worker that uses Cloudflare Secrets Store). Without the bridge, secret changes in chittysecrets only reach Workers at the next `wrangler deploy`. With the bridge, they propagate within 5 minutes — without re-introducing runtime 1P calls from the Worker itself.
 
 ## Stack
 
@@ -75,7 +75,7 @@ VM placement avoids all four. The SDK runs in its native Node environment with o
 | VM offline > 5 min | No syncs occur during outage | Run `chitty-op sync run` after VM recovery |
 | Watchlist parse error | Daemon refuses to start | Fix TOML, restart unit |
 | State cache corrupt | Treat all entries as changed; one-time resync | Inspect chronicle for spurious events |
-| Race with `cf deploy` | Deploy wins; bridge re-syncs next tick | Phase 3 enforces deploy-after-1P-write ordering |
+| Race with `wrangler deploy` | Deploy wins; bridge re-syncs next tick | Phase 3 enforces deploy-after-1P-write ordering |
 | TOTP field in watchlist | Hash never stabilizes (continuous re-syncs) | Watchlist schema rejects TOTP fields at load |
 
 ## Non-goals

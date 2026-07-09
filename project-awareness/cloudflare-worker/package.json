@@ -5,8 +5,8 @@
   "main": "src/worker.js",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "cf deploy",
-    "deploy:staging": "cf deploy --env staging",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
     "build": "esbuild src/worker.js --bundle --format=esm --outfile=dist/worker.js --platform=browser --target=es2022 --external:cloudflare:*",
     "test": "vitest",
     "lint": "eslint src/",

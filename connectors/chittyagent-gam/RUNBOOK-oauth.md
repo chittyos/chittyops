@@ -27,7 +27,7 @@ Gmail REST API (`gmail.readonly` scope, `format=metadata`).
    ChittyConnect OAuth flow (`/chico` → Gmail readonly connection).
 2. ChittyConnect stores the refresh token and mints short-lived access tokens.
 3. Deliver to the worker as the `GMAIL_PERSONAL_TOKEN` secret at deploy time
-   (`chittysecrets run … cf deploy`, or ChittyConnect runtime fetch). Until present, the worker
+   (`op run … wrangler deploy`, or ChittyConnect runtime fetch). Until present, the worker
    logs `no token provisioned; skipping` and degrades that source (F-R3) — no fake data.
 
 ## 2. `gam.chitty.cc` tunnel route (chico / ch1tty)

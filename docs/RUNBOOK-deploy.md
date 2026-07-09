@@ -95,22 +95,22 @@ psql $NEON_URL -f 2026_05_cost_ledger.sql --single-transaction --dry-run 2>&1 | 
 7. Deploy daily-comms-triage worker:
    ```bash
    cd chittyops/routines/comms/daily-comms-triage
-   cf deploy --env production
+   wrangler deploy --env production
    ```
 8. Deploy realtime variant (webhooks disabled in pilot):
    ```bash
    cd ../daily-comms-triage-realtime
-   cf deploy --env production --var WEBHOOK_DISABLED=true
+   wrangler deploy --env production --var WEBHOOK_DISABLED=true
    ```
 9. Deploy flow-hash-check:
    ```bash
    cd ../../ops/flow-hash-check
-   cf deploy --env production
+   wrangler deploy --env production
    ```
 10. Deploy ChittyComptroller (L1 only — safe-state on):
     ```bash
     cd ../../../services/comptroller
-    cf deploy --env production
+    wrangler deploy --env production
     ```
 11. Surfaces:
     - MCP tools: register `daily_updates.*` on mcp.chitty.cc gateway

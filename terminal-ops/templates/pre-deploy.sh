@@ -32,7 +32,7 @@ fi
 # Check wrangler config
 if [ -f "wrangler.toml" ]; then
     echo "  → Validating wrangler.toml..."
-    npx cf deploy --dry-run
+    npx wrangler deploy --dry-run
 fi
 
 echo "✅ Pre-deployment checks passed"

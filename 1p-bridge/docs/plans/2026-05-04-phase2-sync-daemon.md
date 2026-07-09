@@ -10,7 +10,7 @@
 
 **Working directory:** `chittyserv-dev:~/projects/github.com/CHITTYOS/chittyops/1p-bridge` (Phase 1 lib + CLI present from PR #59).
 
-**Race rule (LOAD-BEARING):** `cf deploy` MUST update 1P first, then `chitty-op sync run`, then deploy. Without this ordering, the bridge would overwrite a fresh deploy value with a stale 1P value within 5 minutes. Documented + enforced via Task 9 below.
+**Race rule (LOAD-BEARING):** `wrangler deploy` MUST update 1P first, then `chitty-op sync run`, then deploy. Without this ordering, the bridge would overwrite a fresh deploy value with a stale 1P value within 5 minutes. Documented + enforced via Task 9 below.
 
 ---
 
@@ -132,7 +132,7 @@ purpose        = "chittyconnect Mercury API key"
 
 - [ ] Add `1p-bridge/docs/deploy-protocol.md` documenting the 1P-first → sync → deploy ordering
 - [ ] Add `chitty-op sync run --pre-deploy` flag — runs sync once, blocks until report is `synced` for all entries touched, then prints OK
-- [ ] Add to chittyconnect deploy script: `chitty-op sync run --pre-deploy` invocation before `cf deploy` (gated by env var so non-1P-touching deploys skip)
+- [ ] Add to chittyconnect deploy script: `chitty-op sync run --pre-deploy` invocation before `wrangler deploy` (gated by env var so non-1P-touching deploys skip)
 
 ### Task 10: Preflight + ship
 

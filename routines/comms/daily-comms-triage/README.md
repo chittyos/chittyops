@@ -76,7 +76,7 @@ See [v0.5 SoT](../../../../docs/v0.5-source-of-truth.md) for full architecture, 
 ## Deploy
 
 ```bash
-cf deploy --config wrangler.toml
+wrangler deploy --config wrangler.toml
 ```
 
 Pre-deploy checks: see [RUNBOOK-deploy.md](../../../../docs/RUNBOOK-deploy.md).

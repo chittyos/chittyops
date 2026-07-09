@@ -97,7 +97,7 @@ deploy_workers() {
     fi
     
     # Deploy to staging first
-    cf deploy --env staging --name chittyops-project-awareness-staging
+    wrangler deploy --env staging --name chittyops-project-awareness-staging
     
     # Test staging deployment
     STAGING_URL="https://project-awareness-staging.chitty.cc/health"
@@ -105,7 +105,7 @@ deploy_workers() {
         success "Staging deployment successful for Project Awareness Worker"
         
         # Deploy to production
-        cf deploy --env production --name chittyops-project-awareness
+        wrangler deploy --env production --name chittyops-project-awareness
         
         # Test production deployment
         PROD_URL="https://project-awareness.chitty.cc/health"
@@ -133,7 +133,7 @@ create_mcp_server_worker() {
   "description": "ChittyOS MCP Server for ChatGPT integration",
   "main": "src/worker.js",
   "scripts": {
-    "deploy": "cf deploy",
+    "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "build": "echo 'Build step placeholder'"
   },
@@ -297,7 +297,7 @@ create_auth_worker() {
   "description": "ChittyOS Universal Auth Provider",
   "main": "src/worker.js",
   "scripts": {
-    "deploy": "cf deploy",
+    "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "build": "echo 'Build step placeholder'"
   },
@@ -407,7 +407,7 @@ deploy_all_workers() {
     info "Deploying MCP Server Worker..."
     cd "$PROJECT_ROOT/mcp-server-worker"
     npm install
-    cf deploy
+    wrangler deploy
     
     # Test MCP server
     MCP_URL="https://mcp.chitty.cc/health"
@@ -421,7 +421,7 @@ deploy_all_workers() {
     info "Deploying Auth Provider Worker..."
     cd "$PROJECT_ROOT/auth-worker"
     npm install
-    cf deploy
+    wrangler deploy
     
     # Test auth provider
     AUTH_URL="https://auth.chitty.cc/health"

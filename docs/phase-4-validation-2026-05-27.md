@@ -17,7 +17,7 @@
 | 18/18 INDEX artifacts at canonical chittyops paths | ✅ | PR #72 (merged to main) |
 | Compliance triad (CHARTER.md + CHITTY.md + AGENTS.md) × 4 workers | ✅ | 12 files under `routines/comms/*`, `routines/ops/flow-hash-check/`, `services/comptroller/` |
 | Local stubs (types.ts + crypto.ts + wrangler.toml × 4) | ✅ | PR #72 |
-| `cf deploy --dry-run` × 4 | ✅ | Verified locally |
+| `wrangler deploy --dry-run` × 4 | ✅ | Verified locally |
 | `tail_consumers = chittytrack` × 4 | ✅ | Corrected from initial `chittytail` |
 | `/health` + `/api/v1/status` in worker.ts × 4 | ✅ | Added in this PR |
 | Registration payloads × 4 | ✅ | `registrations/*.json` |
