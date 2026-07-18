@@ -19,3 +19,7 @@ ai-parity/
 
 # Apps Script credentials (use .clasp.json.example)
 studio-flows/chittyos-triage-addon/.clasp.json
+
+# Local Claude/Codex state
+.claude/
+

@@ -12,13 +12,7 @@
     "common": {
       "name": "ChittyOS Triage Engine",
       "logoUrl": "https://chitty.cc/favicon.ico",
-      "useLocaleFromApp": true,
-      "urlFetchWhitelist": [
-        "https://generativelanguage.googleapis.com/",
-        "https://router.chitty.cc/",
-        "https://tasks.agent.chitty.cc/",
-        "https://dispute.chitty.cc/"
-      ]
+      "useLocaleFromApp": true
     },
     "flows": {
       "workflowElements": [
@@ -31,21 +25,112 @@
             "onConfigFunction": "onConfigGeminiClassify",
             "onExecuteFunction": "onExecuteGeminiClassify",
             "inputs": [
-              {"id": "emailBody", "description": "Email body text", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "emailSubject", "description": "Email subject line", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "emailFrom", "description": "Sender email address", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+              {
+                "id": "emailBody",
+                "description": "Email body text",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "emailSubject",
+                "description": "Email subject line",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "emailFrom",
+                "description": "Sender email address",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              }
             ],
             "outputs": [
-              {"id": "category", "description": "Classification (billing, legal, debt_collection, etc.)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "payee", "description": "Company or person owed money", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "amount", "description": "Dollar amount due", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "dueDate", "description": "Payment due date (YYYY-MM-DD)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "urgency", "description": "Urgency (low, normal, high, critical)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "isLegal", "description": "Legal matter (true/false)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "isActionable", "description": "Actionable (true/false)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "sensitivity", "description": "Two-Space gate (business/legalink)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "confidence", "description": "Confidence percentage", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "summary", "description": "One-sentence summary", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+              {
+                "id": "category",
+                "description": "Classification (billing, legal, debt_collection, etc.)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "payee",
+                "description": "Company or person owed money",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "amount",
+                "description": "Dollar amount due",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "dueDate",
+                "description": "Payment due date (YYYY-MM-DD)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "urgency",
+                "description": "Urgency (low, normal, high, critical)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "isLegal",
+                "description": "Legal matter (true/false)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "isActionable",
+                "description": "Actionable (true/false)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "sensitivity",
+                "description": "Two-Space gate (business/legalink)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "confidence",
+                "description": "Confidence percentage",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "summary",
+                "description": "One-sentence summary",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              }
             ]
           }
         },
@@ -58,19 +143,96 @@
             "onConfigFunction": "onConfigRouterPush",
             "onExecuteFunction": "onExecuteRouterPush",
             "inputs": [
-              {"id": "emailBody", "description": "Email body text", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "emailSubject", "description": "Email subject line", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "emailFrom", "description": "Sender email address", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "category", "description": "Gemini classification category", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "isLegal", "description": "Legal flag from classify step", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+              {
+                "id": "emailBody",
+                "description": "Email body text",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "emailSubject",
+                "description": "Email subject line",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "emailFrom",
+                "description": "Sender email address",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "category",
+                "description": "Gemini classification category",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "isLegal",
+                "description": "Legal flag from classify step",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              }
             ],
             "outputs": [
-              {"id": "routerCategory", "description": "Router's 15-category classification", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "routerPriority", "description": "Priority (CRITICAL/HIGH/NORMAL/LOW)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "urgencyScore", "description": "Numeric urgency 0-100", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "caseRelated", "description": "Related to active case (true/false)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "routingRecommendation", "description": "Suggested destination", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "reasoning", "description": "AI reasoning", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+              {
+                "id": "routerCategory",
+                "description": "Router's 15-category classification",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "routerPriority",
+                "description": "Priority (CRITICAL/HIGH/NORMAL/LOW)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "urgencyScore",
+                "description": "Numeric urgency 0-100",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "caseRelated",
+                "description": "Related to active case (true/false)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "routingRecommendation",
+                "description": "Suggested destination",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "reasoning",
+                "description": "AI reasoning",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              }
             ]
           }
         },
@@ -83,18 +245,88 @@
             "onConfigFunction": "onConfigTriageIngest",
             "onExecuteFunction": "onExecuteTriageIngest",
             "inputs": [
-              {"id": "emailBody", "description": "Email body text", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "emailFrom", "description": "Sender email address", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "category", "description": "Classification category", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "urgency", "description": "Urgency level", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "sensitivity", "description": "Sensitivity (business/legalink)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "routerCategory", "description": "Router category", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+              {
+                "id": "emailBody",
+                "description": "Email body text",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "emailFrom",
+                "description": "Sender email address",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "category",
+                "description": "Classification category",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "urgency",
+                "description": "Urgency level",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "sensitivity",
+                "description": "Sensitivity (business/legalink)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "routerCategory",
+                "description": "Router category",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              }
             ],
             "outputs": [
-              {"id": "action", "description": "Action taken (ingested/skipped/error)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "routedTo", "description": "Destination service", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "disputeCreated", "description": "Dispute auto-created (true/false)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "statusCode", "description": "HTTP status code", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+              {
+                "id": "action",
+                "description": "Action taken (ingested/skipped/error)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "routedTo",
+                "description": "Destination service",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "disputeCreated",
+                "description": "Dispute auto-created (true/false)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "statusCode",
+                "description": "HTTP status code",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              }
             ]
           }
         },
@@ -107,25 +339,122 @@
             "onConfigFunction": "onConfigSheetLog",
             "onExecuteFunction": "onExecuteSheetLog",
             "inputs": [
-              {"id": "emailBody", "description": "Email body text", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "emailSubject", "description": "Email subject line", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "emailFrom", "description": "Sender email address", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "category", "description": "Classification category", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "urgency", "description": "Urgency level", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "confidence", "description": "Confidence percentage", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "sensitivity", "description": "Sensitivity (business/legalink)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "payee", "description": "Company or person owed money", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "amount", "description": "Dollar amount due", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "dueDate", "description": "Payment due date (YYYY-MM-DD)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "summary", "description": "One-sentence summary", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+              {
+                "id": "emailBody",
+                "description": "Email body text",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "emailSubject",
+                "description": "Email subject line",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "emailFrom",
+                "description": "Sender email address",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "category",
+                "description": "Classification category",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "urgency",
+                "description": "Urgency level",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "confidence",
+                "description": "Confidence percentage",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "sensitivity",
+                "description": "Sensitivity (business/legalink)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "payee",
+                "description": "Company or person owed money",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "amount",
+                "description": "Dollar amount due",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "dueDate",
+                "description": "Payment due date (YYYY-MM-DD)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "summary",
+                "description": "One-sentence summary",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              }
             ],
             "outputs": [
-              {"id": "action", "description": "Action taken (logged_to_sheet)", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}},
-              {"id": "rowNumber", "description": "Row number in sheet", "cardinality": "SINGLE", "dataType": {"basicType": "STRING"}}
+              {
+                "id": "action",
+                "description": "Action taken (logged_to_sheet)",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              },
+              {
+                "id": "rowNumber",
+                "description": "Row number in sheet",
+                "cardinality": "SINGLE",
+                "dataType": {
+                  "basicType": "STRING"
+                }
+              }
             ]
           }
         }
       ]
     }
-  }
+  },
+  "urlFetchWhitelist": [
+    "https://generativelanguage.googleapis.com/",
+    "https://router.chitty.cc/",
+    "https://tasks.agent.chitty.cc/",
+    "https://dispute.chitty.cc/"
+  ]
 }

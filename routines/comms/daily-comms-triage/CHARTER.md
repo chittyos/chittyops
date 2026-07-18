@@ -6,7 +6,7 @@ version: 1.0.0
 status: DRAFT
 registered_with: chittycanon://core/services/canon
 title: "daily-comms-triage Charter"
-certifier: chittycanon://core/services/chittycertify
+certifier: chittycanon://core/foundation/mychitty-vault
 visibility: PUBLIC
 chitty_id: 03-1-USA-0955-T-2605-1-37
 ---

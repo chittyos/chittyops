@@ -1435,6 +1435,23 @@ async function fetchInsights(env: Env, refresh: boolean): Promise<any> {
  *   enforces MTD/daily caps, and here a daily absolute-$ trip (ANOMALY_NEW_SERVICE_ABS_USD) catches
  *   a genuine hard-$ spike in a service's first days.
  */
+/** Parse a PostgreSQL array literal like {1.5,0,2} or a JSON array string [1,2] into number[]. */
+function parsePgArray(raw: string): number[] {
+  if (!raw || typeof raw !== 'string') return [];
+  const s = raw.trim();
+  // PostgreSQL array literal: {val,val,...}
+  if (s.startsWith('{') && s.endsWith('}')) {
+    const inner = s.slice(1, -1);
+    if (inner.length === 0) return [];
+    return inner.split(',').map(v => Number(v.trim()) || 0);
+  }
+  // JSON array: [val,val,...]
+  if (s.startsWith('[')) {
+    try { return JSON.parse(s); } catch (e) { return []; }
+  }
+  try { return JSON.parse(s); } catch (e) { return []; }
+}
+
 async function detectAnomalies(env: Env): Promise<Anomaly[]> {
   const db = getDb(env);
   let rows: Array<{ service: string; tier: string; series: number[] | string }>;
@@ -1481,7 +1498,7 @@ async function detectAnomalies(env: Env): Promise<Anomaly[]> {
   const anomalies: Anomaly[] = [];
 
   for (const r of rows) {
-    const raw = Array.isArray(r.series) ? r.series : JSON.parse(r.series as string);
+    const raw = Array.isArray(r.series) ? r.series : parsePgArray(r.series as string);
     const series: number[] = raw.map((v: any) => Number(v) || 0);
     if (series.length < 2) continue;
 

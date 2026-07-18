@@ -6,7 +6,7 @@ version: 0.1.0
 status: DRAFT
 registered_with: chittycanon://core/services/canon
 title: "chitty-1p-bridge Charter"
-certifier: chittycanon://core/services/chittycertify
+certifier: chittycanon://core/foundation/mychitty-vault
 visibility: PUBLIC
 ---
 
