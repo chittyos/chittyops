@@ -1,6 +1,6 @@
 name = "daily-comms-triage"
 main = "worker.ts"
-compatibility_date = "2026-05-01"
+compatibility_date = "2026-08-07"
 account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"  # ChittyCorp LLC
 
 # Cron stays DISABLED until pilot launch (RUNBOOK §Day 29-42).

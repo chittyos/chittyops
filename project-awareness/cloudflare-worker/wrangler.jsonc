@@ -2,7 +2,7 @@
 {
   "name": "chittyops-project-awareness",
   "main": "src/worker.js",
-  "compatibility_date": "2024-08-29",
+  "compatibility_date": "2026-08-07",
   "compatibility_flags": [
     "nodejs_compat"
   ],

@@ -2,7 +2,7 @@
 {
   "name": "chittyos-marketplace-skill",
   "main": "src/index.ts",
-  "compatibility_date": "2024-11-09",
+  "compatibility_date": "2026-08-07",
   "node_compat": true,
   "env": {
     "staging": {
