@@ -15,8 +15,8 @@ importers:
         specifier: github:chittyfoundation/chittyops#main
         version: '@chittyfoundation/ops@git+ssh://git@github.com/chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1'
       js-yaml:
-        specifier: ^4.3.1
-        version: 4.3.1
+        specifier: ^5.2.3
+        version: 5.2.3
 
 packages:
 
@@ -27,8 +27,8 @@ packages:
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
-  js-yaml@4.3.1:
-    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
+  js-yaml@5.2.3:
+    resolution: {integrity: sha512-n+mUVyUX5bVv7G/G2zyIHOhdxfuU1dY2NOFzTQUWiMUbFss8b57NFlgCCaggU78wSw5KVS9cllzeLyzyR+n5nw==}
     hasBin: true
 
 snapshots:
@@ -37,6 +37,6 @@ snapshots:
 
   argparse@2.0.1: {}
 
-  js-yaml@4.3.1:
+  js-yaml@5.2.3:
     dependencies:
       argparse: 2.0.1
