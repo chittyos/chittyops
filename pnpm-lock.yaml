@@ -10,33 +10,33 @@ importers:
     dependencies:
       '@chittyfoundation/hookify':
         specifier: github:chittyfoundation/chittyops#main
-        version: '@chittyfoundation/ops@git+https://git@github.com:chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1'
+        version: '@chittyfoundation/ops@git+ssh://git@github.com/chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1'
       '@chittyfoundation/territories':
         specifier: github:chittyfoundation/chittyops#main
-        version: '@chittyfoundation/ops@git+https://git@github.com:chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1'
+        version: '@chittyfoundation/ops@git+ssh://git@github.com/chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1'
       js-yaml:
-        specifier: ^4.3.0
-        version: 4.3.0
+        specifier: ^4.3.1
+        version: 4.3.1
 
 packages:
 
-  '@chittyfoundation/ops@git+https://git@github.com:chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1':
+  '@chittyfoundation/ops@git+ssh://git@github.com/chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1':
     resolution: {commit: 6557c51c2701c934f7f49b9db69547c3ed6daff1, repo: git@github.com:chittyfoundation/chittyops.git, type: git}
     version: 1.0.0
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
-  js-yaml@4.3.0:
-    resolution: {integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==}
+  js-yaml@4.3.1:
+    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
     hasBin: true
 
 snapshots:
 
-  '@chittyfoundation/ops@git+https://git@github.com:chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1': {}
+  '@chittyfoundation/ops@git+ssh://git@github.com/chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1': {}
 
   argparse@2.0.1: {}
 
-  js-yaml@4.3.0:
+  js-yaml@4.3.1:
     dependencies:
       argparse: 2.0.1
