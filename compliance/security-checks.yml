@@ -110,12 +110,7 @@ checks:
     workflow_checks:
       - pattern: "compliance.*audit|ecosystem.*audit|security.*audit"
         description: "Compliance or security audit workflow active in the repository"
-      # 2026-08-21: "onepassword" dropped from this pattern. 1Password is retired as
-      # both a credential lane and an authority; the cold source of truth is
-      # ChittySecrets (secrets.chitty.cc, fronting Cloudflare Secrets Store). A repo
-      # must not earn this signal by carrying a 1P rotation workflow. No provider name
-      # is substituted — the generic patterns below match any real rotation workflow.
-      - pattern: "rotation.*audit|secret.*rotation"
+      - pattern: "onepassword.*rotation|rotation.*audit|secret.*rotation"
         required: false
         description: "Secret rotation audit workflow configured (recommended)"
     file_checks:

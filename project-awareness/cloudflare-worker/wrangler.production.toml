@@ -175,5 +175,5 @@ crons = ["0 */6 * * *"]              # Health check every 6 hours
 
 # Observability configuration
 [observability]
-enabled = false
-head_sampling_rate = 0            # 1% trace sampling
+enabled = true
+head_sampling_rate = 0.01            # 1% trace sampling

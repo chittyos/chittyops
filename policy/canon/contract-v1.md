@@ -58,21 +58,14 @@ Only this code may request operator provisioning, and it MUST carry every resolu
   "error_code": "MISSING_CREDENTIAL_MATERIAL",
   "message": "credential material missing at '<path>'",
   "details": {
-    "required_secret_path": "<store>/<item>/<field>",
+    "required_secret_path": "op://vault/item/field",
     "required_scope": "secrets:read",
-    "target_store": "chittysecrets",
-    "approved_resolution_paths": ["https://connect.chitty.cc"],
-    "retry_hint": "Provision via ch1tty -> ChittyConnect, then retry"
+    "target_store": "1password",
+    "approved_resolution_paths": ["ch1tty://chitty-1p-bridge", "https://connect.chitty.cc"],
+    "retry_hint": "Provision then retry op.get"
   }
 }
 ```
-
-> **Note (2026-08-21):** `target_store` was `1password` and the approved resolution paths
-> included `ch1tty://chitty-1p-bridge`. 1Password is retired as both a credential lane and
-> a declared authority; the cold source of truth is ChittySecrets (`secrets.chitty.cc`,
-> fronting Cloudflare Secrets Store), runtime delivery is Cloudflare Secrets, and the
-> chitty-1p-bridge broker is retired. Never emit `op://` as a `required_secret_path` or
-> `1password` as a `target_store`.
 
 ## Forbidden patterns
 

@@ -15,5 +15,7 @@ REPO_FLOW_HASH_WS1 = "REPLACE_AT_DEPLOY"  # sha256 of studio-flows/aribia-daily-
 REPO_FLOW_HASH_WS2 = "REPLACE_AT_DEPLOY"
 
 [observability]
-enabled = false
+enabled = true
 
+[[tail_consumers]]
+service = "chittytrack"

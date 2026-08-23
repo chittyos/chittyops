@@ -3,7 +3,7 @@ uri: chittycanon://docs/ops/procedure/chitty-1p-bridge-claude
 namespace: chittycanon://docs/ops
 type: procedure
 version: 0.1.0
-status: RETIRED
+status: DRAFT
 registered_with: chittycanon://core/services/canon
 title: "chitty-1p-bridge Claude Guidance"
 visibility: PUBLIC
@@ -11,11 +11,7 @@ visibility: PUBLIC
 
 # CLAUDE.md
 
-**This service is RETIRED (2026-08-21).** 1Password is retired as both a credential lane
-and an authority; the cold source of truth is ChittySecrets (`secrets.chitty.cc`,
-fronting Cloudflare Secrets Store). `op` has zero accounts on this host, so nothing here
-runs. Read the retirement section at the top of AGENTS.md before doing anything in this
-directory — it is the canonical source, and this file is only Claude-specific addenda.
+Claude-specific addenda for this repo. For vendor-neutral agent guidance, read AGENTS.md first — that's the canonical source.
 
 ## Skills relevant here
 
@@ -23,14 +19,14 @@ directory — it is the canonical source, and this file is only Claude-specific 
 |---|---|
 | `chittyos-compliance` | Before tagging a release or modifying CHARTER/CHITTY/AGENTS/CLAUDE/SECURITY |
 | `chitty-registry` | When (re-)registering with ChittyRegistry |
-| `chitty-deploy` | NEVER — this service is retired and never deployed to Cloudflare. |
+| `chitty-deploy` | NEVER — this service does not deploy to Cloudflare. Use systemd directly. |
 | `evidence-collect` | Not applicable — no case data here |
 
 ## Agents relevant here
 
 | Agent | When |
 |---|---|
-| `chittyconnect-concierge` | The owner of any live credential need. Route credential intent here (`/chico`) instead of anywhere in this directory. |
+| `chittyconnect-concierge` | Reviewing changes that touch the sync watchlist or CF Secrets Store interaction |
 | `chittycanon-code-cardinal` | Auditing entity-type usage (the bridge process is Person, not Thing) |
 | `chittyregister-compliance-sergeant` | Validating CHARTER/CHITTY/CLAUDE/AGENTS/SECURITY before registration |
 
@@ -41,17 +37,17 @@ This repo is bound to ChittyOS-Core entity scope. Session state for work in this
 
 ## Commands Claude is expected to run autonomously
 
-None. The service is retired; there is no autonomous work to do here. If you are editing
-these docs, `npm run preflight` before a commit is still reasonable — nothing else is.
+- `ssh chittyserv-dev 'cd ~/projects/github.com/CHITTYOS/chittyops/1p-bridge && <cmd>'` — all dev happens on the VM
+- `npm run preflight` before any commit
+- `gh pr create` after pushing a feature branch
+- `curl -s https://registry.chitty.cc/api/v1/search?q=1p-bridge` to confirm registration
 
 ## Commands Claude must NOT run
 
-- `op` in any form — read, run, item, inject, account. There are zero accounts configured
-  on this host; every invocation fails, and any audit built on it emits false findings.
-- `chitty-op` in any form, including `sync run --dry-run` — the service is retired.
-- Anything that registers or re-registers `chitty-1p-bridge` with ChittyRegistry.
-- `npx wrangler` anything in this repo (not a Worker).
-- Anything that creates, modifies, or deletes Cloudflare API tokens — that's an operator action, not an agent action.
+- `npx wrangler` anything in this repo (not a Worker)
+- `op write` or any 1Password write-path operation before Phase 3 ships
+- `chitty-op sync run` against production without `--dry-run` first
+- Anything that creates, modifies, or deletes Cloudflare API tokens — that's an operator action, not an agent action
 
 ## Memory cues
 

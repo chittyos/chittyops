@@ -25,11 +25,7 @@
       "host": "chittyserv-dev",
       "transport": "ssh",
       "handler": "/opt/chitty-1p-bridge/ch1tty/handler.sh",
-      "policy_module": "1p-bridge/src/lib/policy.ts",
-      "status": "retired",
-      "retired_on": "2026-08-21",
-      "note": "RETIRED \u2014 1Password is retired as both a credential lane and an authority; the cold source of truth is chittysecrets. Do not route credential intent to this destination. Retained only because policy_module still points at the generic policy gate that physically lives in this directory.",
-      "routable": false
+      "policy_module": "1p-bridge/src/lib/policy.ts"
     },
     {
       "service": "chittyconnect",

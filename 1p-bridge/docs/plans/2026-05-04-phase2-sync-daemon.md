@@ -1,7 +1,5 @@
 # chitty-1p-bridge Phase 2: Sync Daemon Implementation Plan
 
-> **RETIRED — 2026-08-21.** This document is a historical design record. 1Password is retired as both a credential lane and a declared authority; the cold source of truth is now ChittySecrets (`secrets.chitty.cc`, fronting Cloudflare Secrets Store), and Cloudflare Secrets remain runtime delivery. `op` has zero accounts on this host, so the 1P-as-cold-source premise this design rests on no longer holds. Do not implement, resume, or adapt any phase described here.
-
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a one-shot sync daemon that propagates 1Password value changes into Cloudflare Secrets Store within 5 minutes, governed by a TOML watchlist, with hash-based change detection and ChittyChronicle audit logging.

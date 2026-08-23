@@ -17,8 +17,8 @@ Governance for the chittyops monorepo and the `@chittyops` npm scope. All packag
 
 - CI/CD workflows, GitHub Actions, reusable workflows
 - Ecosystem compliance auditing + remediation
-- Operator CLIs (`getchitty-creds`, etc.; `chitty-op` is retired with `1p-bridge/`)
-- VM-resident bridge services and sync daemons (note: the 1Password ↔ secrets-store bridge, `1p-bridge/`, is RETIRED as of 2026-08-21 — see `1p-bridge/CHARTER.md`; do not build new 1Password bridges)
+- Operator CLIs (`chitty-op`, `getchitty-creds`, etc.)
+- VM-resident bridge services (1Password ↔ secrets store, sync daemons, etc.)
 - Onboarding + provisioning automation
 - Cross-org workflow management
 
@@ -86,8 +86,7 @@ Every package MUST define and pass before merge:
 
 - **No long-lived secrets in package source or workflows.** Use ChittyConnect ephemeral credential provisioning.
 - Only org-level secret tolerated: `CHITTYCONNECT_API_KEY`.
-- **Cold source of truth is ChittySecrets** (`secrets.chitty.cc`, fronting Cloudflare Secrets Store). Runtime delivery is Cloudflare Secrets; KV only for justified short-lived cache or rotation state.
-- **1Password is retired** as both a lane and an authority (2026-08-21). `op` is installed on the VM with zero accounts configured, so every `op read` / `op run` fails. Do not add `op://` references, `op run` wrappers, or new 1Password bridges; `@chittyops/1p-bridge` is retired.
+- 1Password Connect is read-only from packages; writes go through approved bridges (e.g. `@chittyops/1p-bridge`).
 - Secrets in package config files MUST be referenced by path / handle, never embedded.
 
 ## 8. Canonical ontology

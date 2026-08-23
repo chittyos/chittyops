@@ -44,9 +44,7 @@ After all 10 checks pass, we apply the Neon migrations in this order:
 Then proceed to Week 2.
 
 Defaults to honor (per nb-development-defaults skill):
-- Secrets brokered through ch1tty → ChittyConnect; cold source of truth is
-  ChittySecrets, runtime delivery is Cloudflare secrets. Never hardcoded, and
-  never via `op`/1Password (retired; `op` has zero accounts on this host)
+- 1Password injection for secrets, never hardcoded
 - chittyregistry registration before any new worker deploys
 - CHARTER.md / CHITTY.md / CLAUDE.md per chittyos-compliance skill for the
   comptroller service

@@ -20,15 +20,12 @@ Each worker must serve `/health` over HTTPS **before** submission so register.ch
      -d '{"domain":"daily-comms-triage.chitty.cc"}'
    ```
 3. **Serve `key_authorization` at** `/.well-known/chitty-register-challenge/<token>` on the worker.
-4. **Submit the registration payload.** `CHITTYCONNECT_API_KEY` is the only org-level
-   secret; broker it through `ch1tty → ChittyConnect` (`/chico`) into the environment
-   before running this loop. Do not resolve it with `op read` — 1Password is retired and
-   `op` has zero accounts on this host.
+4. **Submit the registration payload:**
    ```bash
    for f in registrations/*.json; do
      curl -X POST https://register.chitty.cc/api/v1/register \
        -H 'Content-Type: application/json' \
-       -H "Authorization: Bearer $CHITTYCONNECT_API_KEY" \
+       -H "Authorization: Bearer $(op read 'op://chittyos/chittyconnect/api_key')" \
        --data @"$f"
      echo
    done

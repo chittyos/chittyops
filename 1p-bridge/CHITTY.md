@@ -3,24 +3,16 @@ uri: chittycanon://docs/ops/architecture/chitty-1p-bridge
 namespace: chittycanon://docs/ops
 type: architecture
 version: 0.1.0
-status: RETIRED
+status: DRAFT
 title: "chitty-1p-bridge Architecture"
 visibility: PUBLIC
 ---
 
 # chitty-1p-bridge — Architecture
 
-> **RETIRED — 2026-08-21.** This architecture describes a 1Password-fed sync path that
-> no longer exists. The cold source of truth is ChittySecrets (`secrets.chitty.cc`,
-> fronting Cloudflare Secrets Store); Cloudflare Secrets remain runtime delivery. The
-> `@1password/connect` upstream this design rests on is unreachable — `op` has zero
-> accounts on chittyserv-dev. Read the rest as a historical record. It is not a
-> template for a replacement, and re-pointing it at ChittySecrets would be an
-> unratified re-architecture.
+## Position in the ecosystem
 
-## Position in the ecosystem (historical)
-
-chitty-1p-bridge was the **continuous-sync companion** to the Portal Pattern adopted by chittyconnect (and any other ChittyOS Worker that uses Cloudflare Secrets Store). Without the bridge, secret changes in 1Password only reach Workers at the next `wrangler deploy`. With the bridge, they propagate within 5 minutes — without re-introducing runtime 1P calls from the Worker itself.
+chitty-1p-bridge is the **continuous-sync companion** to the Portal Pattern adopted by chittyconnect (and any other ChittyOS Worker that uses Cloudflare Secrets Store). Without the bridge, secret changes in 1Password only reach Workers at the next `wrangler deploy`. With the bridge, they propagate within 5 minutes — without re-introducing runtime 1P calls from the Worker itself.
 
 ## Stack
 
@@ -49,7 +41,7 @@ chittyserv-dev (VM)
     └── chitty-1p-bridge-sync.timer (every 5 min)
 ```
 
-## Consumers (historical — none are served today)
+## Consumers
 
 | Consumer | How it uses the bridge |
 |---|---|
@@ -58,7 +50,7 @@ chittyserv-dev (VM)
 | chittyconnect Worker | Indirectly — its env bindings get refreshed by the sync daemon |
 | chittyrouter, chittyfinance, etc. | Same indirect pattern when their secrets are added to the watchlist |
 
-## Certification target (void — service retired)
+## Certification target
 
 - ChittyCertify level: **Bronze** at Phase 1 (compliance triad complete, registered)
 - Promotes to **Silver** when sync is observed reliable for 30 days with chronicle coverage

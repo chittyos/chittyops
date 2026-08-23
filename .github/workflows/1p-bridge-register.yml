@@ -1,13 +1,6 @@
 name: 1p-bridge — ChittyRegistry registration
 
-# DISABLED — 2026-08-21. chitty-1p-bridge is RETIRED: 1Password is retired as both a
-# credential lane and an authority (cold source of truth is now chittysecrets), and op
-# has zero accounts on this host. Registering the bridge would advertise a dead
-# capability to the ecosystem, so this workflow no longer runs on any trigger. Deleting
-# it, or de-registering an already-published record at registry.chitty.cc, is an
-# operator act. Do not re-enable.
-#
-# (Historical) Registered chitty-1p-bridge with ChittyRegistry by POSTing 1p-bridge/registration.json
+# Registers chitty-1p-bridge with ChittyRegistry by POSTing 1p-bridge/registration.json
 # to {REGISTRY_URL}/v0.1/servers (MCP-style endpoint that accepts payloads).
 #
 # DEFERRED — workflow_dispatch only:
@@ -23,7 +16,6 @@ name: 1p-bridge — ChittyRegistry registration
 # Tracking: CHITTYOS/chittyregistry (registry-update.yml header, 2026-04-30).
 
 on:
-  # Retired: no triggers. Previously workflow_dispatch.
   workflow_dispatch:
     inputs:
       registry_url:

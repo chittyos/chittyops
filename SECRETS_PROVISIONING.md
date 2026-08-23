@@ -6,16 +6,12 @@
 
 Services DO NOT store long-lived credentials. Instead, they request short-lived tokens on-demand from ChittyConnect's `/credentials/deploy` endpoint.
 
-The **cold source of truth behind ChittyConnect is ChittySecrets** (`secrets.chitty.cc`), which fronts the Cloudflare Secrets Store. Runtime delivery to Workers is Cloudflare Secrets; KV is only for justified short-lived cache or rotation state.
-
-**1Password is retired** as of 2026-08-21 — as a lane and as an authority. `op` is installed on the ops VM but has zero accounts configured, so every `op read` / `op run` fails. Do not reintroduce `op://` references or an `op`-based provisioning step anywhere in this pipeline.
-
 ## How It Works
 
 ```
 ┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
-│  GitHub Actions │         │  ChittyConnect  │         │  ChittySecrets  │
-│  (any service)  │         │ connect.chitty.cc│         │secrets.chitty.cc│
+│  GitHub Actions │         │  ChittyConnect  │         │   1Password     │
+│  (any service)  │         │ connect.chitty.cc│         │   (root creds)  │
 └────────┬────────┘         └────────┬────────┘         └────────┬────────┘
          │                           │                           │
          │ CHITTYCONNECT_API_KEY     │                           │
@@ -184,6 +180,6 @@ env:
 
 ## Related Documentation
 
-- `CHITTYOS/chittyconnect` → `SECRETS_QUICK_REFERENCE.md`
-- (removed) `1PASSWORD_INTEGRATION_COMPLETE.md` — described the retired 1Password lane, and the `/Volumes/chitty/...` path it lived on does not exist on the current ops host
-- `CHITTYCORP/docs` → `architecture/ALCHEMY_CONTEXTCONSCIOUSNESS.md`
+- `/Volumes/chitty/github.com/CHITTYOS/chittyconnect/SECRETS_QUICK_REFERENCE.md`
+- `/Volumes/chitty/github.com/CHITTYOS/chittyconnect/1PASSWORD_INTEGRATION_COMPLETE.md`
+- `/Volumes/chitty/docs/architecture/ALCHEMY_CONTEXTCONSCIOUSNESS.md`

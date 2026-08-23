@@ -42,13 +42,9 @@ auth:
 
 secrets:
   provider: chittyconnect
-  # Cold source of truth: ChittySecrets (secrets.chitty.cc), fronting Cloudflare
-  # Secrets Store. Runtime delivery is Cloudflare Secrets; KV only for short-lived
-  # cache or rotation state. 1Password is retired as of 2026-08-21 — never declare
-  # `vault: 1password` or an `op://` path here; `op` has zero accounts and any such
-  # reference is unresolvable.
-  cold_source: chittysecrets
-  runtime_delivery: cloudflare-secrets
+  vault: 1password
+  paths:
+    production: op://ChittyOS/{SERVICE_NAME}-prod
 
 github:
   repository: {ORG}/{SERVICE_NAME}

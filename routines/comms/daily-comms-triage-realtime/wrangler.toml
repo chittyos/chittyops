@@ -15,5 +15,7 @@ binding = "KV_LOCKS"
 id = "REPLACE_AT_DEPLOY"
 
 [observability]
-enabled = false
+enabled = true
 
+[[tail_consumers]]
+service = "chittytrack"

@@ -1,17 +1,15 @@
 name: 1p-bridge — npm publish
 
-# DISABLED — 2026-08-21. chitty-1p-bridge is RETIRED: 1Password is retired as both a
-# credential lane and an authority (cold source of truth is now chittysecrets), and op
-# has zero accounts on this host. Publishing new versions of a package whose only job is
-# 1Password access would ship a dead capability, so the push trigger is removed.
-# Removing this workflow (or unpublishing/deprecating the npm package) is an operator act.
-#
-# (Historical) Published @chittyops/1p-bridge to npm when 1p-bridge/** changed on main.
+# Publishes @chittyops/1p-bridge to npm when 1p-bridge/** changes on main.
 # Uses ephemeral npm_token from ChittyConnect via getchitty-creds. Idempotent:
 # skips if the package.json version is already on the registry.
 
 on:
-  # Retired: push trigger removed so no further releases ship. Manual only.
+  push:
+    branches: [main]
+    paths:
+      - '1p-bridge/**'
+      - '.github/workflows/1p-bridge-publish.yml'
   workflow_dispatch:
 
 permissions:
