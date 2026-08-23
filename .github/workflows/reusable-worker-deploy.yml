@@ -49,6 +49,15 @@ jobs:
 
       - run: npm run build --if-present
 
+      # ABSENT IS NOT OFF — chittyentity PR #650, operator decision 2026-08-16.
+      # Blocks a deploy whose wrangler config enables observability without
+      # stating a head_sampling_rate. An omitted key is not "unset": it inherits
+      # a capturing platform default, which is how the fleet accrued ~$65/month
+      # of log ingest while every config still read as conformant to a grep.
+      # Gates on PRESENCE of the key, not on any numeric threshold.
+      - name: Gate — observability sampling rate must be explicit
+        uses: CHITTYOS/chittyops/.github/actions/check-observability@main
+
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3
         with:
