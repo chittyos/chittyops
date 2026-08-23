@@ -21,7 +21,7 @@ For any agent (Claude, ChatGPT, autonomous routine) touching this worker.
 
 ## Soft defaults
 
-- Use 1Password injection for all secrets at deploy: `op run --env-file=.../neon.env -- wrangler deploy`.
+- Broker all deploy-time secrets through `ch1tty → ChittyConnect` (`/chico`) and set them with `wrangler secret put`, or let ChittyConnect deliver them at runtime. Do NOT use `op run --env-file=... -- wrangler deploy`: 1Password is retired and `op` has zero accounts on this host, so that command fails.
 - Use the canonical `chittytrack` tail consumer; never inline log destinations.
 - Heartbeat to `discovery.chitty.cc/heartbeat/daily-comms-triage` on every `scheduled` invocation.
 

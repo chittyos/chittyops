@@ -50,7 +50,5 @@ id = "03cd968da5eb41d6bc13c9ee48d22254"
 binding = "AI"
 
 [observability]
-enabled = true
+enabled = false
 
-[[tail_consumers]]
-service = "chittytrack"

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# RETIRED — 2026-08-21. chitty-1p-bridge is retired: 1Password is retired as both a
+# credential lane and an authority (cold source of truth is now chittysecrets), and
+# op has zero accounts on this host. Registering the bridge would advertise a dead
+# capability. Fail closed. Re-enabling or de-registering is an operator act.
+echo "chitty-1p-bridge is RETIRED. Refusing to register a dead capability." >&2
+exit 2
+
 # Local/dev helper. The canonical registration path is the GitHub Actions
 # workflow `.github/workflows/1p-bridge-register.yml`, which routes through
 # ChittyConnect (BINDING: sensitive-intent routing). Use this script only

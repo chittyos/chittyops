@@ -3,7 +3,7 @@ uri: chittycanon://docs/ops/policy/chitty-1p-bridge-security
 namespace: chittycanon://docs/ops
 type: policy
 version: 0.1.0
-status: DRAFT
+status: RETIRED
 registered_with: chittycanon://core/services/canon
 title: "chitty-1p-bridge Security Policy"
 visibility: PUBLIC
@@ -11,7 +11,15 @@ visibility: PUBLIC
 
 # Security
 
-## Threat model
+> **RETIRED — 2026-08-21.** The 1Password lane this service secured is retired as both
+> a lane and an authority; the cold source of truth is ChittySecrets. `op` has zero
+> accounts on this host, so the credential-resolution and rotation procedures below
+> cannot be carried out. Sections marked historical are retained as a record of what
+> the service held while it ran, not as live procedure. Whether the tokens named here
+> have actually been revoked is NOT asserted — verifying and revoking them is an
+> operator act.
+
+## Threat model (historical — what the service held while it ran)
 
 | Asset | Held where | Protection |
 |---|---|---|
@@ -21,10 +29,10 @@ visibility: PUBLIC
 | State cache | `/var/lib/chitty-1p-bridge/state.json` mode 0644 | Contains hashes only — never values |
 | Watchlist | `/etc/chitty-1p-bridge/watchlist.toml` mode 0640 | PR-reviewed; declares paths not values |
 
-## Credential handling
+## Credential handling (historical — procedure no longer executable)
 
-- The bridge's own credentials are stored in 1Password at canonical paths and resolved on VM start via `op` CLI. They are never in environment variables on the operator's shell, never in systemd unit files, and never in the repo.
-- Rotation cadence: quarterly for both 1P Connect tokens and the CF API token. Rotation is tracked in `secret-rotation.js` registry (chittyconnect) once the bridge itself is the canonical rotation actor (Phase 3).
+- The bridge's own credentials were stored in 1Password at canonical paths and resolved on VM start via the `op` CLI. That resolution path is dead: `op` has no accounts configured on this host, so no `op read` succeeds. Do not attempt it, and do not add an `op`-based bootstrap back.
+- No rotation cadence is in force for this service. The quarterly 1P-Connect/CF-token rotation described here cannot run without the `op` lane, and the bridge never became the canonical rotation actor. Auditing or revoking any credential this service was issued is an operator act — route it through `ch1tty → ChittyConnect` (`/chico`), not through this repo.
 - The chronicle logger redacts any field whose label matches `/password|token|secret|key|credential|otp/i` before emitting.
 
 ## Non-secrets that must not leak

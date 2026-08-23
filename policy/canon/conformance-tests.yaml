@@ -9,7 +9,10 @@ scenarios:
     expected_error_code: POLICY_BLOCKED_MANDATORY_BROKER_ROUTE
 
   - id: broker-unavailable
-    description: 1Password Connect bootstrap failure surfaces as POLICY_BLOCKED_BROKER_UNAVAILABLE
+    # Historically this exercised a 1Password Connect bootstrap failure. 1Password is
+    # retired as both a lane and an authority (2026-08-21); the scenario is retained as
+    # the canonical broker-bootstrap-failure case, not as an endorsement of that broker.
+    description: Broker bootstrap failure surfaces as POLICY_BLOCKED_BROKER_UNAVAILABLE
     test: 1p-bridge/tests/conformance.test.ts::broker
     expected_error_code: POLICY_BLOCKED_BROKER_UNAVAILABLE
 

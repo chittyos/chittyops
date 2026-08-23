@@ -1,5 +1,7 @@
 # chitty-1p-bridge Phase 1: Foundation Implementation Plan
 
+> **RETIRED — 2026-08-21.** This document is a historical design record. 1Password is retired as both a credential lane and a declared authority; the cold source of truth is now ChittySecrets (`secrets.chitty.cc`, fronting Cloudflare Secrets Store), and Cloudflare Secrets remain runtime delivery. `op` has zero accounts on this host, so the 1P-as-cold-source premise this design rests on no longer holds. Do not implement, resume, or adapt any phase described here.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a Node module + `chitty-op` CLI on chittyserv-dev that lets operators read 1Password credentials via a single canonical interface, registered with ChittyRegistry as a Tier 3 service.

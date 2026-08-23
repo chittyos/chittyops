@@ -1,7 +1,7 @@
 {
   "name": "@chittyops/1p-bridge",
   "version": "0.1.0",
-  "description": "1Password to Cloudflare Secrets Store bridge + chitty-op CLI for chittyserv-dev",
+  "description": "RETIRED (2026-08-21) — was a 1Password to Cloudflare Secrets Store bridge + chitty-op CLI for chittyserv-dev. The 1Password lane is retired; the cold source of truth is ChittySecrets. Do not publish new versions.",
   "type": "module",
   "bin": {
     "chitty-op": "./dist/cli/index.js"

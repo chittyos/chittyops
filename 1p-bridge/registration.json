@@ -1,6 +1,10 @@
 {
   "name": "chitty-1p-bridge",
-  "description": "VM-resident Node service: bridges 1Password to Cloudflare Secrets Store, exposes chitty-op CLI for operator-grade 1P access on chittyserv-dev.",
+  "status": "retired",
+  "retired_on": "2026-08-21",
+  "retirement_reason": "1Password is retired as both a credential lane and a declared authority. policy.secret_env_model.cold_source_of_truth is now chittysecrets (ChittySecrets, secrets.chitty.cc, fronting Cloudflare Secrets Store); Cloudflare Secrets remain runtime delivery. op has zero accounts configured on chittyserv-dev, so every code path in this service fails. Do NOT submit this record to registry.chitty.cc. If a chitty-1p-bridge record is already published there, removing it is an operator act.",
+  "do_not_register": true,
+  "description": "RETIRED. Was a VM-resident Node service bridging 1Password to Cloudflare Secrets Store; the 1Password lane no longer exists and the service is non-functional.",
   "tier": 3,
   "category": "operational",
   "entity_type": "P",
@@ -17,11 +21,7 @@
   "repo": "https://github.com/chittyos/chittyops",
   "version": "0.1.0",
   "phase": 1,
-  "capabilities": [
-    "op.get",
-    "op.list",
-    "op.otp"
-  ],
+  "capabilities": [],
   "dependencies": {
     "upstream": [
       "1password-connect",
@@ -34,5 +34,10 @@
   },
   "owner": "operator@chitty.cc",
   "repo_path": "1p-bridge",
-  "npm_package": "@chittyops/1p-bridge"
+  "npm_package": "@chittyops/1p-bridge",
+  "historical_capabilities": [
+    "op.get",
+    "op.list",
+    "op.otp"
+  ]
 }

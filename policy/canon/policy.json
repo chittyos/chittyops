@@ -1,5 +1,6 @@
 {
   "$schema": "chittycanon://gov/policy/system-wide-sensitive-intent-contract",
+  "_note": "\"1password-connect-via-bridge\" was removed from credential_authority on 2026-08-21: 1Password is retired as both a credential lane and a declared authority, chitty-1p-bridge is retired, and `op` has zero accounts on the ops host. Do not re-add it. The enforcement_layers below still point at modules that physically live under 1p-bridge/src \u2014 those generic policy/leak/destination modules remain the implementation of record and are unrelated to the 1Password lane itself.",
   "version": "1.0.0",
   "name": "System-Wide Sensitive Intent Contract",
   "authority_model": {
@@ -7,10 +8,11 @@
     "credential_authority": [
       "chittyconnect",
       "chittyauth",
-      "chittyid",
-      "1password-connect-via-bridge"
+      "chittyid"
     ],
-    "kv_role": "cache_projection_only"
+    "kv_role": "cache_projection_only",
+    "cold_source_of_truth": "chittysecrets",
+    "runtime_delivery": "cloudflare-secrets"
   },
   "sensitive_surfaces": [
     "credentials",

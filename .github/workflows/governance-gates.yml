@@ -17,9 +17,12 @@ jobs:
           set -euo pipefail
           missing=0
 
+          # onepassword-rotation-audit.yml was removed from this list on 2026-08-21:
+          # 1Password is retired as both a credential lane and an authority (cold source
+          # of truth is now chittysecrets), and `op` has zero accounts on the ops host,
+          # so a 1P rotation audit could only ever emit false findings.
           required_files=(
             ".github/workflows/identity-context-onboarding.yml"
-            ".github/workflows/onepassword-rotation-audit.yml"
             ".github/dependabot.yml"
           )
 

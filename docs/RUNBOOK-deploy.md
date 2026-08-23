@@ -41,7 +41,7 @@ Same as PC1 but for jeanarlene.com Workspace tenant.
 ### PC6 · Google AI Studio API key
 - Visit `aistudio.google.com/app/apikey`
 - Create new key tied to Nick's personal Google account (for personal-gmail tier)
-- Store in 1Password: `op item create --category="API Credential" --title="google-ai-studio-key"`
+- Register the key through `ch1tty → ChittyConnect` (`/chico`) so it lands in the cold source of truth (ChittySecrets) and is delivered at runtime as a Cloudflare secret. Do NOT store it via `op item create` — 1Password is retired and `op` has zero accounts on this host, so that command fails.
 
 ### PC7 · Anthropic prompt caching (post-pilot only)
 - Confirm caching available on Anthropic console
