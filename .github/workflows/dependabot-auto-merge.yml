@@ -45,17 +45,26 @@ jobs:
           saw_any=0
 
           while [ "$SECONDS" -lt "$deadline" ]; do
-            # Check runs on the PR head, excluding this job's own run.
-            runs=$(gh api --paginate \
+            # Exclude this job's own check run. Belt and braces: by run id
+            # (details_url is .../actions/runs/<id>/job/<id>, verified) and by
+            # job name, so a change to either shape cannot deadlock the gate.
+            # `gh api` has no --arg, so jq is invoked separately.
+            runs=$(gh api --paginate --slurp \
               "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
-              --jq ".check_runs[]
-                    | select((.details_url // \"\") | contains(\"/runs/${GITHUB_RUN_ID}/\") | not)
-                    | [.name, .status, (.conclusion // \"\")] | @tsv")
+              | jq -r --arg runid "${GITHUB_RUN_ID}" --arg self "${GITHUB_JOB}" '
+                  .[].check_runs[]
+                  | select(((((.details_url // "") | contains("/runs/" + $runid + "/")) or (.name == $self))) | not)
+                  | [.name, .status, (.conclusion // "")] | @tsv')
 
-            # Legacy commit statuses (some external systems report here, not as check runs).
+            # Legacy commit statuses (some systems report here, not as check runs).
+            # A status in state "pending" is still running -- hardcoding
+            # "completed" here would let the gate merge mid-build.
             statuses=$(gh api \
               "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/status" \
-              --jq '.statuses[] | [.context, "completed", .state] | @tsv')
+              --jq '.statuses[]
+                    | [.context,
+                       (if .state == "pending" then "in_progress" else "completed" end),
+                       .state] | @tsv')
 
             all=$(printf '%s\n%s\n' "$runs" "$statuses" | sed '/^$/d')
 
