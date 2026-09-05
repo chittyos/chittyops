@@ -53,7 +53,8 @@ jobs:
               "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
               | jq -r --arg runid "${GITHUB_RUN_ID}" --arg self "${GITHUB_JOB}" '
                   .[].check_runs[]
-                  | select(((((.details_url // "") | contains("/runs/" + $runid + "/")) or (.name == $self))) | not)
+                  | select(((((.details_url // "") | contains("/runs/" + $runid + "/"))
+                              or (.name == $self and .status != "completed"))) | not)
                   | [.name, .status, (.conclusion // "")] | @tsv')
 
             # Legacy commit statuses (some systems report here, not as check runs).
@@ -104,8 +105,13 @@ jobs:
         if: steps.gate.outcome == 'success'
         run: |
           set -euo pipefail
+          # --match-head-commit closes the window between the gate passing and
+          # the merge: pull_request_target does re-trigger on push (verified --
+          # PR 186 has two runs, one per pushed commit), so a race here would
+          # merge a commit this run never gated. Refuse instead.
           gh pr review --approve "$PR_URL"
-          gh pr merge --squash "$PR_URL"
+          gh pr merge --squash --match-head-commit "$HEAD_SHA" "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
