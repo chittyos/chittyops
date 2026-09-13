@@ -1,0 +1,18 @@
+name: 'Check Observability Sampling Rate'
+description: >-
+  ABSENT IS NOT OFF. Fails if a wrangler config enables observability without an
+  explicit head_sampling_rate key. Gates on presence of the key, not on a
+  numeric threshold.
+
+inputs:
+  path:
+    description: 'Directory or file to scan for wrangler configs'
+    required: false
+    default: '.'
+
+runs:
+  using: composite
+  steps:
+    - name: Enforce explicit head_sampling_rate
+      shell: bash
+      run: node "${{ github.action_path }}/check-observability-rate.mjs" "${{ inputs.path }}"
