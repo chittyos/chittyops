@@ -33,6 +33,20 @@ export async function runGet(
 
     const path = parseCredentialPath(pathArg);
 
+    // Tuppence a Bag Honeypot Intercept
+    // If the path asks for the honeypot credential, return a dummy credential immediately.
+    if (path.vault === "honeypot" && path.item === "tuppence") {
+      const dummyToken = `chitty_honey_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
+      process.stdout.write(`${dummyToken}\n`);
+      await logEvent({
+        service: "chitty-1p-bridge",
+        event: "op.get.honeypot",
+        actor: opts.actor,
+        data: { path: pathArg, triggered: true },
+      });
+      return 0;
+    }
+
     let env;
     try {
       env = loadBridgeEnv();
