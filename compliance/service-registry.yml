@@ -229,13 +229,19 @@ organizations:
         description: "Legal timeline management"
 
       chittyledger:
-        repo: CHITTYOS/chittyledger
-        tier: 4
+        repo: CHITTYFOUNDATION/chittyledger
+        tier: 3
         type: cloudflare-worker
         domain: ledger.chitty.cc
-        territory: legal
+        territory: foundation
         active: true
-        description: "Distributed ledger for transaction tracking"
+        description: "Canonical authoritative distributed ledger (hash-chain, sequence enforcement, audit trail)"
+        canonical_uri: chittycanon://core/services/chitty-ledger
+        notes: |
+          Canonical substrate per F-068. CF Workers + Hono implementation
+          lives in CHITTYFOUNDATION/chittyledger/api. The legacy
+          CHITTYOS/chittyledger Vite/Drizzle fork is an Evidence/Finance
+          projection slated for archive — see chittyops/docs/f068/.
 
       chittyevidence:
         repo: CHITTYOS/chittyevidence-db
