@@ -1,0 +1,96 @@
+name: Reusable ChittyConnect Sync
+
+# Canonical ChittyConnect sync. Replaces 38 near-duplicate copies of
+# chittyconnect-sync.yml that had drifted into 5 variants.
+#
+# The copies it replaces ended their curl with `|| true`, so every run reported
+# success. connect.chitty.cc/api/github/sync answers an unauthenticated POST
+# with 401 {"error":"Missing API key"} (verified live), and the secret those
+# copies read -- CHITTYCONNECT_SERVICE_TOKEN -- is not provisioned. Every sync
+# across the fleet had been failing silently and reporting green.
+#
+# This version fails loudly instead, with one deliberate exception: a missing
+# credential exits 0 with a warning annotation rather than failing the build.
+# An unprovisioned optional integration that goes permanently red is a check
+# everyone learns to ignore, which is the same disease in a different costume.
+
+on:
+  workflow_call:
+    # No `endpoint` input on purpose. A caller-supplied base URL is a way to
+    # redirect the bearer token to an arbitrary host, and every caller used the
+    # default anyway. Hardcoded below.
+    secrets:
+      CHITTYCONNECT_API_KEY:
+        description: 'Allowlisted ChittyConnect API key. Brokered via ChittyConnect; never hardcoded.'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No actions/checkout. This job posts two GitHub-provided values and never
+      # reads the repository. Checking out PR head put untrusted code on a runner
+      # holding a credential, for no benefit.
+      - name: Sync to ChittyConnect
+        env:
+          CHITTYCONNECT_ENDPOINT: https://connect.chitty.cc
+          CHITTYCONNECT_API_KEY: ${{ secrets.CHITTYCONNECT_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          key="$(printf '%s' "${CHITTYCONNECT_API_KEY:-}" | tr -d '[:space:]')"
+
+          if [[ -z "${key}" ]]; then
+            msg="CHITTYCONNECT_API_KEY is not configured on this repository. No sync was performed. Provision it via the ChittyConnect broker to enable this job."
+            echo "::warning title=ChittyConnect sync SKIPPED::${msg}"
+            {
+              echo "### ChittyConnect sync skipped"
+              echo "${msg}"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          body_file="$(mktemp)"
+          trap 'rm -f "${body_file}"' EXIT
+
+          # jq builds the JSON so values are escaped rather than interpolated.
+          payload="$(jq -nc --arg repo "${GITHUB_REPOSITORY}" --arg sha "${GITHUB_SHA}" \
+            '{repository:$repo, commit:$sha}')"
+
+          if ! curl_out="$(curl -sS -o "${body_file}" -w '%{http_code}' \
+                --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 \
+                -X POST "${CHITTYCONNECT_ENDPOINT}/api/github/sync" \
+                -H "Authorization: Bearer ${key}" \
+                -H "Content-Type: application/json" \
+                --data-raw "${payload}" 2>&1)"; then
+            echo "::error title=ChittyConnect sync failed::curl could not complete the request (DNS, TLS, or timeout)."
+            exit 1
+          fi
+
+          status="${curl_out}"
+          echo "HTTP ${status}"
+
+          # The response body is remote output being printed into a runner log,
+          # where ::workflow commands:: are interpreted. Without this guard a body
+          # containing ::error:: or ::add-mask:: would execute as a workflow command
+          # rather than display. Random token so the body cannot re-enable parsing.
+          tok="$(openssl rand -hex 16)"
+          echo "::stop-commands::${tok}"
+          # GitHub masks registered secrets automatically; the sed is defence in depth
+          # in case the endpoint reflects the header back in a transformed form.
+          # `|| true` here is NOT the swallow this workflow exists to remove: head
+          # closing the pipe sends SIGPIPE to sed, and pipefail would turn that
+          # expected condition into a failure. It guards the truncation, not the sync.
+          sed -e 's/Bearer [^[:space:]]*/Bearer [REDACTED]/g' "${body_file}" | head -c 2000 || true
+          echo
+          echo "::${tok}::"
+
+          if [[ ! "${status}" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error title=ChittyConnect sync failed::POST /api/github/sync returned HTTP ${status}"
+            exit 1
+          fi
+          echo "Sync accepted (HTTP ${status})."
