@@ -16,12 +16,9 @@ name: Reusable ChittyConnect Sync
 
 on:
   workflow_call:
-    inputs:
-      endpoint:
-        description: 'ChittyConnect base URL'
-        required: false
-        type: string
-        default: 'https://connect.chitty.cc'
+    # No `endpoint` input on purpose. A caller-supplied base URL is a way to
+    # redirect the bearer token to an arbitrary host, and every caller used the
+    # default anyway. Hardcoded below.
     secrets:
       CHITTYCONNECT_API_KEY:
         description: 'Allowlisted ChittyConnect API key. Brokered via ChittyConnect; never hardcoded.'
@@ -40,7 +37,7 @@ jobs:
       # holding a credential, for no benefit.
       - name: Sync to ChittyConnect
         env:
-          CHITTYCONNECT_ENDPOINT: ${{ inputs.endpoint }}
+          CHITTYCONNECT_ENDPOINT: https://connect.chitty.cc
           CHITTYCONNECT_API_KEY: ${{ secrets.CHITTYCONNECT_API_KEY }}
         run: |
           set -euo pipefail
@@ -64,7 +61,7 @@ jobs:
           payload="$(jq -nc --arg repo "${GITHUB_REPOSITORY}" --arg sha "${GITHUB_SHA}" \
             '{repository:$repo, commit:$sha}')"
 
-          if ! status="$(curl -sS -o "${body_file}" -w '%{http_code}' \
+          if ! curl_out="$(curl -sS -o "${body_file}" -w '%{http_code}' \
                 --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 \
                 -X POST "${CHITTYCONNECT_ENDPOINT}/api/github/sync" \
                 -H "Authorization: Bearer ${key}" \
@@ -74,6 +71,7 @@ jobs:
             exit 1
           fi
 
+          status="${curl_out}"
           echo "HTTP ${status}"
 
           # The response body is remote output being printed into a runner log,
@@ -84,7 +82,10 @@ jobs:
           echo "::stop-commands::${tok}"
           # GitHub masks registered secrets automatically; the sed is defence in depth
           # in case the endpoint reflects the header back in a transformed form.
-          sed -e 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' "${body_file}" | head -c 2000 || true
+          # `|| true` here is NOT the swallow this workflow exists to remove: head
+          # closing the pipe sends SIGPIPE to sed, and pipefail would turn that
+          # expected condition into a failure. It guards the truncation, not the sync.
+          sed -e 's/Bearer [^[:space:]]*/Bearer [REDACTED]/g' "${body_file}" | head -c 2000 || true
           echo
           echo "::${tok}::"
 
