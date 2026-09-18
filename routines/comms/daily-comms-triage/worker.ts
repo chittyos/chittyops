@@ -19,6 +19,8 @@ interface Env {
   NEON: Hyperdrive;
   KV_LOCKS: KVNamespace;
   R2_RAW: R2Bucket;
+  // Cost rows go here, NOT straight to Postgres — see ledgerFlush().
+  COST_QUEUE: Queue<CostQueueRow>;
   AI_GATEWAY_URL: string;
   DISCOVERY_HEARTBEAT_URL: string;
   COMPTROLLER_BUDGET_URL: string;
@@ -464,18 +466,72 @@ async function attestBatch(env: Env, enriched: ScoredAction[], archived: ScoredA
 }
 
 // --- cost_ledger (batched) ---
+
+// The shape chittyops.cost_ledger is written in. Must match the comptroller's CostRow
+// (services/comptroller/worker.ts), which owns the table and the queue consumer.
+interface CostQueueRow {
+  service: string;
+  tier: string;
+  provider: string;
+  model: string | null;
+  tokens_in: number;
+  tokens_out: number;
+  cached_tokens_in: number;
+  cost_usd: number;
+  latency_ms: number;
+  item_id_hash: string;
+  run_id: string | null;
+  fallback_chain: string[] | null;
+  ts: string;
+  cost_constrained: boolean;
+}
+
 const ledgerBuffer: CostLedgerEntry[] = [];
 async function ledgerWrite(env: Env, entry: CostLedgerEntry): Promise<void> {
   ledgerBuffer.push(entry);
   if (ledgerBuffer.length >= 100) await ledgerFlush(env);
 }
+
+/**
+ * Publish buffered cost rows to COST_QUEUE.
+ *
+ * Previously this POSTed straight to neon.chitty.cc/cost_ledger/insert_batch, which made this
+ * routine a SECOND writer of chittyops.cost_ledger — invisible to the comptroller, whose cap
+ * enforcement now evaluates a snapshot rebuilt by the queue consumer. A direct write would land
+ * spend that no cap check ever saw. COST_QUEUE is the single ingress; see COST_QUEUE_DOC in
+ * services/comptroller/worker.ts.
+ *
+ * This routine's cron is still disabled pending pilot launch, so nothing is being written today.
+ * That is exactly why this lands now — before the cron is uncommented and the gap goes live.
+ */
 async function ledgerFlush(env: Env): Promise<void> {
   if (ledgerBuffer.length === 0) return;
   const batch = ledgerBuffer.splice(0, ledgerBuffer.length);
-  await fetch("https://neon.chitty.cc/cost_ledger/insert_batch", {
-    method: "POST",
-    body: JSON.stringify({ entries: batch }),
-  });
+
+  // CostLedgerEntry carries fewer fields than the table. The rest are filled with the same
+  // defaults the comptroller's own ingest uses, so both producers write identically shaped rows.
+  const rows: CostQueueRow[] = batch.map((e) => ({
+    service: e.service,
+    tier: e.tier,
+    provider: e.provider,
+    model: null,
+    tokens_in: e.tokens_in,
+    tokens_out: e.tokens_out,
+    cached_tokens_in: 0,
+    cost_usd: e.cost_usd,
+    latency_ms: 0,
+    // Named hashed_item_id here, item_id_hash in the table — this is the dedup key the
+    // consumer's ON CONFLICT DO NOTHING relies on, so the mapping must not be dropped.
+    item_id_hash: e.hashed_item_id,
+    run_id: null,
+    fallback_chain: null,
+    ts: e.ts,
+    cost_constrained: false,
+  }));
+
+  for (let i = 0; i < rows.length; i += 100) {
+    await env.COST_QUEUE.sendBatch(rows.slice(i, i + 100).map((body) => ({ body })));
+  }
 }
 
 // --- Heartbeat ---
