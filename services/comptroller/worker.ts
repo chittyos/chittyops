@@ -517,9 +517,25 @@ async function pollMetrics(env: Env): Promise<void> {
   }
 
   // R4 self-monitoring: update KV health fields + emit self-health anomalies on failure.
-  // refresh is reported ok here because this path no longer performs one; a genuine refresh
-  // failure is captured by the consumer via LAST_REFRESH_ERROR_KEY and surfaced from there.
-  await updateSelfHealth(env, ingestResults, { ok: true });
+  //
+  // updateSelfHealth is called from the POLL ONLY, never from the queue consumer. poll_streak
+  // counts contiguous good POLLS and feeds PARTITION_RECOVERY_GOOD_POLLS (100 ≈ 8.3h at */5);
+  // incrementing it per consumer batch instead would reach that threshold far faster than the
+  // partition-recovery logic was tuned for, and would stamp last_poll_ok_at from batch
+  // processing rather than polling.
+  //
+  // This path performs no matview refresh, so refresh status is read from the key the consumer
+  // writes. That keeps a persistent refresh failure able to reset the streak, as before.
+  const refreshErrRaw = await env.KV_STATE.get(LAST_REFRESH_ERROR_KEY);
+  let refresh: { ok: boolean; error?: string } = { ok: true };
+  if (refreshErrRaw) {
+    try {
+      refresh = { ok: false, error: (JSON.parse(refreshErrRaw) as { error?: string }).error };
+    } catch {
+      refresh = { ok: false, error: refreshErrRaw.slice(0, 200) };
+    }
+  }
+  await updateSelfHealth(env, ingestResults, refresh);
 
   await checkHardCaps(env);
   await runFeedbackLoop(env);
@@ -608,7 +624,7 @@ async function updateSelfHealth(
   env: Env,
   ingest: IngestResult[],
   refresh: { ok: boolean; error?: string },
-  probeMatview = false,
+
 ): Promise<void> {
   try {
     const nowIso = new Date().toISOString();
@@ -629,21 +645,14 @@ async function updateSelfHealth(
     const anySourceFailed = ingest.some((r) => !r.ok) || !refresh.ok;
 
     // --- matview real-time freshness ---
-    // Only probe the database when a refresh actually ran (i.e. spend arrived and the queue
-    // consumer is already awake). On an idle poll we skip it: probing would defeat the whole
-    // point by waking the compute, and the >1h staleness alert below is derived from the KV
-    // wall-clock marker anyway, not from this query.
-    if (probeMatview) {
-      const mv = await matviewHealth(env);
-      if (mv.matview_max_day) {
-        // If the matview now reflects Chicago-today, record wall-clock freshness.
-        const chicagoTodayMs = Date.parse(chicagoDate());
-        if (Date.parse(mv.matview_max_day) >= chicagoTodayMs) {
-          await env.KV_STATE.put(MATVIEW_LAST_FRESH_AT_KEY, nowIso);
-        }
-      }
-    }
-    // Recompute staleness window after the possible write.
+    // The database is NOT probed here any more. This runs on the idle poll path, and querying
+    // matviewHealth() would wake the compute every 5 minutes — the exact cost this design
+    // removes. Freshness is instead stamped by refreshCostLedgerView() on success, i.e. by the
+    // queue consumer when spend actually lands; the staleness alert below reads that wall-clock
+    // marker, which is what it was documented to derive from in the first place.
+    //
+    // /api/v1/status still calls matviewHealth() directly (buildSelfHealth), so the day-granular
+    // figure remains available on demand — on an HTTP request, not on a timer.
     const lastFresh = await env.KV_STATE.get(MATVIEW_LAST_FRESH_AT_KEY);
     const matviewStaleMs = lastFresh ? Date.now() - Date.parse(lastFresh) : null;
     const matviewStaleAlert = matviewStaleMs !== null && matviewStaleMs > MATVIEW_STALE_ALERT_MS;
@@ -1141,20 +1150,49 @@ export async function handleCostQueue(batch: MessageBatch<CostRow>, env: Env): P
 
   // Spend changed, so everything derived from it is refreshed here — while the compute is
   // already awake — rather than on a timer that would have to wake it again.
-  const refresh = await refreshCostLedgerView(env);
-  await updateSelfHealth(env, [], refresh, true);
+  await refreshCostLedgerView(env); // captures its own failure to LAST_REFRESH_ERROR_KEY
   try {
     await detectAndDeliverAnomalies(env);
   } catch (e) {
     console.error("[cost-queue] anomaly detection failed:", String(e));
   }
+
   try {
     await refreshCapsSnapshot(env);
   } catch (e) {
-    // Don't retry the batch for this: the rows are committed. Leave the previous snapshot in
-    // place; it under-reports until the next batch, so caps stay conservative rather than
-    // firing on a half-built total.
-    console.error("[cost-queue] caps snapshot refresh failed:", String(e));
+    // The rows are already committed, so retrying the batch would only duplicate work — but
+    // this failure CANNOT be swallowed. checkHardCaps now reads this snapshot, so a stale one
+    // UNDER-reports spend that has just landed: totals compare low against the caps and a real
+    // breach is missed. That is fail-OPEN in the cap enforcer, and if the reader role or the
+    // aggregate query is broken it persists across every subsequent batch while spend flows.
+    //
+    // So: alert loudly, and let the daily report's refresh bound the exposure to 24h.
+    console.error("[cost-queue] caps snapshot refresh FAILED — caps may under-enforce:", String(e));
+    await alertSelfHealthOncePerDay(
+      env,
+      "caps_snapshot_refresh",
+      `caps snapshot refresh failed — hard caps are evaluating a stale snapshot and may miss ` +
+        `a breach: ${String(e).slice(0, 200)}`,
+    );
+  }
+}
+
+/**
+ * Record a critical self-health anomaly, at most once per day per kind.
+ *
+ * Follows the existing de-dup convention in this file: a persistent failure must not write
+ * ~288 append-only rows/day. It also matters for the Neon-idle design — storeAnomalies writes
+ * to the database, so an undeduped alert on the 5-minute poll path would wake the compute every
+ * poll for as long as the failure lasted.
+ */
+async function alertSelfHealthOncePerDay(env: Env, kind: string, msg: string): Promise<void> {
+  try {
+    const dedupKey = `selfhealth_alerted:${kind}:critical:${chicagoDate()}`;
+    if (await env.KV_STATE.get(dedupKey)) return;
+    await env.KV_STATE.put(dedupKey, "1", { expirationTtl: 36 * 3600 });
+    await storeAnomalies(env, [selfHealthAnomaly("critical", msg)]);
+  } catch (e) {
+    console.error(`[selfhealth] could not record ${kind} alert:`, String(e));
   }
 }
 
@@ -2115,6 +2153,11 @@ async function refreshCostLedgerView(env: Env): Promise<{ ok: boolean; error?: s
     await db`SELECT chittyops.refresh_cost_ledger_daily()`;
     // Clear any prior captured refresh error on success.
     await env.KV_STATE.delete(LAST_REFRESH_ERROR_KEY);
+    // Stamp matview freshness here rather than probing for it from the poll. A successful
+    // refresh IS the freshness signal, and this runs where the compute is already awake.
+    // Without this the wall-clock marker would never advance and the >1h staleness alert in
+    // updateSelfHealth would fire forever.
+    await env.KV_STATE.put(MATVIEW_LAST_FRESH_AT_KEY, new Date().toISOString());
     return { ok: true };
   } catch (e) {
     const error = String(e);
@@ -2584,10 +2627,18 @@ async function checkHardCaps(env: Env): Promise<void> {
   let budgets = new Map<string, ServiceBudget>();
   const raw = await env.KV_STATE.get(CAPS_SNAPSHOT_KEY);
   if (!raw) {
-    // No snapshot yet (first deploy, or KV lost it). Do NOT query here — that would reinstate
-    // the every-poll read. The next batch of spend rebuilds it, and until spend exists there
-    // is by definition nothing to breach.
-    console.warn("[checkHardCaps] no caps snapshot yet — skipping until the next ingest");
+    // No snapshot: first deploy, KV loss, or every refresh has been failing. This is NOT
+    // benign — MTD spend already exists in the ledger and may already be over cap, so skipping
+    // silently means the enforcer enforces nothing. Do not query Neon here (that would
+    // reinstate the every-poll read the whole design removes); instead alert, and rely on the
+    // daily report's refresh to rebuild the snapshot within 24h.
+    console.error("[checkHardCaps] NO caps snapshot — hard caps are not being enforced");
+    await alertSelfHealthOncePerDay(
+      env,
+      "caps_snapshot_missing",
+      "no caps snapshot present — hard caps are not being enforced; awaiting the next " +
+        "ingest batch or the daily rebuild",
+    );
     return;
   }
   try {
@@ -2687,6 +2738,22 @@ function notionConfigured(env: Env, pageId?: string): boolean {
 }
 
 async function emitDailyReport(env: Env): Promise<void> {
+  // Rebuild the caps snapshot here as a safety net. The consumer is the normal path, but three
+  // states leave the snapshot absent or stale with no self-correction: first deploy (MTD spend
+  // already exists and may already be over cap), KV loss, and a persistently failing refresh.
+  // In each, checkHardCaps would under-enforce indefinitely. This cron already queries Neon for
+  // the report, so the compute is awake regardless — one extra query bounds the exposure to 24h.
+  try {
+    await refreshCapsSnapshot(env);
+  } catch (e) {
+    console.error("[report] caps snapshot rebuild failed:", String(e));
+    await alertSelfHealthOncePerDay(
+      env,
+      "caps_snapshot_daily_rebuild",
+      `daily caps snapshot rebuild failed — hard caps may be under-enforcing: ${String(e).slice(0, 200)}`,
+    );
+  }
+
   if (notionConfigured(env, env.NOTION_BUSINESS_REPORT_PAGE_ID)) {
     await writeNotionReport(env, env.NOTION_BUSINESS_REPORT_PAGE_ID!, await buildBusinessReport(env));
   } else {
