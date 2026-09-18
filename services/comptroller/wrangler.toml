@@ -11,13 +11,31 @@ routes = [
   { pattern = "comptroller.chitty.cc", custom_domain = true }
 ]
 
-[triggers]
-crons = [
-  "*/5 * * * *",  # 5-min budget poll + CF AI Gateway ingest, always on
-  "0 7 * * *",    # 7 AM CT daily report (emitDailyReport)
-  "0 7 * * 1",    # Mon 7 AM CT weekly forecast (emitWeeklyForecast)
-  "0 9 1 * *",    # 1st of month 9 AM CT monthly closeout (emitMonthlyCloseout)
-]
+# NO CRONS — the schedule has moved to chittyagent-comptroller.
+#
+# CHITTYOS/chittyentity chittyagents/comptroller is the cutover target (operator decision,
+# 2026-09-18). Its wrangler.jsonc states the invariant: "Sequenced so there is NEVER two active
+# cron-writers." That invariant was violated — the agent's production env was deployed with its
+# crons on 2026-09-17 20:04 while this worker still had its own, inverting the documented order.
+# Verified against the live API, both scripts had all four schedules registered:
+#
+#   GET /accounts/.../workers/scripts/{name}/schedules
+#     comptroller             -> */5, 0 7 * * *, 0 7 * * 1, 0 9 1 * *
+#     chittyagent-comptroller -> */5, 0 7 * * *, 0 7 * * 1, 0 9 1 * *
+#
+# Two cron-writers against the same Hyperdrive configs meant duplicate ingest, duplicate anomaly
+# detection and duplicate hard-cap evaluation. ON CONFLICT DO NOTHING dedupes the ledger rows;
+# nothing dedupes the alerting. It was inert only because the AI gateways have had no traffic
+# since 2026-08-18 (cost_ledger took 0 rows in the preceding 30h) — it would have fired the
+# moment traffic resumed.
+#
+# Removing these four leaves the agent as the sole scheduled writer, which is the documented
+# direction. This worker keeps serving comptroller.chitty.cc over HTTP; the custom domain moves
+# at full cutover, since a domain binds to one worker at a time.
+#
+# Was: "*/5 * * * *", "0 7 * * *", "0 7 * * 1", "0 9 1 * *"
+#
+# Refs #121.
 
 [vars]
 REGISTRY_URL = "https://registry.chitty.cc"
