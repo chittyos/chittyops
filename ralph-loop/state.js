@@ -5,7 +5,7 @@ const STATES = Object.freeze(["QUEUED","AUTHORIZED","LEASED","RUNNING","VERIFYIN
 const NEXT = {
   QUEUED:["AUTHORIZED","BLOCKED"], AUTHORIZED:["LEASED","BLOCKED"],
   LEASED:["RUNNING","BLOCKED"], RUNNING:["VERIFYING","BLOCKED"],
-  VERIFYING:["REPAIRING","AWAITING_REVIEW","COMPLETE","BLOCKED"],
+  VERIFYING:["REPAIRING","AWAITING_REVIEW","BLOCKED"],
   REPAIRING:["RUNNING","BLOCKED"], AWAITING_REVIEW:["COMPLETE","BLOCKED"],
   BLOCKED:["AUTHORIZED"], COMPLETE:[]
 };
@@ -22,7 +22,7 @@ function transition(task,to,{expectedVersion,leaseToken,headSha,evidence={},fail
   if (task.lease && task.lease.expiresAt<=now && !["BLOCKED"].includes(to)) throw Error("lease expired");
   if (task.lease && leaseToken!==task.lease.token) throw Error("lease mismatch");
   if (to==="COMPLETE") {
-    if (task.state==="AWAITING_REVIEW"&&!reviewApproved) throw Error("independent review required");
+    if (task.state!=="AWAITING_REVIEW"||!reviewApproved) throw Error("independent review required");
     if (!task.criteria.every(c=>task.evidence[c]||evidence[c])) throw Error("missing acceptance evidence");
   }
   if (to==="REPAIRING" && task.attempt>=task.attemptBudget) throw Error("attempt budget exhausted");
