@@ -9,19 +9,19 @@ importers:
   .:
     dependencies:
       '@chittyfoundation/hookify':
-        specifier: github:chittyfoundation/chittyops#main
-        version: '@chittyfoundation/ops@git+ssh://git@github.com/chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1'
+        specifier: git+https://github.com/chittyfoundation/.chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1
+        version: '@chittyfoundation/ops@git+https://github.com/chittyfoundation/.chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1'
       '@chittyfoundation/territories':
-        specifier: github:chittyfoundation/chittyops#main
-        version: '@chittyfoundation/ops@git+ssh://git@github.com/chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1'
+        specifier: git+https://github.com/chittyfoundation/.chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1
+        version: '@chittyfoundation/ops@git+https://github.com/chittyfoundation/.chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1'
       js-yaml:
         specifier: ^4.3.2
         version: 4.3.2
 
 packages:
 
-  '@chittyfoundation/ops@git+ssh://git@github.com/chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1':
-    resolution: {commit: 6557c51c2701c934f7f49b9db69547c3ed6daff1, repo: git@github.com:chittyfoundation/chittyops.git, type: git}
+  '@chittyfoundation/ops@git+https://github.com/chittyfoundation/.chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1':
+    resolution: {commit: 6557c51c2701c934f7f49b9db69547c3ed6daff1, repo: https://github.com/chittyfoundation/.chittyops.git, type: git}
     version: 1.0.0
 
   argparse@2.0.1:
@@ -33,7 +33,7 @@ packages:
 
 snapshots:
 
-  '@chittyfoundation/ops@git+ssh://git@github.com/chittyfoundation/chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1': {}
+  '@chittyfoundation/ops@git+https://github.com/chittyfoundation/.chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1': {}
 
   argparse@2.0.1: {}
 

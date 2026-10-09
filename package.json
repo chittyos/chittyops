@@ -37,8 +37,8 @@
   },
   "homepage": "https://github.com/chittyos/chittyops#readme",
   "dependencies": {
-    "@chittyfoundation/hookify": "github:chittyfoundation/chittyops#main",
-    "@chittyfoundation/territories": "github:chittyfoundation/chittyops#main",
+    "@chittyfoundation/hookify": "git+https://github.com/chittyfoundation/.chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1",
+    "@chittyfoundation/territories": "git+https://github.com/chittyfoundation/.chittyops.git#6557c51c2701c934f7f49b9db69547c3ed6daff1",
     "js-yaml": "^4.3.2"
   }
 }

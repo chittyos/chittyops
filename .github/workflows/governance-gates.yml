@@ -19,7 +19,7 @@ jobs:
 
           required_files=(
             ".github/workflows/identity-context-onboarding.yml"
-            ".github/workflows/onepassword-rotation-audit.yml"
+            ".github/workflows/chittyconnect-credential-audit.yml"
             ".github/dependabot.yml"
           )
 
