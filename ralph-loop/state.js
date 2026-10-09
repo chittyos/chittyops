@@ -20,7 +20,7 @@ function transition(task,to,{expectedVersion,leaseToken,headSha,evidence={},fail
   if (expectedVersion!==task.version) throw Error("stale version");
   if (headSha && headSha!==task.headSha) throw Error("stale head");
   if (task.lease && task.lease.expiresAt<=now && !["BLOCKED"].includes(to)) throw Error("lease expired");
-  if (task.lease && !["AUTHORIZED","LEASED"].includes(task.state) && leaseToken!==task.lease.token) throw Error("lease mismatch");
+  if (task.lease && leaseToken!==task.lease.token) throw Error("lease mismatch");
   if (to==="COMPLETE") {
     if (task.state==="AWAITING_REVIEW"&&!reviewApproved) throw Error("independent review required");
     if (!task.criteria.every(c=>task.evidence[c]||evidence[c])) throw Error("missing acceptance evidence");
