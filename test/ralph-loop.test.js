@@ -7,7 +7,7 @@ function advance(t,to,extra={}){return transition(t,to,{expectedVersion:t.versio
 test("cannot complete without evidence",()=>{
  let t=initial();t=advance(t,"AUTHORIZED");t=lease(t,{owner:"worker",expectedVersion:t.version});
  t=advance(t,"RUNNING");t=advance(t,"VERIFYING");
- assert.throws(()=>advance(t,"COMPLETE"),/missing acceptance/);
+ assert.throws(()=>advance(t,"COMPLETE"),/invalid transition/);
  t=advance(t,"AWAITING_REVIEW",{evidence:{ci:"run:1",adversarial:"report:1"}});
  assert.throws(()=>advance(t,"COMPLETE"),/independent review/);
  assert.equal(advance(t,"COMPLETE",{reviewApproved:true}).state,"COMPLETE");
@@ -28,4 +28,14 @@ test("expired lease cannot continue and blocking revokes it",()=>{
  let t=advance(initial(),"AUTHORIZED");t=lease(t,{owner:"worker",expectedVersion:t.version,now:100,ttlMs:1000});
  assert.throws(()=>advance(t,"RUNNING",{now:1101}),/lease expired/);
  t=advance(t,"BLOCKED",{now:1101});assert.equal(t.lease,null);
+});
+
+test("review cannot be bypassed even with complete evidence and approval flag",()=>{
+ let t=advance(initial(),"AUTHORIZED");t=lease(t,{owner:"worker",expectedVersion:t.version});
+ t=advance(t,"RUNNING");t=advance(t,"VERIFYING");
+ const evidence={ci:"run:1",adversarial:"report:1"};
+ assert.throws(()=>advance(t,"COMPLETE",{evidence,reviewApproved:true}),/invalid transition/);
+ t=advance(t,"AWAITING_REVIEW",{evidence});
+ assert.throws(()=>advance(t,"COMPLETE",{reviewApproved:false}),/independent review/);
+ assert.equal(advance(t,"COMPLETE",{reviewApproved:true}).state,"COMPLETE");
 });
