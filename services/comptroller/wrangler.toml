@@ -11,6 +11,20 @@ routes = [
   { pattern = "comptroller.chitty.cc", custom_domain = true }
 ]
 
+# Single ingress for cost_ledger rows — see COST_QUEUE_DOC in worker.ts. Ingest publishes
+# here; the consumer performs the write and recomputes the caps snapshot. Every other writer
+# of chittyops.cost_ledger must publish here too, or its spend is invisible to cap checks.
+[[queues.producers]]
+binding = "COST_QUEUE"
+queue = "comptroller-cost-ledger"
+
+[[queues.consumers]]
+queue = "comptroller-cost-ledger"
+max_batch_size = 100
+max_batch_timeout = 30
+max_retries = 5
+dead_letter_queue = "comptroller-cost-ledger-dlq"
+
 [triggers]
 crons = [
   "*/5 * * * *",  # 5-min budget poll + CF AI Gateway ingest, always on

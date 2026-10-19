@@ -8,6 +8,14 @@ account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"  # ChittyCorp LLC
 # [triggers]
 # crons = ["0 12 * * *"]  # 07:00 America/Chicago = 12:00 UTC (CST)
 
+# Cost rows are published here instead of POSTed to neon.chitty.cc/cost_ledger/insert_batch.
+# COST_QUEUE is the single ingress for chittyops.cost_ledger; the comptroller's queue consumer
+# performs the write and rebuilds the cap snapshot from it. A direct write would be spend that
+# no cap check ever sees. See COST_QUEUE_DOC in services/comptroller/worker.ts.
+[[queues.producers]]
+binding = "COST_QUEUE"
+queue = "comptroller-cost-ledger"
+
 [vars]
 AI_GATEWAY_URL = "https://gateway.ai.cloudflare.com/v1/0bc21e3a5a9de1a4cc843be9c3e98121/chittyops/openai"
 DISCOVERY_HEARTBEAT_URL = "https://discovery.chitty.cc/heartbeat/daily-comms-triage"

@@ -50,7 +50,53 @@ interface Env {
   NOTION_LEGALINK_REPORT_PAGE_ID?: string;
   REGISTRY_URL: string; // registry.chitty.cc
   HEARTBEAT_URL: string; // discovery.chitty.cc/heartbeat/comptroller
+  COST_QUEUE: Queue<CostRow>; // single ingress for cost rows — see COST_QUEUE_DOC below
 }
+
+// A single cost_ledger row in flight. Mirrors the INSERT column list exactly.
+interface CostRow {
+  service: string;
+  tier: string;
+  provider: string;
+  model: string | null;
+  tokens_in: number;
+  tokens_out: number;
+  cached_tokens_in: number;
+  cost_usd: number;
+  latency_ms: number;
+  item_id_hash: string;
+  run_id: string | null;
+  fallback_chain: string[] | null;
+  ts: string;
+  cost_constrained: boolean;
+}
+
+// COST_QUEUE_DOC — why cost rows go through a queue rather than straight to Postgres.
+//
+// Every poll used to read chittyops.cost_ledger to recompute caps. Neon suspends a compute
+// after 5 idle minutes, so a */5 poll held the shared ChittyOS-Core database awake 24/7
+// (measured 2026-09-17: continuously up since 2026-09-03, ~180 CU-hours/month for a database
+// averaging 0.246 CU against a 0.25 floor).
+//
+// The fix is NOT a slower cron or a cached read — both buy the saving by evaluating caps on
+// stale totals. Instead the queue becomes the SINGLE ingress for cost rows, from every
+// producer. That makes "no messages" a *proof* that no spend occurred anywhere, rather than an
+// assumption, so skipping the database is exact and loses no freshness:
+//
+//   producers  -> COST_QUEUE -> queue() consumer -> INSERT cost_ledger
+//                                                -> recompute caps snapshot into KV
+//   scheduled poll -> reads the KV snapshot only; never touches Neon
+//
+// Spend flowing => the consumer runs and Neon is written to, which is real work.
+// Nothing spending => no messages, no consumer, no queries, and the compute sleeps.
+//
+// IMPORTANT: any other writer of chittyops.cost_ledger must publish here instead of
+// INSERTing directly, or its spend becomes invisible to cap enforcement between consumer
+// runs. Known direct writer still to migrate: chittyops/routines/comms/daily-comms-triage
+// (worker.ts:475, POSTs neon.chitty.cc/cost_ledger/insert_batch).
+const CAPS_SNAPSHOT_KEY = "caps:snapshot";
+// Batches are chunked to this many messages per sendBatch call.
+const COST_QUEUE_CHUNK = 100;
 
 const COLD_START_AT_KEY = "cold_start_at";
 const SAFE_STATE_KEY = "safe_state_active";
@@ -282,6 +328,15 @@ export default {
     });
   },
 
+  // COST_QUEUE consumer. This is where cost rows are written and everything derived from them
+  // is recomputed — see COST_QUEUE_DOC. It runs only when spend actually arrived, which is what
+  // lets the shared Neon compute idle the rest of the time.
+  async queue(batch: MessageBatch<CostRow>, env: Env, ctx: ExecutionContext): Promise<void> {
+    await withDbScope(env, ctx, async () => {
+      await handleCostQueue(batch, env);
+    });
+  },
+
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return withDbScope(env, ctx, () => handleFetch(req, env));
   },
@@ -448,50 +503,67 @@ async function pollMetrics(env: Env): Promise<void> {
   // R4: collect REAL per-source outcomes (the inner try/catch in each source swallows errors,
   // so Promise.allSettled would falsely report "fulfilled"; we therefore have each source RETURN
   // its per-unit ok/fail and thread that up so poll_streak + per-gateway counters are accurate).
+  //
+  // This path must not touch Neon — see COST_QUEUE_DOC. Ingest reads the CF AI Gateway API and
+  // publishes to COST_QUEUE; the matview refresh and anomaly detection now run in the queue
+  // consumer, when spend has actually arrived. Hard caps read the KV snapshot.
   let ingestResults: Array<{ gw: string; ok: boolean; error?: string }> = [];
-  let refreshOk = true;
-  let refreshErr: string | undefined;
-  const [ingestSettled, refreshSettled] = await Promise.allSettled([
-    pullCFAIGatewayAnalytics(env),
-    refreshCostLedgerView(env),
-  ]);
-  if (ingestSettled.status === "fulfilled") {
-    ingestResults = ingestSettled.value;
-  } else {
-    console.error("[poll] ingest source threw:", ingestSettled.reason);
+  try {
+    ingestResults = await pullCFAIGatewayAnalytics(env);
+  } catch (e) {
+    console.error("[poll] ingest source threw:", e);
     // Whole ingest pass threw → treat every active gateway as failed this poll.
-    ingestResults = ACTIVE_GATEWAYS.map((gw) => ({ gw, ok: false, error: String(ingestSettled.reason) }));
-  }
-  if (refreshSettled.status === "fulfilled") {
-    refreshOk = refreshSettled.value.ok;
-    refreshErr = refreshSettled.value.error;
-  } else {
-    refreshOk = false;
-    refreshErr = String(refreshSettled.reason);
+    ingestResults = ACTIVE_GATEWAYS.map((gw) => ({ gw, ok: false, error: String(e) }));
   }
 
   // R4 self-monitoring: update KV health fields + emit self-health anomalies on failure.
-  await updateSelfHealth(env, ingestResults, { ok: refreshOk, error: refreshErr });
-
-  const anomalies = await detectAnomalies(env);
-
-  if (anomalies.length > 0) {
-    await storeAnomalies(env, anomalies);
-    const safeState = await isSafeStateActive(env);
-    const baselineLearning = await isBaselineLearningActive(env);
-
-    // Gating now lives INSIDE deliverSignal: emit* always runs and ALWAYS writes an audit row
-    // (delivered_200 when live, gated_baseline during baseline/safe-state — never POSTs then).
-    for (const a of anomalies) {
-      if (a.severity === "high") await emitL2Signal(env, a);
-      if (a.severity === "critical" && a.suggests_l3) await emitL3Signal(env, a);
-      // During baseline/safe-state, also page the operator for criticals.
-      if ((safeState || baselineLearning) && a.severity === "critical") await sendQuoAlert(env, a);
+  //
+  // updateSelfHealth is called from the POLL ONLY, never from the queue consumer. poll_streak
+  // counts contiguous good POLLS and feeds PARTITION_RECOVERY_GOOD_POLLS (100 ≈ 8.3h at */5);
+  // incrementing it per consumer batch instead would reach that threshold far faster than the
+  // partition-recovery logic was tuned for, and would stamp last_poll_ok_at from batch
+  // processing rather than polling.
+  //
+  // This path performs no matview refresh, so refresh status is read from the key the consumer
+  // writes. That keeps a persistent refresh failure able to reset the streak, as before.
+  const refreshErrRaw = await env.KV_STATE.get(LAST_REFRESH_ERROR_KEY);
+  let refresh: { ok: boolean; error?: string } = { ok: true };
+  if (refreshErrRaw) {
+    try {
+      refresh = { ok: false, error: (JSON.parse(refreshErrRaw) as { error?: string }).error };
+    } catch {
+      refresh = { ok: false, error: refreshErrRaw.slice(0, 200) };
     }
   }
+  await updateSelfHealth(env, ingestResults, refresh);
 
   await checkHardCaps(env);
   await runFeedbackLoop(env);
+}
+
+/**
+ * Detect spend anomalies and deliver the resulting signals.
+ *
+ * Moved off the scheduled poll and onto the queue consumer: anomalies are derived from the
+ * cost ledger, so they can only change when spend lands. Running it on a timer re-queried an
+ * unchanged ledger every 5 minutes and was the main thing holding the Neon compute awake.
+ */
+async function detectAndDeliverAnomalies(env: Env): Promise<void> {
+  const anomalies = await detectAnomalies(env);
+  if (anomalies.length === 0) return;
+
+  await storeAnomalies(env, anomalies);
+  const safeState = await isSafeStateActive(env);
+  const baselineLearning = await isBaselineLearningActive(env);
+
+  // Gating now lives INSIDE deliverSignal: emit* always runs and ALWAYS writes an audit row
+  // (delivered_200 when live, gated_baseline during baseline/safe-state — never POSTs then).
+  for (const a of anomalies) {
+    if (a.severity === "high") await emitL2Signal(env, a);
+    if (a.severity === "critical" && a.suggests_l3) await emitL3Signal(env, a);
+    // During baseline/safe-state, also page the operator for criticals.
+    if ((safeState || baselineLearning) && a.severity === "critical") await sendQuoAlert(env, a);
+  }
 }
 
 // ===================================================================================
@@ -552,6 +624,7 @@ async function updateSelfHealth(
   env: Env,
   ingest: IngestResult[],
   refresh: { ok: boolean; error?: string },
+
 ): Promise<void> {
   try {
     const nowIso = new Date().toISOString();
@@ -572,17 +645,14 @@ async function updateSelfHealth(
     const anySourceFailed = ingest.some((r) => !r.ok) || !refresh.ok;
 
     // --- matview real-time freshness ---
-    const mv = await matviewHealth(env);
-    if (mv.matview_max_day) {
-      // If the matview now reflects Chicago-today, record wall-clock freshness.
-      const chicagoTodayMs = Date.parse(
-        ((await getDb(env)`SELECT (now() AT TIME ZONE 'America/Chicago')::date AS d`) as Array<{ d: string }>)[0].d,
-      );
-      if (Date.parse(mv.matview_max_day) >= chicagoTodayMs) {
-        await env.KV_STATE.put(MATVIEW_LAST_FRESH_AT_KEY, nowIso);
-      }
-    }
-    // Recompute staleness window after the possible write.
+    // The database is NOT probed here any more. This runs on the idle poll path, and querying
+    // matviewHealth() would wake the compute every 5 minutes — the exact cost this design
+    // removes. Freshness is instead stamped by refreshCostLedgerView() on success, i.e. by the
+    // queue consumer when spend actually lands; the staleness alert below reads that wall-clock
+    // marker, which is what it was documented to derive from in the first place.
+    //
+    // /api/v1/status still calls matviewHealth() directly (buildSelfHealth), so the day-granular
+    // figure remains available on demand — on an HTTP request, not on a timer.
     const lastFresh = await env.KV_STATE.get(MATVIEW_LAST_FRESH_AT_KEY);
     const matviewStaleMs = lastFresh ? Date.now() - Date.parse(lastFresh) : null;
     const matviewStaleAlert = matviewStaleMs !== null && matviewStaleMs > MATVIEW_STALE_ALERT_MS;
@@ -793,12 +863,11 @@ async function pullCFAIGatewayAnalytics(env: Env): Promise<IngestResult[]> {
     // poll_streak is not held down forever in environments without the token.
     return ACTIVE_GATEWAYS.map((gw) => ({ gw, ok: true }));
   }
-  const writeDb = getWriteDb(env);
-  if (!writeDb) {
-    console.warn(
-      "[ingest] Phase-A: writer connection (NEON_COMPTROLLER_WRITER) not configured — " +
-        "skipping cost_ledger ingest. Provision an RW Hyperdrive binding to enable writes.",
-    );
+  // No writer check here any more: ingest publishes to COST_QUEUE and never writes directly,
+  // so it must NOT open a database connection (that is what kept Neon awake). The writer
+  // requirement moved to the queue consumer, which fails closed there instead.
+  if (!env.COST_QUEUE) {
+    console.warn("[ingest] COST_QUEUE not bound — skipping ingest rather than dropping rows.");
     return ACTIVE_GATEWAYS.map((gw) => ({ gw, ok: true }));
   }
 
@@ -807,7 +876,7 @@ async function pullCFAIGatewayAnalytics(env: Env): Promise<IngestResult[]> {
 
   for (const gw of ACTIVE_GATEWAYS) {
     try {
-      await ingestGateway(env, writeDb, accountId, gw);
+      await ingestGateway(env, accountId, gw);
       results.push({ gw, ok: true });
     } catch (e) {
       console.error(`[ingest] gateway ${gw} failed:`, e);
@@ -839,7 +908,7 @@ const PAGINATION_SATURATED_PREFIX = "health:saturated:";
  * the ON CONFLICT(item_id_hash) dedup makes any boundary overlap a harmless no-op. Converges
  * over polls even under chittygateway's 2000+/day bursts.
  */
-async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: string): Promise<void> {
+async function ingestGateway(env: Env, accountId: string, gw: string): Promise<void> {
   const hwmKey = `hwm:${gw}`;
   const hwm = await env.KV_STATE.get(hwmKey); // last-ingested created_at ISO, or null
   const hwmMs = hwm ? Date.parse(hwm) : 0;
@@ -945,26 +1014,14 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
         };
       });
 
-      await writeDb`
-        INSERT INTO chittyops.cost_ledger ${writeDb(
-          rows,
-          "service",
-          "tier",
-          "provider",
-          "model",
-          "tokens_in",
-          "tokens_out",
-          "cached_tokens_in",
-          "cost_usd",
-          "latency_ms",
-          "item_id_hash",
-          "run_id",
-          "fallback_chain",
-          "ts",
-          "cost_constrained",
-        )}
-        ON CONFLICT DO NOTHING
-      `;
+      // Publish rather than INSERT — see COST_QUEUE_DOC. The consumer performs the write.
+      // The HWM below is advanced only after this resolves, so a send failure means the
+      // next poll re-reads the same window from the gateway rather than losing the rows.
+      for (let i = 0; i < rows.length; i += COST_QUEUE_CHUNK) {
+        await env.COST_QUEUE.sendBatch(
+          rows.slice(i, i + COST_QUEUE_CHUNK).map((body) => ({ body })),
+        );
+      }
       inserted += rows.length;
       for (const l of fresh) maxSeen = Math.max(maxSeen, Date.parse(l.created_at));
     }
@@ -1004,6 +1061,139 @@ async function ingestGateway(env: Env, writeDb: Sql, accountId: string, gw: stri
   }
 
   if (inserted > 0) console.log(`[ingest] ${gw}: inserted ${inserted} cost_ledger rows`);
+}
+
+// ===================================================================================
+// COST_QUEUE consumer — the only place cost rows are written, and the only place the caps
+// snapshot is recomputed. Runs when (and only when) spend actually arrived.
+// ===================================================================================
+
+// The cost_ledger write. ON CONFLICT DO NOTHING keeps it idempotent, so a queue retry or a
+// boundary re-fetch is a harmless no-op — which is what makes at-least-once delivery safe here.
+async function writeCostRows(writeDb: Sql, rows: CostRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  await writeDb`
+    INSERT INTO chittyops.cost_ledger ${writeDb(
+      rows,
+      "service",
+      "tier",
+      "provider",
+      "model",
+      "tokens_in",
+      "tokens_out",
+      "cached_tokens_in",
+      "cost_usd",
+      "latency_ms",
+      "item_id_hash",
+      "run_id",
+      "fallback_chain",
+      "ts",
+      "cost_constrained",
+    )}
+    ON CONFLICT DO NOTHING
+  `;
+}
+
+/**
+ * Recompute the per-service MTD/daily totals and store them in KV.
+ *
+ * This is the same aggregate checkHardCaps used to run on every poll. It now runs only after
+ * spend has been written, so the snapshot is exact at the moment it is taken and stays exact
+ * until more spend arrives — which, because COST_QUEUE is the single ingress, cannot happen
+ * without this consumer running again.
+ */
+async function refreshCapsSnapshot(env: Env): Promise<void> {
+  const db = getDb(env);
+  const rows = (await db`
+    SELECT service,
+      coalesce(sum(cost_usd) FILTER (
+        WHERE ts >= date_trunc('month', now() AT TIME ZONE 'America/Chicago')),0)::float8 AS mtd,
+      coalesce(sum(cost_usd) FILTER (
+        WHERE ts >= date_trunc('day', now() AT TIME ZONE 'America/Chicago')),0)::float8 AS daily
+    FROM chittyops.cost_ledger
+    WHERE ts >= date_trunc('month', now() AT TIME ZONE 'America/Chicago')
+    GROUP BY service
+  `) as Array<{ service: string; mtd: number; daily: number }>;
+
+  // Budgets are cached alongside the totals so the scheduled poll needs no database read at
+  // all. They change rarely and by hand; a stale budget is corrected on the next spend.
+  const budgets = Array.from((await loadServiceBudgets(env)).entries()).map(([service, b]) => ({
+    service,
+    daily_cap_usd: b.daily_cap_usd,
+    monthly_cap_usd: b.monthly_cap_usd,
+  }));
+
+  await env.KV_STATE.put(
+    CAPS_SNAPSHOT_KEY,
+    JSON.stringify({ as_of: new Date().toISOString(), day_ct: chicagoDate(), rows, budgets }),
+  );
+}
+
+export async function handleCostQueue(batch: MessageBatch<CostRow>, env: Env): Promise<void> {
+  const writeDb = getWriteDb(env);
+  if (!writeDb) {
+    // Fail closed: retry rather than acknowledge, so rows wait in the queue (and ultimately
+    // the DLQ) instead of being silently dropped when the writer binding is missing.
+    console.error("[cost-queue] NEON_COMPTROLLER_WRITER not configured — retrying batch");
+    batch.retryAll();
+    return;
+  }
+
+  try {
+    await writeCostRows(writeDb, batch.messages.map((m) => m.body));
+  } catch (e) {
+    console.error("[cost-queue] write failed, retrying batch:", String(e));
+    batch.retryAll();
+    return;
+  }
+  batch.ackAll();
+
+  // Spend changed, so everything derived from it is refreshed here — while the compute is
+  // already awake — rather than on a timer that would have to wake it again.
+  await refreshCostLedgerView(env); // captures its own failure to LAST_REFRESH_ERROR_KEY
+  try {
+    await detectAndDeliverAnomalies(env);
+  } catch (e) {
+    console.error("[cost-queue] anomaly detection failed:", String(e));
+  }
+
+  try {
+    await refreshCapsSnapshot(env);
+  } catch (e) {
+    // The rows are already committed, so retrying the batch would only duplicate work — but
+    // this failure CANNOT be swallowed. checkHardCaps now reads this snapshot, so a stale one
+    // UNDER-reports spend that has just landed: totals compare low against the caps and a real
+    // breach is missed. That is fail-OPEN in the cap enforcer, and if the reader role or the
+    // aggregate query is broken it persists across every subsequent batch while spend flows.
+    //
+    // So: alert loudly, and let the daily report's refresh bound the exposure to 24h.
+    console.error("[cost-queue] caps snapshot refresh FAILED — caps may under-enforce:", String(e));
+    await alertSelfHealthOncePerDay(
+      env,
+      "caps_snapshot_refresh",
+      `caps snapshot refresh failed — hard caps are evaluating a stale snapshot and may miss ` +
+        `a breach: ${String(e).slice(0, 200)}`,
+    );
+  }
+}
+
+/**
+ * Record a critical self-health anomaly, at most once per day per kind.
+ *
+ * Follows the existing de-dup convention in this file: a persistent failure must not write
+ * ~288 append-only rows/day. It also matters for the Neon-idle design — storeAnomalies writes
+ * to the database, so an undeduped alert on the 5-minute poll path would wake the compute every
+ * poll for as long as the failure lasted.
+ */
+async function alertSelfHealthOncePerDay(env: Env, kind: string, msg: string): Promise<void> {
+  try {
+    const dedupKey = `selfhealth_alerted:${kind}:critical:${chicagoDate()}`;
+    if (await env.KV_STATE.get(dedupKey)) return;
+    await env.KV_STATE.put(dedupKey, "1", { expirationTtl: 36 * 3600 });
+    await storeAnomalies(env, [selfHealthAnomaly("critical", msg)]);
+  } catch (e) {
+    console.error(`[selfhealth] could not record ${kind} alert:`, String(e));
+  }
 }
 
 // ===================================================================================
@@ -1963,6 +2153,11 @@ async function refreshCostLedgerView(env: Env): Promise<{ ok: boolean; error?: s
     await db`SELECT chittyops.refresh_cost_ledger_daily()`;
     // Clear any prior captured refresh error on success.
     await env.KV_STATE.delete(LAST_REFRESH_ERROR_KEY);
+    // Stamp matview freshness here rather than probing for it from the poll. A successful
+    // refresh IS the freshness signal, and this runs where the compute is already awake.
+    // Without this the wall-clock marker would never advance and the >1h staleness alert in
+    // updateSelfHealth would fire forever.
+    await env.KV_STATE.put(MATVIEW_LAST_FRESH_AT_KEY, new Date().toISOString());
     return { ok: true };
   } catch (e) {
     const error = String(e);
@@ -2425,25 +2620,58 @@ async function storeAnomalies(env: Env, list: Anomaly[]): Promise<void> {
  * not write ~288 rows/day.
  */
 async function checkHardCaps(env: Env): Promise<void> {
-  const db = getDb(env);
+  // Read the snapshot instead of querying — see COST_QUEUE_DOC. Because COST_QUEUE is the
+  // single ingress for cost rows, an unchanged snapshot is PROOF that no spend has landed
+  // since it was taken, not an assumption that none has. This is exact, not stale.
   let rows: Array<{ service: string; mtd: number; daily: number }> = [];
+  let budgets = new Map<string, ServiceBudget>();
+  const raw = await env.KV_STATE.get(CAPS_SNAPSHOT_KEY);
+  if (!raw) {
+    // No snapshot: first deploy, KV loss, or every refresh has been failing. This is NOT
+    // benign — MTD spend already exists in the ledger and may already be over cap, so skipping
+    // silently means the enforcer enforces nothing. Do not query Neon here (that would
+    // reinstate the every-poll read the whole design removes); instead alert, and rely on the
+    // daily report's refresh to rebuild the snapshot within 24h.
+    console.error("[checkHardCaps] NO caps snapshot — hard caps are not being enforced");
+    await alertSelfHealthOncePerDay(
+      env,
+      "caps_snapshot_missing",
+      "no caps snapshot present — hard caps are not being enforced; awaiting the next " +
+        "ingest batch or the daily rebuild",
+    );
+    return;
+  }
   try {
-    rows = (await db`
-      SELECT service,
-        coalesce(sum(cost_usd) FILTER (
-          WHERE ts >= date_trunc('month', now() AT TIME ZONE 'America/Chicago')),0)::float8 AS mtd,
-        coalesce(sum(cost_usd) FILTER (
-          WHERE ts >= date_trunc('day', now() AT TIME ZONE 'America/Chicago')),0)::float8 AS daily
-      FROM chittyops.cost_ledger
-      WHERE ts >= date_trunc('month', now() AT TIME ZONE 'America/Chicago')
-      GROUP BY service
-    `) as any;
+    const snap = JSON.parse(raw) as {
+      as_of: string;
+      day_ct: string;
+      rows: Array<{ service: string; mtd: number; daily: number }>;
+      budgets?: Array<{ service: string; daily_cap_usd: number; monthly_cap_usd: number }>;
+    };
+    for (const b of snap.budgets ?? []) {
+      budgets.set(b.service, {
+        daily_cap_usd: Number(b.daily_cap_usd),
+        monthly_cap_usd: Number(b.monthly_cap_usd),
+      });
+    }
+    const today = chicagoDate();
+    // Rollover: if the snapshot predates today, no spend has landed today (nothing has
+    // refreshed it), so today's total is exactly zero. Same argument carries the month.
+    const sameDay = snap.day_ct === today;
+    const sameMonth = snap.day_ct?.slice(0, 7) === today.slice(0, 7);
+    rows = snap.rows.map((r) => ({
+      service: r.service,
+      mtd: sameMonth ? Number(r.mtd) : 0,
+      daily: sameDay ? Number(r.daily) : 0,
+    }));
   } catch (e) {
-    console.error("[checkHardCaps] query failed:", e);
+    console.error("[checkHardCaps] unreadable caps snapshot:", String(e));
     return;
   }
 
-  const budgets = await loadServiceBudgets(env);
+  // budgets come from the snapshot above — NOT loadServiceBudgets(), which would query Neon
+  // on every poll and defeat the whole arrangement. resolveBudget() still falls back to the
+  // const map for any service missing from the snapshot.
   const safeState = await isSafeStateActive(env);
   const baselineLearning = await isBaselineLearningActive(env);
   const today = new Date().toISOString().slice(0, 10);
@@ -2510,6 +2738,22 @@ function notionConfigured(env: Env, pageId?: string): boolean {
 }
 
 async function emitDailyReport(env: Env): Promise<void> {
+  // Rebuild the caps snapshot here as a safety net. The consumer is the normal path, but three
+  // states leave the snapshot absent or stale with no self-correction: first deploy (MTD spend
+  // already exists and may already be over cap), KV loss, and a persistently failing refresh.
+  // In each, checkHardCaps would under-enforce indefinitely. This cron already queries Neon for
+  // the report, so the compute is awake regardless — one extra query bounds the exposure to 24h.
+  try {
+    await refreshCapsSnapshot(env);
+  } catch (e) {
+    console.error("[report] caps snapshot rebuild failed:", String(e));
+    await alertSelfHealthOncePerDay(
+      env,
+      "caps_snapshot_daily_rebuild",
+      `daily caps snapshot rebuild failed — hard caps may be under-enforcing: ${String(e).slice(0, 200)}`,
+    );
+  }
+
   if (notionConfigured(env, env.NOTION_BUSINESS_REPORT_PAGE_ID)) {
     await writeNotionReport(env, env.NOTION_BUSINESS_REPORT_PAGE_ID!, await buildBusinessReport(env));
   } else {
