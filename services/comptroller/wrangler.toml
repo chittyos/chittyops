@@ -13,6 +13,11 @@ routes = [
 
 # NO CRONS — the schedule has moved to chittyagent-comptroller.
 #
+# `crons = []` is load-bearing, not cosmetic. wrangler (4.99 verified) only PUTs
+# /workers/scripts/{name}/schedules when `triggers.crons` is defined — omitting the
+# [triggers] block entirely leaves whatever schedules are live untouched. An empty
+# array is what actually clears them on deploy.
+#
 # CHITTYOS/chittyentity chittyagents/comptroller is the cutover target (operator decision,
 # 2026-09-18). Its wrangler.jsonc states the invariant: "Sequenced so there is NEVER two active
 # cron-writers." That invariant was violated — the agent's production env was deployed with its
@@ -36,6 +41,8 @@ routes = [
 # Was: "*/5 * * * *", "0 7 * * *", "0 7 * * 1", "0 9 1 * *"
 #
 # Refs #121.
+[triggers]
+crons = []
 
 [vars]
 REGISTRY_URL = "https://registry.chitty.cc"

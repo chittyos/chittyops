@@ -261,6 +261,10 @@ function getWriteDb(_env: Env): Sql | null {
 // ===================================================================================
 
 export default {
+  // UNREACHABLE in production while wrangler.toml has `crons = []` — the schedule
+  // moved to chittyagent-comptroller (refs #121). Retained, not deleted, so the
+  // HTTP data path below (same code) stays shared and a rollback is a one-line
+  // crons change rather than a code restore. Remove at full cutover.
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     await withDbScope(env, ctx, async () => {
       await ensureColdStartState(env);
